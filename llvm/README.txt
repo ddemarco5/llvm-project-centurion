@@ -1,3 +1,11 @@
+A fork of LLVM with the intent of creating a functioning backend for the
+Centurion "mini"computer and its cpu6 architecture.
+
+Commits to this repository will attempt to follow the general outline
+set by https://github.com/lowrisc/riscv-llvm, an INCREDIBLE
+outline in the form of "ideal" commit logs that illustrate what is
+requried to create a new llvm backend from nothing.
+
 The LLVM Compiler Infrastructure
 ================================
 
