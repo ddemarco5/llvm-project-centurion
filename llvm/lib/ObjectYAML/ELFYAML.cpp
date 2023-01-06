@@ -351,6 +351,7 @@ void ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(
   ECase(EM_VE);
   ECase(EM_CSKY);
   ECase(EM_LOONGARCH);
+  ECase(EM_CPU6);
 #undef ECase
   IO.enumFallback<Hex16>(Value);
 }
@@ -620,6 +621,7 @@ void ScalarBitSetTraits<ELFYAML::ELF_EF>::bitset(IO &IO,
       break;
     }
     break;
+  case ELF::EM_CPU6:
   default:
     break;
   }
@@ -891,6 +893,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_LOONGARCH:
 #include "llvm/BinaryFormat/ELFRelocs/LoongArch.def"
+    break;
+  case ELF::EM_CPU6:
+#include "llvm/BinaryFormat/ELFRelocs/CPU6.def"
     break;
   default:
     // Nothing to do.
