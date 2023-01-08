@@ -16,4 +16,4 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6TargetInfo() {
 // to succeed and will be called unconditionally by llc, so must be
 // a no-op for now. 
 // Remove once properly implemented
-extern "C" void LLVMInitializeCPU6TargetMC() {}
+//extern "C" void LLVMInitializeCPU6TargetMC() {}

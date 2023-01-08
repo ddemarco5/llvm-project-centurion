@@ -11,6 +11,7 @@
 #ifndef LLVM_LIB_TARGET_CPU6_CPU6TARGETMACHINE_H
 #define LLVM_LIB_TARGET_CPU6_CPU6TARGETMACHINE_H
 
+#include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/SelectionDAGTargetInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
