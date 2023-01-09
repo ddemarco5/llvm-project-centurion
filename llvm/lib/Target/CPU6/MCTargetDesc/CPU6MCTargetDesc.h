@@ -46,4 +46,8 @@ std::unique_ptr<MCObjectTargetWriter> createCPU6ELFObjectWriter(uint8_t OSABI,
 #define GET_INSTRINFO_ENUM
 #include "CPU6GenInstrInfo.inc"
 
+// LLVM requires at least one subtarget
+#define GET_SUBTARGETINFO_ENUM
+#include "CPU6GenSubtargetInfo.inc"
+
 #endif

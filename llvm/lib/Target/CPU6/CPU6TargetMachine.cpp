@@ -20,12 +20,9 @@
 #include "llvm/Target/TargetOptions.h"
 
 #include "TargetInfo/CPU6TargetInfo.h"
+//#include "CPU6Subtarget.h"
 
 using namespace llvm;
-
-extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6Target() {
-  RegisterTargetMachine<CPU6TargetMachine> X(getTheCPU6Target());
-}
 
 // This only returns one data layout for now, but let's leave it in a function
 // in case we ever need to select from multiple
@@ -33,7 +30,7 @@ static StringRef computeDataLayout(const Triple &TT) {
     return "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8";
 }
 
-static Reloc::Model getEffectiveRelocModel(const Triple &TT, Optional<Reloc::Model> RM) {
+static Reloc::Model getEffectiveRelocModel(Optional<Reloc::Model> RM) {
   return RM.value_or(Reloc::Static);
 }
 
@@ -45,12 +42,30 @@ CPU6TargetMachine::CPU6TargetMachine(const Target &T, const Triple &TT,
                                      Optional<CodeModel::Model> CM,
                                      CodeGenOpt::Level OL, bool JIT)
   : LLVMTargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options,
-                      getEffectiveRelocModel(TT, RM),
-                      getEffectiveCodeModel(CM, CodeModel::Small), OL), // TODO: learn what codemodel is
-    TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
-  initAsmInfo();
+                      getEffectiveRelocModel(RM),
+                      // TODO: learn what codemodel is
+                      getEffectiveCodeModel(CM, CodeModel::Small), OL),
+          TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
+            initAsmInfo();
 }
+    //TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
+  //initAsmInfo();
+//}
 
 TargetPassConfig *CPU6TargetMachine::createPassConfig(PassManagerBase &PM) {
   return new TargetPassConfig(*this, PM);
 }
+
+extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6Target() {
+  RegisterTargetMachine<CPU6TargetMachine> X(getTheCPU6Target());
+}
+
+/*
+const CPU6Subtarget *CPU6TargetMachine::getSubtargetImpl() const {
+  return &SubTarget;
+}
+
+const CPU6Subtarget *CPU6TargetMachine::getSubtargetImpl(const Function &) const {
+  return &SubTarget;
+}
+*/

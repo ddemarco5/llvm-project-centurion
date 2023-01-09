@@ -3,6 +3,8 @@ include "llvm/Target/Target.td"
 // Register file description
 include "CPU6RegisterInfo.td"
 
+// For subtargets
+include "CPU6Devices.td"
 
 // Instruction description
 include "CPU6InstrInfo.td"
@@ -26,6 +28,5 @@ def CPU6AsmParser : AsmParser {
 def CPU6 : Target {
   let InstructionSet = CPU6InstrInfo;
   let AssemblyWriters = [CPU6AsmWriter];
-
   let AssemblyParsers = [CPU6AsmParser];
 }

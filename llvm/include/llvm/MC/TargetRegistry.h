@@ -454,8 +454,10 @@ public:
   /// additional target features.
   MCSubtargetInfo *createMCSubtargetInfo(StringRef TheTriple, StringRef CPU,
                                          StringRef Features) const {
-    if (!MCSubtargetInfoCtorFn)
+    if (!MCSubtargetInfoCtorFn) {
+      assert(false && "This is the problem");
       return nullptr;
+    }
     return MCSubtargetInfoCtorFn(Triple(TheTriple), CPU, Features);
   }
 

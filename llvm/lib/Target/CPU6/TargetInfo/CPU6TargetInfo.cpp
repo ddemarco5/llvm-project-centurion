@@ -9,7 +9,7 @@ Target &llvm::getTheCPU6Target() {
 }
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6TargetInfo() {
-    RegisterTarget<Triple::cpu6, /*HasJIT=*/true> X(getTheCPU6Target(), "cpu6", "Centurion CPU6", "CPU6");
+    RegisterTarget<Triple::cpu6, /*HasJIT=*/false> X(getTheCPU6Target(), "cpu6", "Centurion CPU6", "CPU6");
 }
 
 // TODO: Temporary Stub - this function must be defined for linking

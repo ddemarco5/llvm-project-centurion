@@ -15,6 +15,7 @@
 #include "llvm/CodeGen/SelectionDAGTargetInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
+//#include "CPU6Subtarget.h"
 
 namespace llvm {
 
@@ -27,12 +28,19 @@ public:
                   Optional<Reloc::Model> RM, Optional<CodeModel::Model> CM,
                   CodeGenOpt::Level OL, bool JIT);
 
+
+    //const CPU6Subtarget *getSubtargetImpl() const;
+    //const CPU6Subtarget *getSubtargetImpl(const Function &) const override;
+
     TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
     TargetLoweringObjectFile *getObjFileLowering() const override {
-      return TLOF.get();
+      return this->TLOF.get();
     }
 
+private:
+  //std::unique_ptr<TargetLoweringObjectFile> TLOF;
+  //CPU6Subtarget SubTarget;
 };
 
 } // end namespace llvm
