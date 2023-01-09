@@ -10,6 +10,7 @@
 
 #include "CPU6MCTargetDesc.h"
 #include "CPU6MCAsmInfo.h"
+#include "CPU6InstPrinter.h"
 #include "TargetInfo/CPU6TargetInfo.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -53,6 +54,14 @@ static MCAsmInfo *createCPU6MCAsmInfo(const MCRegisterInfo &MRI,
   return new CPU6MCAsmInfo(TT);
 }
 
+static MCInstPrinter *createCPU6MCInstPrinter(const Triple &T,
+                                               unsigned SyntaxVariant,
+                                               const MCAsmInfo &MAI,
+                                               const MCInstrInfo &MII,
+                                               const MCRegisterInfo &MRI) {
+  return new CPU6InstPrinter(MAI, MII, MRI);
+}
+
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6TargetMC() {
     for (Target *T : {&getTheCPU6Target()}) { // Can put more targets here in the future if needed
@@ -62,5 +71,6 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeCPU6TargetMC() {
         TargetRegistry::RegisterMCSubtargetInfo(*T, createCPU6MCSubtargetInfo);
         TargetRegistry::RegisterMCAsmBackend(*T, createCPU6AsmBackend);
         TargetRegistry::RegisterMCCodeEmitter(*T, createCPU6MCCodeEmitter);
+        TargetRegistry::RegisterMCInstPrinter(*T, createCPU6MCInstPrinter);
     }
 }

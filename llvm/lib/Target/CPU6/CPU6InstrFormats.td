@@ -84,23 +84,20 @@ class Branch<bits<4> opcode, bits<8> disp, dag outs, dag ins, string asmstr>
 // Instruction: <| 3(2) |opcode| sr |   |>
 // The low-order bits of the second byte are used only for the Increment Register
 // and Decrement Register instrucitons and are otherwise ignored
-// 3(2) = 4 bits
-// opcode = 4 bits
+// opcode = 8 bits
 // sr = 8 bits (low 4 often ignored)
 //------------------------------------//
 // one byte flavor of opcode
-class SingleReg8<bits<4> evenodd32, bits<4> opcode, dag outs, dag ins, 
+class SingleReg8<bits<8> opcode, dag outs, dag ins, 
       string asmstr> : CenturionInst8<outs, ins, asmstr> {
     
-    let Inst{7-4} = evenodd32;
-    let Inst{3-0} = opcode;
+    let Inst{7-0} = opcode;
 }
 // two byte flavor of opcode
-class SingleReg16<bits<4> evenodd32, bits<4> opcode, bits<8> sr, dag outs, dag ins, 
+class SingleReg16< bits<8> opcode, bits<8> sr, dag outs, dag ins, 
       string asmstr> : CenturionInst16<outs, ins, asmstr> {
     
-    let Inst{15-12} = evenodd32;
-    let Inst{11-8} = opcode;
+    let Inst{15-8} = opcode;
     let Inst{7-0} = sr;
 }
 
@@ -111,17 +108,15 @@ class SingleReg16<bits<4> evenodd32, bits<4> opcode, bits<8> sr, dag outs, dag i
 // Instruction: <| 5(4) |opcode| sr | dr |>
 // The low-order bits of the second byte are used only for the Increment Register
 // and Decrement Register instrucitons and are otherwise ignored
-// 5(4) = 4 bits
-// opcode = 4 bits
+// opcode = 8 bits
 // sr = 4 bits
 // dr = 4 bits
 //------------------------------------//
 // one byte flavor of opcode
-class DoubleReg8<bits<4> evenodd54, bits<4> opcode, dag outs, dag ins, 
+class DoubleReg8<bits<8> opcode, dag outs, dag ins, 
       string asmstr> : CenturionInst8<outs, ins, asmstr> {
     
-    let Inst{7-4} = evenodd54;
-    let Inst{3-0} = opcode;
+    let Inst{7-0} = opcode;
 }
 // two byte flavor of opcode
 class DoubleReg16<bits<8> opcode, dag outs, dag ins, 
@@ -166,10 +161,10 @@ class Memory16<bits<4> opcode, bits<4> M, bits<8> arg, dag outs, dag ins,
 }
 
 // three byte flavor of opcode
-class Memory24<bits<4> opcode, dag outs, dag ins, 
+class Memory24<bits<4> opcode, bits<4> M, dag outs, dag ins, 
       string asmstr> : CenturionInst24<outs, ins, asmstr> {
     
-    bits<4> M;
+    //bits<4> M;
     bits<16> argword;
 
     let Inst{23-20} = opcode;

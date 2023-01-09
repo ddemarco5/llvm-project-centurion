@@ -7,11 +7,11 @@ tablegen(LLVM CPU6GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM CPU6GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM CPU6GenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM CPU6GenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM CPU6GenAsmWriter.inc -gen-asm-writer)
 
 add_public_tablegen_target(CPU6CommonTableGen)
 
 add_llvm_target(CPU6CodeGen
-    #CPU6Subtarget.cpp
     CPU6TargetMachine.cpp
 
     LINK_COMPONENTS

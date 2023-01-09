@@ -21,6 +21,8 @@
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <bitset>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "mccodeemitter"
@@ -79,24 +81,31 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
         default:
             llvm_unreachable("Unhandled encodeInstruction length!");
         case 1: {
+            LLVM_DEBUG(dbgs() << "Emitting 1 byte opcode!\n");
             uint8_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
-            support::endian::write<uint8_t>(OS, Bits, support::little);
+            support::endian::write<uint8_t>(OS, Bits, support::big);
             break;
         }
         case 2: {
+            LLVM_DEBUG(dbgs() << "Emitting 2 byte opcode!\n");
             uint16_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
-            support::endian::write<uint16_t>(OS, Bits, support::little);
+            support::endian::write<uint16_t>(OS, Bits, support::big);
             break;
         }
         case 3: {
+            LLVM_DEBUG(dbgs() << "Emitting 3 byte opcode!\n");
 
             // we need to write 3 bytes (24 bits) to the output stream, and there's no easy
             // way to do that like the cases above, so we have to convert it to const char*
             // and write those 3 chars dirctly to the ostream
             uint64_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
-            std::string bit_str = std::to_string(Bits);
-            OS.write(bit_str.c_str(), 3);
-            //support::endian::write<uint24_t>(OS, Bits_resized, support::little);
+
+            char bincode [3];
+            std::memcpy(&bincode, &Bits, 3);
+
+            // Reverse the endianness for printing
+            for (int i=2; i>=0; --i) { OS << bincode[i]; } 
+
             break;
         }
     }

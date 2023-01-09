@@ -27,7 +27,7 @@ protected:
 }
 
 CPU6ELFObjectWriter::CPU6ELFObjectWriter(uint8_t OSABI, bool Is64Bit)
-    : MCELFObjectTargetWriter(Is64Bit, OSABI, ELF::EM_RISCV,
+    : MCELFObjectTargetWriter(Is64Bit, OSABI, ELF::EM_CPU6,
                               /*HasRelocationAddend*/ true) {}
 
 CPU6ELFObjectWriter::~CPU6ELFObjectWriter() = default;

@@ -1,6 +1,5 @@
 // Declarations that describe the CPU6 register file
 
-
 // All CPU6 registers can be accessed as upper/lower subregisters, define that here
 class CPU6Reg<bits<16> Enc, string name, list<Register> subregs = []> : RegisterWithSubRegs<name, subregs> {
     let HWEncoding = Enc;
@@ -12,9 +11,29 @@ let Namespace = "CPU6" in {
     def sub_hi : SubRegIndex<8, 8>;
 }
 
+
+/* Register addressing table from EE200 spec
+   Whole 16 bit register is addressed from the MSB addr when using
+   word instructions
++------------------+---------+---------+
+| Register Address | (M.S.B) | (L.S.B) |
++------------------+---------+---------+
+| 0-1              | A       | A       |
+| 2-3              | B       | B       |
+| 4-5              | X       | X       |
+| 6-7              | Y       | Y       |
+| 8-9              | Z       | Z       |
+| A-B              | S       | S       |
+| C-D              | C       | C       |
+| E-F              | P       | P       |
++------------------+---------+---------+
+
+
+*/
+
 // Define the hi/lo 8 bit regs
 def AU : CPU6Reg<0, "AU">, DwarfRegNum<[0]>;
-def AL : CPU6Reg<1, "AL">, DwarfRegNum<[2]>;
+def AL : CPU6Reg<1, "AL">, DwarfRegNum<[1]>;
 def BU : CPU6Reg<2, "BU">, DwarfRegNum<[2]>;
 def BL : CPU6Reg<3, "BL">, DwarfRegNum<[3]>;
 def XU : CPU6Reg<4, "XU">, DwarfRegNum<[4]>;
@@ -32,14 +51,14 @@ def PL : CPU6Reg<15, "PL">, DwarfRegNum<[15]>;
 
 // Defining our full 16 bit registers
 let SubRegIndices = [sub_hi, sub_lo] in {
-    def A : CPU6Reg<16, "A", [AU,AL]>, DwarfRegNum<[16]>;
-    def B : CPU6Reg<17, "B", [BU,BL]>, DwarfRegNum<[17]>;
-    def X : CPU6Reg<18, "X", [XU,XL]>, DwarfRegNum<[18]>;
-    def Y : CPU6Reg<19, "Y", [YU,YL]>, DwarfRegNum<[19]>;
-    def Z : CPU6Reg<20, "Z", [ZU,ZL]>, DwarfRegNum<[20]>;
-    def S : CPU6Reg<21, "S", [SU,SL]>, DwarfRegNum<[21]>;
-    def C : CPU6Reg<22, "C", [CU,CL]>, DwarfRegNum<[22]>;
-    def P : CPU6Reg<23, "P", [PU,PL]>, DwarfRegNum<[16]>;
+    def A : CPU6Reg<0, "A", [AU,AL]>, DwarfRegNum<[0]>;
+    def B : CPU6Reg<2, "B", [BU,BL]>, DwarfRegNum<[2]>;
+    def X : CPU6Reg<4, "X", [XU,XL]>, DwarfRegNum<[4]>;
+    def Y : CPU6Reg<6, "Y", [YU,YL]>, DwarfRegNum<[6]>;
+    def Z : CPU6Reg<8, "Z", [ZU,ZL]>, DwarfRegNum<[8]>;
+    def S : CPU6Reg<10, "S", [SU,SL]>, DwarfRegNum<[10]>;
+    def C : CPU6Reg<12, "C", [CU,CL]>, DwarfRegNum<[12]>;
+    def P : CPU6Reg<14, "P", [PU,PL]>, DwarfRegNum<[14]>;
 }
 
 // Define the classes of registers. This is to keep track of what registers should be used for what,
