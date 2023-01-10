@@ -1,5 +1,26 @@
 include "CPU6InstrFormats.td"
 
+//===----------------------------------------------------------------------===//
+// Operand and SDNode transformation definitions.
+//===----------------------------------------------------------------------===//
+
+class ImmAsmOperand<string prefix, int width, string suffix> : AsmOperandClass {
+    let Name = prefix # "Imm" # width # suffix;
+    let RenderMethod = "addImmOperands";
+    let DiagnosticType = !strconcat("Invalid", Name);
+}
+
+class UImmAsmOperand<int width, string suffix = "">
+    : ImmAsmOperand<"U", width, suffix> {
+}
+
+// Define operands that don't derive definitions elsewhere
+def uimm16 : Operand<i16> {
+    let ParserMatchClass = UImmAsmOperand<16>;
+    let DecoderMethod = "decodeUImmOperand<16>";
+}
+
+
 // Most basic instructions to implement for now
 // load
 // store
@@ -9,15 +30,9 @@ include "CPU6InstrFormats.td"
 // branch on less than
 // branch on equal
 
+
 // The instructions for cpu4 use a B post-fix to indicate they're executing in byte mode
 // so for example LDA would be load in word mode, LDAB would be load in byte mode.
-
-// LOAD
-//def LDA : Memory24<0x9,  // operating in word mode
-//            (outs GPR : $dr),
-//            (ins i16imm : $src),
-//            "LDA $dr, $src">;
-
 
 // TODO: I can probably move the dag definitions into a class and
 // subclass each individual opcode to make the list of instructions nicer
@@ -38,5 +53,5 @@ def ADDB : DoubleReg16<0x40,  // word operation selection bit is off
 
 // Testing our weird 3 byte instruction
 def LDA : Memory24<0x9, 0x0,     // Load opcode with the 0 M flag means load 16 bit immediate
-           (outs), (ins i16imm : $argword),
+           (outs), (ins uimm16 : $argword),
            "LDA $argword">;

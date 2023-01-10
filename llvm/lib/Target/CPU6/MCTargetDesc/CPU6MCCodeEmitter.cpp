@@ -59,6 +59,10 @@ public:
                                SmallVectorImpl<MCFixup> &Fixups,
                                const MCSubtargetInfo &STI) const;
 
+    unsigned getImmOpValue(const MCInst &MI, unsigned OpNo,
+                           SmallVectorImpl<MCFixup> &Fixups,
+                           const MCSubtargetInfo &STI) const;
+
 };    
 } // end anonymous namespace
 
@@ -102,7 +106,7 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
             uint64_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
 
             // we have to manually bit shift this, so use a switch to change endianness written to OS
-            auto endianness = support::little;
+            auto endianness = support::big;
             switch(endianness) {
             case support::big :
                 OS << uint8_t(Bits >> 16);
@@ -136,8 +140,8 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
 
 unsigned
 CPU6MCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
-                                      SmallVectorImpl<MCFixup> &Fixups,
-                                      const MCSubtargetInfo &STI) const {
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const {
 
   if (MO.isReg())
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
@@ -145,8 +149,23 @@ CPU6MCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
 
-  llvm_unreachable("Unhandled expression!");
+  llvm_unreachable("Unhandled expression! (getMachineOpValue)");
   return 0;
+}
+
+unsigned
+CPU6MCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const {
+                                   
+    const MCOperand &MO = MI.getOperand(OpNo);
+
+    // If the destination is an immediate, there is nothing to do
+    if (MO.isImm()) {
+        return MO.getImm();
+    }
+    llvm_unreachable("Unhandled expression! (getImmOpValue)");
+    return 0;
 }
 
 #include "CPU6GenMCCodeEmitter.inc"

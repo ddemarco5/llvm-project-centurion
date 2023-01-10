@@ -8,6 +8,8 @@ tablegen(LLVM CPU6GenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM CPU6GenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM CPU6GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM CPU6GenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM CPU6GenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM CPU6GenDisassemblerTables.inc -gen-disassembler)
 
 add_public_tablegen_target(CPU6CommonTableGen)
 
@@ -28,3 +30,4 @@ add_llvm_target(CPU6CodeGen
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
 add_subdirectory(AsmParser)
+add_subdirectory(Disassembler)

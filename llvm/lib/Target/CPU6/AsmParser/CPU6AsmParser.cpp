@@ -119,9 +119,26 @@ public:
     bool isImm() const override { return Kind == KindTy::Immediate; }
     bool isMem() const override { return false; }
 
+    static bool evaluateConstantImm(const MCExpr *Expr, int32_t &Imm) {
+        if (auto CE = dyn_cast<MCConstantExpr>(Expr)) {
+            Imm = CE->getValue();
+            return true;
+        }
+
+        return false;
+    }
+
     bool isConstantImm() const {
         return isImm() && dyn_cast<MCConstantExpr>(getImm());
     }
+
+    template <unsigned N> bool IsUImm() const {
+        int32_t Imm;
+        bool IsConstantImm = evaluateConstantImm(getImm(), Imm);
+        return IsConstantImm && isUInt<N>(Imm);
+    }
+
+    bool isUImm16() { return IsUImm<16>(); }
 
     /// getStartLoc - Gets location of the first token of this operand
     SMLoc getStartLoc() const override { return StartLoc; }
