@@ -20,6 +20,7 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/DataExtractor.h"
 
 #include <bitset>
 
@@ -100,11 +101,32 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
             // and write those 3 chars dirctly to the ostream
             uint64_t Bits = getBinaryCodeForInstr(MI, Fixups, STI);
 
-            char bincode [3];
-            std::memcpy(&bincode, &Bits, 3);
+            // we have to manually bit shift this, so use a switch to change endianness written to OS
+            auto endianness = support::little;
+            switch(endianness) {
+            case support::big :
+                OS << uint8_t(Bits >> 16);
+                OS << uint8_t(Bits >> 8);
+                OS << uint8_t(Bits);
+                break;
+            case support::little :
+                OS << uint8_t(Bits);
+                OS << uint8_t(Bits >> 8);
+                OS << uint8_t(Bits >> 16);
+                break;
+            default:
+                llvm_unreachable("Wtf did you do?");
+                break;
+            }
+            /*
+            size_t word_size=3;
+            while(word_size--) { 
+                support::endian::write<uint8_t>(OS, Bits, support::big);
+                Bits >>= 8;  //shift right to bring our next bits to the front
+            }
+            */
 
-            // Reverse the endianness for printing
-            for (int i=2; i>=0; --i) { OS << bincode[i]; } 
+            //support::endian::write<uint8_t>(OS, bit_array, support::big);
 
             break;
         }
