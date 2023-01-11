@@ -63,14 +63,14 @@ static DecodeStatus DecodeGPRRegisterClass(MCInst &Inst, uint64_t RegNo,
     // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
     // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
-    regtable[0] = CPU6::A;
-    regtable[2] = CPU6::B;
-    regtable[4] = CPU6::X;
-    regtable[6] = CPU6::Y;
-    regtable[8] = CPU6::Z;
-    regtable[10] = CPU6::S;
-    regtable[12] = CPU6::C;
-    regtable[14] = CPU6::P;
+    regtable[0] = CPU6::rA;
+    regtable[2] = CPU6::rB;
+    regtable[4] = CPU6::rX;
+    regtable[6] = CPU6::rY;
+    regtable[8] = CPU6::rZ;
+    regtable[10] = CPU6::rS;
+    regtable[12] = CPU6::rC;
+    regtable[14] = CPU6::rP;
     LLVM_DEBUG(dbgs() << "DecodeGPR " << RegNo << "\n");
     //MCRegister Reg = CPU6::A + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
@@ -90,14 +90,14 @@ static DecodeStatus DecodeGPRhiRegisterClass(MCInst &Inst, uint64_t RegNo,
     // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
     // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
-    regtable[0] = CPU6::AU;
-    regtable[2] = CPU6::BU;
-    regtable[4] = CPU6::XU;
-    regtable[6] = CPU6::YU;
-    regtable[8] = CPU6::ZU;
-    regtable[10] = CPU6::SU;
-    regtable[12] = CPU6::CU;
-    regtable[14] = CPU6::PU;
+    regtable[0] = CPU6::rAU;
+    regtable[2] = CPU6::rBU;
+    regtable[4] = CPU6::rXU;
+    regtable[6] = CPU6::rYU;
+    regtable[8] = CPU6::rZU;
+    regtable[10] = CPU6::rSU;
+    regtable[12] = CPU6::rCU;
+    regtable[14] = CPU6::rPU;
     LLVM_DEBUG(dbgs() << "DecodeGPRhi " << RegNo << "\n");
     //MCRegister Reg = CPU6::AU + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
@@ -117,15 +117,48 @@ static DecodeStatus DecodeGPRloRegisterClass(MCInst &Inst, uint64_t RegNo,
     // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
     // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
-    regtable[1] = CPU6::AL;
-    regtable[3] = CPU6::BL;
-    regtable[5] = CPU6::XL;
-    regtable[7] = CPU6::YL;
-    regtable[9] = CPU6::ZL;
-    regtable[11] = CPU6::SL;
-    regtable[13] = CPU6::CL;
-    regtable[15] = CPU6::PL;
+    regtable[1] = CPU6::rAL;
+    regtable[3] = CPU6::rBL;
+    regtable[5] = CPU6::rXL;
+    regtable[7] = CPU6::rYL;
+    regtable[9] = CPU6::rZL;
+    regtable[11] = CPU6::rSL;
+    regtable[13] = CPU6::rCL;
+    regtable[15] = CPU6::rPL;
     LLVM_DEBUG(dbgs() << "DecodeGPRlo " << RegNo << "\n");
+    //MCRegister Reg = CPU6::AU + RegNo;
+    Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
+    return MCDisassembler::Success;
+}
+
+// All 8 bit register flavors
+static DecodeStatus DecodeGPRBRegisterClass(MCInst &Inst, uint64_t RegNo,
+                                             uint64_t Address,
+                                             const MCDisassembler *Decoder) {
+
+    // our registers only go up to index 15
+    if (RegNo > 15) { return MCDisassembler::Fail; }
+
+    // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
+    // because I haven't touched codegen, so we just define register tables here for now
+    std::map<uint64_t, uint16_t> regtable;
+    regtable[1] = CPU6::rAL;
+    regtable[3] = CPU6::rBL;
+    regtable[5] = CPU6::rXL;
+    regtable[7] = CPU6::rYL;
+    regtable[9] = CPU6::rZL;
+    regtable[11] = CPU6::rSL;
+    regtable[13] = CPU6::rCL;
+    regtable[15] = CPU6::rPL;
+    regtable[0] = CPU6::rAU;
+    regtable[2] = CPU6::rBU;
+    regtable[4] = CPU6::rXU;
+    regtable[6] = CPU6::rYU;
+    regtable[8] = CPU6::rZU;
+    regtable[10] = CPU6::rSU;
+    regtable[12] = CPU6::rCU;
+    regtable[14] = CPU6::rPU;
+    LLVM_DEBUG(dbgs() << "DecodeGPRB " << RegNo << "\n");
     //MCRegister Reg = CPU6::AU + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
     return MCDisassembler::Success;
@@ -140,31 +173,19 @@ static DecodeStatus decodeUImmOperand(MCInst &Inst, uint64_t Imm,
     return MCDisassembler::Success;
 }
 
-/*
-template <unsigned N>
-static DecodeStatus decodeSImmOperand(MCInst &Inst, uint64_t Imm,
+
+template <unsigned N> // unsigned N because this is the bit size we're looking for
+static DecodeStatus decodeSImmOperand(MCInst &Inst, int64_t Imm,
                                       int64_t Address,
                                       const MCDisassembler *Decoder) {
+
+    // We're asserting against Uint here because it gets parsed as unsigned data and passed to us                                   
     assert(isUInt<N>(Imm) && "Invalid immediate");
-    addImplySP(Inst, Address, Decoder);
-    // Sign-extend the number in the bottom N bits of Imm
+    // Turn that unsigned value into a signed one with an llvm math helper function
     Inst.addOperand(MCOperand::createImm(SignExtend64<N>(Imm)));
     return MCDisassembler::Success;
 }
 
-// TODO: this might not be useful to the CPU6 ISA... should investigate
-template <unsigned N>
-static DecodeStatus decodeSImmOperandAndLsl1(MCInst &Inst, uint64_t Imm,
-                                             int64_t Address,
-                                             const MCDisassembler *Decoder) {
-    assert(isUInt<N>(Imm) && "Invalid immediate");
-    // Sign-extend the number in the bottom N bits of Imm after accounting for
-    // the fact that the N bit immediate is stored in N-1 bits (the LSB is
-    // always zero)
-    Inst.addOperand(MCOperand::createImm(SignExtend64<N>(Imm << 1)));
-    return MCDisassembler::Success;
-}
-*/
 
 #include "CPU6GenDisassemblerTables.inc"
 

@@ -27,47 +27,50 @@ let Namespace = "CPU6" in {
 | C-D              | C       | C       |
 | E-F              | P       | P       |
 +------------------+---------+---------+
-
-
 */
 
+// We need to prefix our registers with r here because we have instructions that share a name
+
 // Define the hi/lo 8 bit regs
-def AU : CPU6Reg<0, "AU">, DwarfRegNum<[0]>;
-def AL : CPU6Reg<1, "AL">, DwarfRegNum<[1]>;
-def BU : CPU6Reg<2, "BU">, DwarfRegNum<[2]>;
-def BL : CPU6Reg<3, "BL">, DwarfRegNum<[3]>;
-def XU : CPU6Reg<4, "XU">, DwarfRegNum<[4]>;
-def XL : CPU6Reg<5, "XL">, DwarfRegNum<[5]>;
-def YU : CPU6Reg<6, "YU">, DwarfRegNum<[6]>;
-def YL : CPU6Reg<7, "YL">, DwarfRegNum<[7]>;
-def ZU : CPU6Reg<8, "ZU">, DwarfRegNum<[8]>;
-def ZL : CPU6Reg<9, "ZL">, DwarfRegNum<[9]>;
-def SU : CPU6Reg<10, "SU">, DwarfRegNum<[10]>;
-def SL : CPU6Reg<11, "SL">, DwarfRegNum<[11]>;
-def CU : CPU6Reg<12, "CU">, DwarfRegNum<[12]>;
-def CL : CPU6Reg<13, "CL">, DwarfRegNum<[13]>;
-def PU : CPU6Reg<14, "PU">, DwarfRegNum<[14]>;
-def PL : CPU6Reg<15, "PL">, DwarfRegNum<[15]>;
+def rAU : CPU6Reg<0, "AU">, DwarfRegNum<[0]>;
+def rAL : CPU6Reg<1, "AL">, DwarfRegNum<[1]>;
+def rBU : CPU6Reg<2, "BU">, DwarfRegNum<[2]>;
+def rBL : CPU6Reg<3, "BL">, DwarfRegNum<[3]>;
+def rXU : CPU6Reg<4, "XU">, DwarfRegNum<[4]>;
+def rXL : CPU6Reg<5, "XL">, DwarfRegNum<[5]>;
+def rYU : CPU6Reg<6, "YU">, DwarfRegNum<[6]>;
+def rYL : CPU6Reg<7, "YL">, DwarfRegNum<[7]>;
+def rZU : CPU6Reg<8, "ZU">, DwarfRegNum<[8]>;
+def rZL : CPU6Reg<9, "ZL">, DwarfRegNum<[9]>;
+def rSU : CPU6Reg<10, "SU">, DwarfRegNum<[10]>;
+def rSL : CPU6Reg<11, "SL">, DwarfRegNum<[11]>;
+def rCU : CPU6Reg<12, "CU">, DwarfRegNum<[12]>;
+def rCL : CPU6Reg<13, "CL">, DwarfRegNum<[13]>;
+def rPU : CPU6Reg<14, "PU">, DwarfRegNum<[14]>;
+def rPL : CPU6Reg<15, "PL">, DwarfRegNum<[15]>;
 
 // Defining our full 16 bit registers
 let SubRegIndices = [sub_hi, sub_lo] in {
-    def A : CPU6Reg<0, "A", [AU,AL]>, DwarfRegNum<[0]>;
-    def B : CPU6Reg<2, "B", [BU,BL]>, DwarfRegNum<[2]>;
-    def X : CPU6Reg<4, "X", [XU,XL]>, DwarfRegNum<[4]>;
-    def Y : CPU6Reg<6, "Y", [YU,YL]>, DwarfRegNum<[6]>;
-    def Z : CPU6Reg<8, "Z", [ZU,ZL]>, DwarfRegNum<[8]>;
-    def S : CPU6Reg<10, "S", [SU,SL]>, DwarfRegNum<[10]>;
-    def C : CPU6Reg<12, "C", [CU,CL]>, DwarfRegNum<[12]>;
-    def P : CPU6Reg<14, "P", [PU,PL]>, DwarfRegNum<[14]>;
+    def rA : CPU6Reg<0, "A", [rAU,rAL]>, DwarfRegNum<[0]>;
+    def rB : CPU6Reg<2, "B", [rBU,rBL]>, DwarfRegNum<[2]>;
+    def rX : CPU6Reg<4, "X", [rXU,rXL]>, DwarfRegNum<[4]>;
+    def rY : CPU6Reg<6, "Y", [rYU,rYL]>, DwarfRegNum<[6]>;
+    def rZ : CPU6Reg<8, "Z", [rZU,rZL]>, DwarfRegNum<[8]>;
+    def rS : CPU6Reg<10, "S", [rSU,rSL]>, DwarfRegNum<[10]>;
+    def rC : CPU6Reg<12, "C", [rCU,rCL]>, DwarfRegNum<[12]>;
+    def rP : CPU6Reg<14, "P", [rPU,rPL]>, DwarfRegNum<[14]>;
 }
 
 // Define the classes of registers. This is to keep track of what registers should be used for what,
 // and register restrictions should be enforced here
 
-def GPR : RegisterClass<"CPU6", [i16], 8, (add A, B, X, Y, Z, S, C, P)>;
+def GPR : RegisterClass<"CPU6", [i16], 8, (add rA, rB, rX, rY, rZ, rS, rC, rP)>;
 
-def GPRhi : RegisterClass<"CPU6", [i8], 8, (add AU, BU, XU, YU, ZU, SU, CU, PU)>;
-def GPRlo : RegisterClass<"CPU6", [i8], 8, (add AL, BL, XL, YL, ZL, SL, CL, PL)>;
+def GPRhi : RegisterClass<"CPU6", [i8], 8, (add rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU)>;
+def GPRlo : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL)>;
+// All the 8 bit registers, some instructions can use both hi and lo
+def GPRB  : RegisterClass<"CPU6", [i8], 8, (add rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU,
+                                            rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL)>;
 
 
 //TODO: Do I need to implement a pseudo register to keep track of F,L,M,V flags?

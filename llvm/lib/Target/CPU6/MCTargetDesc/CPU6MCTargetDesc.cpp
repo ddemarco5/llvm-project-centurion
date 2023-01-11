@@ -40,7 +40,7 @@ static MCInstrInfo *createCPU6MCInstrInfo() {
 
 static MCRegisterInfo *createCPU6MCRegisterInfo(const Triple &TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitCPU6MCRegisterInfo(X, CPU6::A);
+  InitCPU6MCRegisterInfo(X, CPU6::rA);
   return X;
 }
 

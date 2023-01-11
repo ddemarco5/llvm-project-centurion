@@ -45,6 +45,8 @@ class CPU6AsmParser : public MCTargetAsmParser {
 
     bool ParseDirective(AsmToken DirectiveID) override;
 
+    bool validateInstruction(MCInst &Inst, OperandVector &Operands);
+
 // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
 #include "CPU6GenAsmMatcher.inc"
@@ -138,6 +140,15 @@ public:
         return IsConstantImm && isUInt<N>(Imm);
     }
 
+    template <signed N> bool IsSImm() const {
+        int32_t Imm;
+        bool IsConstantImm = evaluateConstantImm(getImm(), Imm);
+        return IsConstantImm && isInt<N>(Imm);
+    }
+
+    bool isSImm8() { return IsSImm<8>(); }
+    bool isSImm16() { return IsSImm<16>(); }
+    bool isUImm4() { return IsUImm<4>(); }
     bool isUImm16() { return IsUImm<16>(); }
 
     /// getStartLoc - Gets location of the first token of this operand
@@ -268,6 +279,20 @@ bool CPU6AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode, Opera
         if (ErrorInfo != ~0ULL && ErrorInfo >= Operands.size())
         return Error(ErrorLoc, "too few operands for instruction");
     }
+
+    // Handle the invalid type matches for our custom type defines in CPU6InstrFormats.td
+    // These are enum declared if GET_OPERAND_DIAGNOSTIC_TYPES is def'd
+    switch (Result) {
+    default:
+        break;
+    case Match_InvalidUImm4:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
+                      "unsigned 4 bit integer must be between 0 and 15");
+    case Match_InvalidSImm8:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
+                      "signed 8 bit integer must be between 127 and -128");
+    }
+
 llvm_unreachable("Unknown match type detected!");
 }
 
@@ -328,6 +353,7 @@ OperandMatchResultTy CPU6AsmParser::parseImmediate(OperandVector &Operands) {
         return MatchOperand_NoMatch;
     // TODO: Come back and make sure we get the sytax right
     case AsmToken::Hash:
+    case AsmToken::Minus:
     case AsmToken::Integer:
     case AsmToken::String:
         if (getParser().parseExpression(Res, E))

@@ -2,18 +2,18 @@
 // CPU4 has instructions anywhere from 1 to 3 bytes
 
 // Generic Centurion instruction
-class CenturionInst<dag outs, dag ins, string asmstr> : Instruction {
-    let Namespace = "Centurion";
+class CenturionInst<dag outs, dag ins, string opstr, string argstr> : Instruction {
+    let Namespace = "CPU6";
 
     dag OutOperandList = outs;
     dag InOperandList = ins;
-    let AsmString = asmstr;
+    let AsmString = opstr # "\t" # argstr;
 }
 
 
 // A one byte instruction
-class CenturionInst8<dag outs, dag ins, string asmstr>
-      : CenturionInst<outs, ins, asmstr> {
+class CenturionInst8<dag outs, dag ins, string opstr>
+      : CenturionInst<outs, ins, opstr, ""> {
 
     field bits<8> Inst;
 
@@ -21,8 +21,8 @@ class CenturionInst8<dag outs, dag ins, string asmstr>
 }
 
 // A two byte instruction
-class CenturionInst16<dag outs, dag ins, string asmstr>
-      : CenturionInst<outs, ins, asmstr> {
+class CenturionInst16<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
 
     field bits<16> Inst;
 
@@ -30,104 +30,43 @@ class CenturionInst16<dag outs, dag ins, string asmstr>
 }
 
 // And three byte instruction
-class CenturionInst24<dag outs, dag ins, string asmstr>
-      : CenturionInst<outs, ins, asmstr> {
+class CenturionInst24<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
 
     field bits<24> Inst;
 
     let Size = 3;
 }
 
-// TODO: There may be a need for pseudo instructions like in AVRInstrFormats here, we'll see
+class SingleArg16<bits<8> op, dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst16<outs, ins, opstr, argstr> {
 
-// FROM EE200 doc:
-// Instructions can be categorized into the following groups:
-// - Control
-// - Branch
-// - Single Register
-// - Double Register
-// - Memory Reference
 
-//-----------  Control  ---------------//
-// Instruction: <|zeros|opcode|>
-// opcode = 4 bits
-// zeroes = 4 bits of 0
-//------------------------------------//
-class Control<bits<4> opcode, dag outs, dag ins, string asmstr>
-      : CenturionInst8<outs, ins, asmstr> {
-    
-    let Inst{7-4} = 0;
-    let Inst{3-0} = opcode;
+    bits<8> argbyte;
+    let Inst{15-8} = op;
+    let Inst{7-0} = argbyte;
 }
 
-//-----------  Branch  ---------------//
-// The operation code byte defines the condition being tested
-// The displacement byte, b, contains an eight-bit signed value which specifies
-// a jump location relative to PC
-// Instruction: <| one |opcode|+127, -128|>
-//               |  op code   | disp (b) |
-// opcode = 8 bits (high half ones)
-// displacement = 8 bits
-//------------------------------------//
-class Branch<bits<4> opcode, bits<8> disp, dag outs, dag ins, string asmstr>
-      : CenturionInst16<outs, ins, asmstr> {
-    
-    let Inst{15-12} = 1;
-    let Inst{11-8} = opcode;
-    let Inst{7-0} = disp;
+// A 16 bit opcode, where the high and low nibble of our 2nd byte are the arguments
+class SingleArg16HL<bits<8> op, dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst16<outs, ins, opstr, argstr> {
+
+
+    bits<4> arghnibble;
+    bits<4> arglnibble;
+    let Inst{15-8} = op;
+    let Inst{7-4} = arghnibble;
+    let Inst{3-0} = arglnibble;
 }
 
-//-----------  SingleReg  --------------//
-// There are two types of single-register operations, explicit and implicit.
-// Explicit register instructions are two-byte instructions with the source
-// register address contained in the second byte.
-// Instruction: <| 3(2) |opcode| sr |   |>
-// The low-order bits of the second byte are used only for the Increment Register
-// and Decrement Register instrucitons and are otherwise ignored
-// opcode = 8 bits
-// sr = 8 bits (low 4 often ignored)
-//------------------------------------//
-// one byte flavor of opcode
-class SingleReg8<bits<8> opcode, dag outs, dag ins, 
-      string asmstr> : CenturionInst8<outs, ins, asmstr> {
-    
-    let Inst{7-0} = opcode;
-}
-// two byte flavor of opcode
-class SingleReg16< bits<8> opcode, bits<8> sr, dag outs, dag ins, 
-      string asmstr> : CenturionInst16<outs, ins, asmstr> {
-    
-    let Inst{15-8} = opcode;
-    let Inst{7-0} = sr;
-}
+// A 16 bit opcode, where the high and low nibble of our 2nd byte are the arguments
+class SingleArg16H<bits<8> op, dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst16<outs, ins, opstr, argstr> {
 
-//-----------  DoubleReg  --------------//
-// There are two types of double-register operations, explicit and implicit.
-// Explicit register instructions are two-byte instructions with the source
-// register and destination addresses contained in the second byte.
-// Instruction: <| 5(4) |opcode| sr | dr |>
-// The low-order bits of the second byte are used only for the Increment Register
-// and Decrement Register instrucitons and are otherwise ignored
-// opcode = 8 bits
-// sr = 4 bits
-// dr = 4 bits
-//------------------------------------//
-// one byte flavor of opcode
-class DoubleReg8<bits<8> opcode, dag outs, dag ins, 
-      string asmstr> : CenturionInst8<outs, ins, asmstr> {
-    
-    let Inst{7-0} = opcode;
-}
-// two byte flavor of opcode
-class DoubleReg16<bits<8> opcode, dag outs, dag ins, 
-      string asmstr> : CenturionInst16<outs, ins, asmstr> {
-    
-    bits<4> sr;
-    bits<4> dr;
 
-    let Inst{15-8} = opcode;
-    let Inst{7-4} = sr;
-    let Inst{3-0} = dr;
+    bits<4> arghnibble;
+    let Inst{15-8} = op;
+    let Inst{7-4} = arghnibble;
 }
 
 
@@ -145,7 +84,7 @@ class DoubleReg16<bits<8> opcode, dag outs, dag ins,
 //------------------------------------//
 // one byte flavor of opcode
 class Memory8<bits<4> opcode, bits<4> M, dag outs, dag ins, 
-      string asmstr> : CenturionInst8<outs, ins, asmstr> {
+      string opstr> : CenturionInst8<outs, ins, opstr> {
     
     let Inst{7-4} = opcode;
     let Inst{3-0} = M;
@@ -153,7 +92,7 @@ class Memory8<bits<4> opcode, bits<4> M, dag outs, dag ins,
 
 // two byte flavor of opcode
 class Memory16<bits<4> opcode, bits<4> M, bits<8> arg, dag outs, dag ins, 
-      string asmstr> : CenturionInst16<outs, ins, asmstr> {
+      string opstr, string argstr> : CenturionInst16<outs, ins, opstr, argstr> {
     
     let Inst{15-12} = opcode;
     let Inst{11-8} = M;
@@ -162,7 +101,7 @@ class Memory16<bits<4> opcode, bits<4> M, bits<8> arg, dag outs, dag ins,
 
 // three byte flavor of opcode
 class Memory24<bits<4> opcode, bits<4> M, dag outs, dag ins, 
-      string asmstr> : CenturionInst24<outs, ins, asmstr> {
+      string opstr, string argstr> : CenturionInst24<outs, ins, opstr, argstr> {
     
     //bits<4> M;
     bits<16> argword;
@@ -173,7 +112,7 @@ class Memory24<bits<4> opcode, bits<4> M, dag outs, dag ins,
 }
 // three byte flavor of opcode, special indexed addressing case
 class Memory24Index<bits<4> opcode, bits<4> r, bits<4> m_prime, bits<8> disp, dag outs, dag ins, 
-      string asmstr> : CenturionInst24<outs, ins, asmstr> {
+      string opstr, string argstr> : CenturionInst24<outs, ins, opstr, argstr> {
     
     let Inst{23-20} = opcode;
     let Inst{19-16} = 5; // this is the M = 5 case
