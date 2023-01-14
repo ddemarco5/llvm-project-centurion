@@ -53,6 +53,9 @@ class CPU6AsmParser : public MCTargetAsmParser {
 
     OperandMatchResultTy parseImmediate(OperandVector &Operands);
     OperandMatchResultTy parseRegister(OperandVector &Operands);
+    OperandMatchResultTy parseRegOrImm(OperandVector &Operands);
+    OperandMatchResultTy parseDirect(OperandVector &Operands);
+    OperandMatchResultTy parseIndirect(OperandVector &Operands);
     
 
     bool parseOperand(OperandVector &Operands);
@@ -149,6 +152,7 @@ public:
     bool isSImm8() { return IsSImm<8>(); }
     bool isSImm16() { return IsSImm<16>(); }
     bool isUImm4() { return IsUImm<4>(); }
+    bool isUImm8() { return IsUImm<8>(); }
     bool isUImm16() { return IsUImm<16>(); }
 
     /// getStartLoc - Gets location of the first token of this operand
@@ -288,6 +292,9 @@ bool CPU6AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode, Opera
     case Match_InvalidUImm4:
         return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
                       "unsigned 4 bit integer must be between 0 and 15");
+    case Match_InvalidUImm8:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
+                      "unsigned 8 bit integer must be between 0 and 255");
     case Match_InvalidSImm8:
         return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
                       "signed 8 bit integer must be between 127 and -128");
@@ -341,7 +348,6 @@ OperandMatchResultTy CPU6AsmParser::parseRegister(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
-
 // TODO: Revisit this guy and make sure we can parse all the supported immediate expressions
 OperandMatchResultTy CPU6AsmParser::parseImmediate(OperandVector &Operands) {
     SMLoc S = getLoc();
@@ -351,7 +357,6 @@ OperandMatchResultTy CPU6AsmParser::parseImmediate(OperandVector &Operands) {
     switch (getLexer().getKind()) {
     default:
         return MatchOperand_NoMatch;
-    // TODO: Come back and make sure we get the sytax right
     case AsmToken::Hash:
     case AsmToken::Minus:
     case AsmToken::Integer:
@@ -362,7 +367,76 @@ OperandMatchResultTy CPU6AsmParser::parseImmediate(OperandVector &Operands) {
     }
 
     Operands.push_back(CPU6Operand::createImm(Res, S, E));
+
     return MatchOperand_Success;
+}
+
+
+// helper for our indirect/direct parsing functions
+OperandMatchResultTy CPU6AsmParser::parseRegOrImm(OperandVector &Operands) {
+
+
+    //Attempt to parse token as a register
+    dbgs() << "Attempting register parse\n";
+    if(parseRegister(Operands) == MatchOperand_Success)
+       return MatchOperand_Success;
+    
+    // Attempt to parse token as an immediate
+    dbgs() << "Attempting immediate parse\n";
+    if (parseImmediate(Operands) == MatchOperand_Success)
+       return MatchOperand_Success;
+
+    return MatchOperand_NoMatch;
+
+
+}
+
+// Parse a direct operand, e.g. (something)
+OperandMatchResultTy CPU6AsmParser::parseDirect(OperandVector &Operands) {
+
+    OperandMatchResultTy result = MatchOperand_ParseFail;
+
+    // only proceed if we have a left paren and something else
+    if ((getLexer().getKind() == AsmToken::LParen)
+        && (getLexer().peekTok().getKind() != AsmToken::LParen)) {
+        
+        Operands.push_back(CPU6Operand::createToken("(", getLoc()));
+        getParser().Lex(); // Eat '('  
+
+        result = parseRegOrImm(Operands);
+        dbgs() << "parseDirect parseRegOrImm result: " << result << "\n";
+        
+        Operands.push_back(CPU6Operand::createToken(")", getLoc()));
+        getParser().Lex(); // Eat ')'     
+    }
+
+    return result;
+
+
+}
+// Parse an indirect operand, e.g. ((something))
+// syntactically, this is just a direct in a direct
+OperandMatchResultTy CPU6AsmParser::parseIndirect(OperandVector &Operands) {
+
+    OperandMatchResultTy result = MatchOperand_ParseFail;
+    // only proceed if we have two left parens
+    if ((getLexer().getKind() == AsmToken::LParen)
+        && (getLexer().peekTok().getKind() == AsmToken::LParen)) {
+    
+        Operands.push_back(CPU6Operand::createToken("((", getLoc()));
+        getParser().Lex(); // Eat '('
+        getParser().Lex(); // Eat '('
+
+        result = parseRegOrImm(Operands);
+        dbgs() << "parseIndirect parseRegOrImm result: " << result << "\n";
+
+        Operands.push_back(CPU6Operand::createToken("))", getLoc()));
+        getParser().Lex(); // Eat ')' 
+        getParser().Lex(); // Eat ')'
+  
+    }
+    return result;
+
 }
 
 /// Looks at a token type and creates the relevant operand from this
@@ -370,12 +444,22 @@ OperandMatchResultTy CPU6AsmParser::parseImmediate(OperandVector &Operands) {
 /// true.
 bool CPU6AsmParser::parseOperand(OperandVector &Operands) {
 
-    // Attempt to parse token as a register
-    if(parseRegister(Operands) == MatchOperand_Success)
+    // If we try to parse operands in this fashion, make sure that each function will
+    // exit WITHOUT advancing the parser with Lex() or parsing functions, 
+    // otherwise subsequent checks will not begin where indended and behavior will collapse
+
+    dbgs() << "Attempting reg or immediate parse\n";
+    if (parseRegOrImm(Operands) == MatchOperand_Success)
         return false;
-    
-    // Attempt to parse token as an immediate
-    if (parseImmediate(Operands) == MatchOperand_Success)
+
+    // Try an indirect
+    dbgs() << "Attempting indirect parse\n";
+    if (parseIndirect(Operands) == MatchOperand_Success)
+        return false;
+
+    // Try a direct
+    dbgs() << "Attempting direct parse\n";
+    if (parseDirect(Operands) == MatchOperand_Success)
         return false;
 
     // We've exhausted our options, declare defeat
