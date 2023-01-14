@@ -100,6 +100,17 @@ class Memory16<bits<4> opcode, bits<4> M, dag outs, dag ins,
     let Inst{7-0} = arg;
 }
 
+// two byte flavor of opcode, LDX, STX, JMP, and JSR use a strange opcode format
+// where the opcode is 5 bits in size and the M is 3, they only use M flavors 0-5
+class Memory16Strange<bits<5> opcode, bits<3> M, dag outs, dag ins, 
+      string opstr, string argstr> : CenturionInst16<outs, ins, opstr, argstr> {
+    
+    bits<8> arg;
+    let Inst{15-11} = opcode;
+    let Inst{10-8} = M;
+    let Inst{7-0} = arg;
+}
+
 // two byte flavor of opcode, special indexed addressing case
 class Memory16Index<bits<4> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
         : CenturionInst16<outs, ins, opstr, argstr> {
@@ -107,6 +118,15 @@ class Memory16Index<bits<4> opcode, bits<4> m_prime, dag outs, dag ins, string o
     bits<4> r;
     let Inst{15-12} = opcode;
     let Inst{11-8} = 5; // This is always the M = 5 case
+    let Inst{7-4} = r;
+    let Inst{3-0} = m_prime;
+}
+class Memory16IndexStrange<bits<5> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
+        : CenturionInst16<outs, ins, opstr, argstr> {
+    
+    bits<4> r;
+    let Inst{15-11} = opcode;
+    let Inst{10-8} = 0b101; // This is always the M = 5 case
     let Inst{7-4} = r;
     let Inst{3-0} = m_prime;
 }
@@ -122,6 +142,16 @@ class Memory24<bits<4> opcode, bits<4> M, dag outs, dag ins,
     let Inst{19-16} = M;
     let Inst{15-0} = arg;
 }
+class Memory24Strange<bits<5> opcode, bits<3> M, dag outs, dag ins, 
+      string opstr, string argstr> : CenturionInst24<outs, ins, opstr, argstr> {
+    
+    //bits<4> M;
+    bits<16> arg;
+
+    let Inst{23-19} = opcode;
+    let Inst{18-16} = M;
+    let Inst{15-0} = arg;
+}
 // three byte flavor of opcode, special indexed addressing case
 class Memory24Index<bits<4> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
         : CenturionInst24<outs, ins, opstr, argstr> {
@@ -130,6 +160,17 @@ class Memory24Index<bits<4> opcode, bits<4> m_prime, dag outs, dag ins, string o
     bits<8> arg;
     let Inst{23-20} = opcode;
     let Inst{19-16} = 5; // this is the M = 5 case
+    let Inst{15-12} = r;
+    let Inst{11-8} = m_prime;
+    let Inst{7-0} = arg;
+}
+class Memory24IndexStrange<bits<5> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
+        : CenturionInst24<outs, ins, opstr, argstr> {
+    
+    bits<4> r;
+    bits<8> arg;
+    let Inst{23-19} = opcode;
+    let Inst{18-16} = 0b101; // this is the M = 5 case
     let Inst{15-12} = r;
     let Inst{11-8} = m_prime;
     let Inst{7-0} = arg;

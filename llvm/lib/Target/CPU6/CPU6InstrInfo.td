@@ -308,129 +308,185 @@ class MemRef8<bits<4> opcode, bits<4> M, string opstr>
 // Passing in an DAGOperand will let us specify the dag arg type nicely in the opcode definition line
 class MemRef16<bits<4> opcode, bits<4> M, DAGOperand optype, string opstr, string argstr="$arg">
       : Memory16<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
+// For our strange instructions
+class MemRef16Strange<bits<5> opcode, bits<3> M, DAGOperand optype, string opstr, string argstr="$arg">
+      : Memory16Strange<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
 // Two byte m prime flavor of opcode, only optype we'll need here is GPR or GPRB
 class MemRef16Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
       : Memory16Index<opcode, m_prime, (outs), (ins optype: $r), opstr, "$r"> { }
+class MemRef16IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
+      : Memory16IndexStrange<opcode, m_prime, (outs), (ins optype: $r), opstr, "$r"> { }
 // Three byte flavor of opcode
-//class MemRef24<bits<4> opcode, bits<4> M, DAGOperand optype, string opstr>
 class MemRef24<bits<4> opcode, bits<4> M, DAGOperand optype, string opstr, string argstr="$arg">
       : Memory24<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
+class MemRef24Strange<bits<5> opcode, bits<3> M, DAGOperand optype, string opstr, string argstr="$arg">
+      : Memory24Strange<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
 // Three byte m_rime flavor of opcode, its M is always 5 so we don't bother passing that in
 class MemRef24Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
       : Memory24Index<opcode, m_prime, (outs), (ins optype: $r, uimm8: $arg),
                       opstr, "$r,$arg"> { }
+class MemRef24IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
+      : Memory24IndexStrange<opcode, m_prime, (outs), (ins optype: $r, uimm8: $arg),
+                      opstr, "$r,$arg"> { }
 
-// The LDA Suite of these instructions
-def LDA_0 : MemRef24<0x9, 0x0, i16imm, "LDA">;
-def LDAB_0 : MemRef24<0x8, 0x0, i16imm, "LDAB">;
-def LDA_1 : MemRef24<0x9, 0x1, i16imm, "LDA", "(${arg})">;
-def LDAB_1 : MemRef24<0x8, 0x1, i16imm, "LDAB", "(${arg})">;
-def LDA_2 : MemRef24<0x9, 0x2, i16imm, "LDA", "((${arg}))">;
-def LDAB_2 : MemRef24<0x8, 0x2, i16imm, "LDAB", "((${arg}))">;
-def LDA_3 : MemRef16<0x9, 0x3, i8imm, "LDA_PC">;
-def LDAB_3 : MemRef16<0x8, 0x3, i8imm, "LDAB_PC">;
-def LDA_4 : MemRef16<0x9, 0x4, i8imm, "LDA_PC_I">;
-def LDAB_4 : MemRef16<0x8, 0x4, i8imm, "LDAB_PC_I">;
-def LDA_5_0: MemRef16Index<0x9, 0x0, GPR, "LDA_RM_0">;
-def LDAB_5_0: MemRef16Index<0x8, 0x0, GPR, "LDAB_RM_0">;
-def LDA_5_1: MemRef16Index<0x9, 0x1, GPR, "LDA_RM_1">;
-def LDAB_5_1: MemRef16Index<0x8, 0x1, GPR, "LDAB_RM_1">;
-def LDA_5_2: MemRef16Index<0x9, 0x2, GPR, "LDA_RM_2">;
-def LDAB_5_2: MemRef16Index<0xB, 0x2, GPR, "LDAB_RM_2">;
-def LDA_5_3: MemRef16Index<0x9, 0x3, GPR, "LDA_RM_3">;
-def LDAB_5_3: MemRef16Index<0xB, 0x3, GPR, "LDAB_RM_3">;
-def LDA_5_4: MemRef16Index<0x9, 0x4, GPR, "LDA_RM_4">;
-def LDAB_5_4: MemRef16Index<0x8, 0x4, GPR, "LDAB_RM_4">;
-def LDA_5_5: MemRef16Index<0x8, 0x5, GPR, "LDA_RM_5">;
-def LDAB_5_5: MemRef16Index<0x8, 0x5, GPR, "LDAB_RM_5">;
-def LDA_5_6: MemRef16Index<0x9, 0x6, GPR, "LDA_RM_6">;
-def LDAB_5_6: MemRef16Index<0x8, 0x6, GPR, "LDAB_RM_6">;
-// 7 is not used
-def LDA_5_8: MemRef24Index<0x9, 0x8, GPR, "LDA_RM_8">;
-def LDAB_5_8: MemRef24Index<0x8, 0x8, GPR, "LDAB_RM_8">;
-def LDA_5_9: MemRef24Index<0x9, 0x9, GPR, "LDA_RM_9">;
-def LDAB_5_9: MemRef24Index<0x8, 0x9, GPR, "LDAB_RM_9">;
-def LDA_5_A: MemRef24Index<0x9, 0xA, GPR, "LDA_RM_A">;
-def LDAB_5_A: MemRef24Index<0x8, 0xA, GPR, "LDAB_RM_A">;
-// B is not used
-def LDA_5_C: MemRef24Index<0x9, 0xC, GPR, "LDA_RM_C">;
-def LDAB_5_C: MemRef24Index<0x8, 0xC, GPR, "LDAB_RM_C">;
-def LDA_5_D: MemRef24Index<0x9, 0xD, GPR, "LDA_RM_D">;
-def LDAB_5_D: MemRef24Index<0x8, 0xD, GPR, "LDAB_RM_D">;
-def LDA_5_E: MemRef24Index<0x9, 0xE, GPR, "LDA_RM_E">;
-def LDAB_5_E: MemRef24Index<0x8, 0xE, GPR, "LDAB_RM_E">;
-// F is not used
-def LDA_A: MemRef8<0x9, 0x8, "LDA_A">;  // A register
-def LDAB_A: MemRef8<0x8, 0x8, "LDAB_A">;  // A register
-def LDA_B: MemRef8<0x9, 0x9, "LDA_B">;  // B register
-def LDAB_B: MemRef8<0x8, 0x9, "LDAB_B">;  // B register
-def LDA_X: MemRef8<0x9, 0xA, "LDA_X">;  // X register
-def LDAB_X: MemRef8<0x8, 0xA, "LDAB_X">;  // X register
-def LDA_Y: MemRef8<0x9, 0xB, "LDA_Y">;  // Y register
-def LDAB_Y: MemRef8<0x8, 0xB, "LDAB_Y">;  // Y register
-def LDA_Z: MemRef8<0x9, 0xC, "LDA_Z">;  // Z register
-def LDAB_Z: MemRef8<0x8, 0xC, "LDAB_Z">;  // Z register
-def LDA_S: MemRef8<0x9, 0xD, "LDA_S">;  // S register
-def LDAB_S: MemRef8<0x8, 0xD, "LDAB_S">;  // S register
-def LDA_C: MemRef8<0x9, 0xE, "LDA_C">;  // C register
-def LDAB_C: MemRef8<0x8, 0xE, "LDAB_C">;  // C register
-def LDA_P: MemRef8<0x9, 0xF, "LDA_P">;  // P register
-def LDAB_P: MemRef8<0x8, 0xF, "LDAB_P">;  // P register
+class Memop<string name, int opcw, int opcb> {
+    string Name = name;
+    int Opcodew = opcw;
+    int Opcodeb = opcb;
+}
 
+foreach OP = [
+            Memop<"LDA", 0x9, 0x8>,
+            Memop<"STA", 0xB, 0xA>,
+            Memop<"LDB", 0xD, 0xC>,
+            Memop<"STB", 0xF, 0xE>
+        ] in {
+    def OP.Name#_0 : MemRef24<OP.Opcodew, 0x0, i16imm, OP.Name>;
+    def OP.Name#B_0 : MemRef24<OP.Opcodeb, 0x0, i16imm, OP.Name#"B">;
+    def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;
+    def OP.Name#B_1 : MemRef24<OP.Opcodeb, 0x1, i16imm, OP.Name#"B", "(${arg})">;
+    def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;
+    def OP.Name#B_2 : MemRef24<OP.Opcodeb, 0x2, i16imm, OP.Name#"B", "((${arg}))">;
+    def OP.Name#_3 : MemRef16<OP.Opcodew, 0x3, i8imm, OP.Name#"_PC">;
+    def OP.Name#B_3 : MemRef16<OP.Opcodeb, 0x3, i8imm, OP.Name#"B_PC">;
+    def OP.Name#_4 : MemRef16<OP.Opcodew, 0x4, i8imm, OP.Name#"_PC_I">;
+    def OP.Name#B_4 : MemRef16<OP.Opcodeb, 0x4, i8imm, OP.Name#"B_PC_I">;
+    def OP.Name#_5_0: MemRef16Index<OP.Opcodew, 0x0, GPR, OP.Name#"_RM_0">;
+    def OP.Name#B_5_0: MemRef16Index<OP.Opcodeb, 0x0, GPR, OP.Name#"B_RM_0">;
+    def OP.Name#_5_1: MemRef16Index<OP.Opcodew, 0x1, GPR, OP.Name#"_RM_1">;
+    def OP.Name#B_5_1: MemRef16Index<OP.Opcodeb, 0x1, GPR, OP.Name#"B_RM_1">;
+    def OP.Name#_5_2: MemRef16Index<OP.Opcodew, 0x2, GPR, OP.Name#"_RM_2">;
+    def OP.Name#B_5_2: MemRef16Index<OP.Opcodeb, 0x2, GPR, OP.Name#"B_RM_2">;
+    def OP.Name#_5_3: MemRef16Index<OP.Opcodew, 0x3, GPR, OP.Name#"_RM_3">;
+    def OP.Name#B_5_3: MemRef16Index<OP.Opcodeb, 0x3, GPR, OP.Name#"B_RM_3">;
+    def OP.Name#_5_4: MemRef16Index<OP.Opcodew, 0x4, GPR, OP.Name#"_RM_4">;
+    def OP.Name#B_5_4: MemRef16Index<OP.Opcodeb, 0x4, GPR, OP.Name#"B_RM_4">;
+    def OP.Name#_5_5: MemRef16Index<OP.Opcodew, 0x5, GPR, OP.Name#"_RM_5">;
+    def OP.Name#B_5_5: MemRef16Index<OP.Opcodeb, 0x5, GPR, OP.Name#"B_RM_5">;
+    def OP.Name#_5_6: MemRef16Index<OP.Opcodew, 0x6, GPR, OP.Name#"_RM_6">;
+    def OP.Name#B_5_6: MemRef16Index<OP.Opcodeb, 0x6, GPR, OP.Name#"B_RM_6">;
+    // 7 is not used
+    def OP.Name#_5_8: MemRef24Index<OP.Opcodew, 0x8, GPR, OP.Name#"_RM_8">;
+    def OP.Name#B_5_8: MemRef24Index<OP.Opcodeb, 0x8, GPR, OP.Name#"B_RM_8">;
+    def OP.Name#_5_9: MemRef24Index<OP.Opcodew, 0x9, GPR, OP.Name#"_RM_9">;
+    def OP.Name#B_5_9: MemRef24Index<OP.Opcodeb, 0x9, GPR, OP.Name#"B_RM_9">;
+    def OP.Name#_5_A: MemRef24Index<OP.Opcodew, 0xA, GPR, OP.Name#"_RM_A">;
+    def OP.Name#B_5_A: MemRef24Index<OP.Opcodeb, 0xA, GPR, OP.Name#"B_RM_A">;
+    // B is not used
+    def OP.Name#_5_C: MemRef24Index<OP.Opcodew, 0xC, GPR, OP.Name#"_RM_C">;
+    def OP.Name#B_5_C: MemRef24Index<OP.Opcodeb, 0xC, GPR, OP.Name#"B_RM_C">;
+    def OP.Name#_5_D: MemRef24Index<OP.Opcodew, 0xD, GPR, OP.Name#"_RM_D">;
+    def OP.Name#B_5_D: MemRef24Index<OP.Opcodeb, 0xD, GPR, OP.Name#"B_RM_D">;
+    def OP.Name#_5_E: MemRef24Index<OP.Opcodew, 0xE, GPR, OP.Name#"_RM_E">;
+    def OP.Name#B_5_E: MemRef24Index<OP.Opcodeb, 0xE, GPR, OP.Name#"B_RM_E">;
+    // F is not used
+    def OP.Name#_A: MemRef8<OP.Opcodew, 0x8, OP.Name#"_A">;  // A register
+    def OP.Name#B_A: MemRef8<OP.Opcodeb, 0x8, OP.Name#"B_A">;  // A register
+    def OP.Name#_B: MemRef8<OP.Opcodew, 0x9, OP.Name#"_B">;  // B register
+    def OP.Name#B_B: MemRef8<OP.Opcodeb, 0x9, OP.Name#"B_B">;  // B register
+    def OP.Name#_X: MemRef8<OP.Opcodew, 0xA, OP.Name#"_X">;  // X register
+    def OP.Name#B_X: MemRef8<OP.Opcodeb, 0xA, OP.Name#"B_X">;  // X register
+    def OP.Name#_Y: MemRef8<OP.Opcodew, 0xB, OP.Name#"_Y">;  // Y register
+    def OP.Name#B_Y: MemRef8<OP.Opcodeb, 0xB, OP.Name#"B_Y">;  // Y register
+    def OP.Name#_Z: MemRef8<OP.Opcodew, 0xC, OP.Name#"_Z">;  // Z register
+    def OP.Name#B_Z: MemRef8<OP.Opcodeb, 0xC, OP.Name#"B_Z">;  // Z register
+    def OP.Name#_S: MemRef8<OP.Opcodew, 0xD, OP.Name#"_S">;  // S register
+    def OP.Name#B_S: MemRef8<OP.Opcodeb, 0xD, OP.Name#"B_S">;  // S register
+    def OP.Name#_C: MemRef8<OP.Opcodew, 0xE, OP.Name#"_C">;  // C register
+    def OP.Name#B_C: MemRef8<OP.Opcodeb, 0xE, OP.Name#"B_C">;  // C register
+    def OP.Name#_P: MemRef8<OP.Opcodew, 0xF, OP.Name#"_P">;  // P register
+    def OP.Name#B_P: MemRef8<OP.Opcodeb, 0xF, OP.Name#"B_P">;  // P register
+}
 
-// The STA Suite of these instructions
-def STA_0 : MemRef24<0xB, 0x0, i16imm, "STA">;
-def STAB_0 : MemRef24<0xA, 0x0, i16imm, "STAB">;
-def STA_1 : MemRef24<0xB, 0x1, i16imm, "STA", "(${arg})">;
-def STAB_1 : MemRef24<0xA, 0x1, i16imm, "STAB", "(${arg})">;
-def STA_2 : MemRef24<0xB, 0x2, i16imm, "STA", "((${arg}))">;
-def STAB_2 : MemRef24<0xA, 0x2, i16imm, "STAB", "((${arg}))">;
-def STA_3 : MemRef16<0xB, 0x3, i8imm, "STA_PC">;
-def STAB_3 : MemRef16<0xA, 0x3, i8imm, "STAB_PC">;
-def STA_4 : MemRef16<0xB, 0x4, i8imm, "STA_PC_I">;
-def STAB_4 : MemRef16<0xA, 0x4, i8imm, "STAB_PC_I">;
-def STA_5_0: MemRef16Index<0xB, 0x0, GPR, "STA_RM_0">;
-def STAB_5_0: MemRef16Index<0xA, 0x0, GPR, "STAB_RM_0">;
-def STA_5_1: MemRef16Index<0xB, 0x1, GPR, "STA_RM_1">;
-def STAB_5_1: MemRef16Index<0xA, 0x1, GPR, "STAB_RM_1">;
-def STA_5_2: MemRef16Index<0xB, 0x2, GPR, "STA_RM_2">;
-def STAB_5_2: MemRef16Index<0xB, 0x2, GPR, "STAB_RM_2">;
-def STA_5_3: MemRef16Index<0xB, 0x3, GPR, "STA_RM_3">;
-def STAB_5_3: MemRef16Index<0xB, 0x3, GPR, "STAB_RM_3">;
-def STA_5_4: MemRef16Index<0xB, 0x4, GPR, "STA_RM_4">;
-def STAB_5_4: MemRef16Index<0xA, 0x4, GPR, "STAB_RM_4">;
-def STA_5_5: MemRef16Index<0xA, 0x5, GPR, "STA_RM_5">;
-def STAB_5_5: MemRef16Index<0xA, 0x5, GPR, "STAB_RM_5">;
-def STA_5_6: MemRef16Index<0xB, 0x6, GPR, "STA_RM_6">;
-def STAB_5_6: MemRef16Index<0xA, 0x6, GPR, "STAB_RM_6">;
-// 7 is not used
-def STA_5_8: MemRef24Index<0xB, 0xA, GPR, "STA_RM_8">;
-def STAB_5_8: MemRef24Index<0xA, 0xA, GPR, "STAB_RM_8">;
-def STA_5_9: MemRef24Index<0xB, 0xB, GPR, "STA_RM_9">;
-def STAB_5_9: MemRef24Index<0xA, 0xB, GPR, "STAB_RM_9">;
-def STA_5_A: MemRef24Index<0xB, 0xA, GPR, "STA_RM_A">;
-def STAB_5_A: MemRef24Index<0xA, 0xA, GPR, "STAB_RM_A">;
-// B is not used
-def STA_5_C: MemRef24Index<0xB, 0xC, GPR, "STA_RM_C">;
-def STAB_5_C: MemRef24Index<0xA, 0xC, GPR, "STAB_RM_C">;
-def STA_5_D: MemRef24Index<0xB, 0xD, GPR, "STA_RM_D">;
-def STAB_5_D: MemRef24Index<0xA, 0xD, GPR, "STAB_RM_D">;
-def STA_5_E: MemRef24Index<0xB, 0xE, GPR, "STA_RM_E">;
-def STAB_5_E: MemRef24Index<0xA, 0xE, GPR, "STAB_RM_E">;
-// F is not used
-def STA_A: MemRef8<0xB, 0xA, "STA_A">;  // A register
-def STAB_A: MemRef8<0xA, 0xA, "STAB_A">;  // A register
-def STA_B: MemRef8<0xB, 0xB, "STA_B">;  // B register
-def STAB_B: MemRef8<0xA, 0xB, "STAB_B">;  // B register
-def STA_X: MemRef8<0xB, 0xA, "STA_X">;  // X register
-def STAB_X: MemRef8<0xA, 0xA, "STAB_X">;  // X register
-def STA_Y: MemRef8<0xB, 0xB, "STA_Y">;  // Y register
-def STAB_Y: MemRef8<0xA, 0xB, "STAB_Y">;  // Y register
-def STA_Z: MemRef8<0xB, 0xC, "STA_Z">;  // Z register
-def STAB_Z: MemRef8<0xA, 0xC, "STAB_Z">;  // Z register
-def STA_S: MemRef8<0xB, 0xD, "STA_S">;  // S register
-def STAB_S: MemRef8<0xA, 0xD, "STAB_S">;  // S register
-def STA_C: MemRef8<0xB, 0xE, "STA_C">;  // C register
-def STAB_C: MemRef8<0xA, 0xE, "STAB_C">;  // C register
-def STA_P: MemRef8<0xB, 0xF, "STA_P">;  // P register
-def STAB_P: MemRef8<0xA, 0xF, "STAB_P">;  // P register
+class Memopstrange<string name, bits<5> opc> {
+    string Name = name;
+    int Opcode = opc;
+}
+
+foreach OP = [
+            Memopstrange<"LDX", 0b01100>,
+            Memopstrange<"STX", 0b01101>,
+            Memopstrange<"JMP", 0b01110>,
+            Memopstrange<"JSR", 0b01111>
+        ] in {
+    // JMP and JSR don't have an M 0 variant
+    if !or(!eq(OP.Name, "LDX"), !eq(OP.Name,"STX")) then {
+        def OP.Name#_0 : MemRef24Strange<OP.Opcode, 0b000, i16imm, OP.Name>;
+    }
+    def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
+    def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
+    def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name#"_PC">;
+    def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name#"_PC_I">;
+    def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name#"_RM_0">;
+    def OP.Name#_5_1: MemRef16IndexStrange<OP.Opcode, 0x1, GPR, OP.Name#"_RM_1">;
+    def OP.Name#_5_2: MemRef16IndexStrange<OP.Opcode, 0x2, GPR, OP.Name#"_RM_2">;
+    def OP.Name#_5_3: MemRef16IndexStrange<OP.Opcode, 0x3, GPR, OP.Name#"_RM_3">;
+    def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name#"_RM_4">;
+    def OP.Name#_5_5: MemRef16IndexStrange<OP.Opcode, 0x5, GPR, OP.Name#"_RM_5">;
+    def OP.Name#_5_6: MemRef16IndexStrange<OP.Opcode, 0x6, GPR, OP.Name#"_RM_6">;
+    // 7 is not used
+    def OP.Name#_5_8: MemRef24IndexStrange<OP.Opcode, 0x8, GPR, OP.Name#"_RM_8">;
+    def OP.Name#_5_9: MemRef24IndexStrange<OP.Opcode, 0x9, GPR, OP.Name#"_RM_9">;
+    def OP.Name#_5_A: MemRef24IndexStrange<OP.Opcode, 0xA, GPR, OP.Name#"_RM_A">;
+    // B is not used
+    def OP.Name#_5_C: MemRef24IndexStrange<OP.Opcode, 0xC, GPR, OP.Name#"_RM_C">;
+    def OP.Name#_5_D: MemRef24IndexStrange<OP.Opcode, 0xD, GPR, OP.Name#"_RM_D">;
+    def OP.Name#_5_E: MemRef24IndexStrange<OP.Opcode, 0xE, GPR, OP.Name#"_RM_E">;
+}
+
+// // The LDA Suite of these instructions
+// def LDA_0 : MemRef24<0x9, 0x0, i16imm, "LDA">;
+// def LDAB_0 : MemRef24<0x8, 0x0, i16imm, "LDAB">;
+// def LDA_1 : MemRef24<0x9, 0x1, i16imm, "LDA", "(${arg})">;
+// def LDAB_1 : MemRef24<0x8, 0x1, i16imm, "LDAB", "(${arg})">;
+// def LDA_2 : MemRef24<0x9, 0x2, i16imm, "LDA", "((${arg}))">;
+// def LDAB_2 : MemRef24<0x8, 0x2, i16imm, "LDAB", "((${arg}))">;
+// def LDA_3 : MemRef16<0x9, 0x3, i8imm, "LDA_PC">;
+// def LDAB_3 : MemRef16<0x8, 0x3, i8imm, "LDAB_PC">;
+// def LDA_4 : MemRef16<0x9, 0x4, i8imm, "LDA_PC_I">;
+// def LDAB_4 : MemRef16<0x8, 0x4, i8imm, "LDAB_PC_I">;
+// def LDA_5_0: MemRef16Index<0x9, 0x0, GPR, "LDA_RM_0">;
+// def LDAB_5_0: MemRef16Index<0x8, 0x0, GPR, "LDAB_RM_0">;
+// def LDA_5_1: MemRef16Index<0x9, 0x1, GPR, "LDA_RM_1">;
+// def LDAB_5_1: MemRef16Index<0x8, 0x1, GPR, "LDAB_RM_1">;
+// def LDA_5_2: MemRef16Index<0x9, 0x2, GPR, "LDA_RM_2">;
+// def LDAB_5_2: MemRef16Index<0x8, 0x2, GPR, "LDAB_RM_2">;
+// def LDA_5_3: MemRef16Index<0x9, 0x3, GPR, "LDA_RM_3">;
+// def LDAB_5_3: MemRef16Index<0x8, 0x3, GPR, "LDAB_RM_3">;
+// def LDA_5_4: MemRef16Index<0x9, 0x4, GPR, "LDA_RM_4">;
+// def LDAB_5_4: MemRef16Index<0x8, 0x4, GPR, "LDAB_RM_4">;
+// def LDA_5_5: MemRef16Index<0x8, 0x5, GPR, "LDA_RM_5">;
+// def LDAB_5_5: MemRef16Index<0x8, 0x5, GPR, "LDAB_RM_5">;
+// def LDA_5_6: MemRef16Index<0x9, 0x6, GPR, "LDA_RM_6">;
+// def LDAB_5_6: MemRef16Index<0x8, 0x6, GPR, "LDAB_RM_6">;
+// // 7 is not used
+// def LDA_5_8: MemRef24Index<0x9, 0x8, GPR, "LDA_RM_8">;
+// def LDAB_5_8: MemRef24Index<0x8, 0x8, GPR, "LDAB_RM_8">;
+// def LDA_5_9: MemRef24Index<0x9, 0x9, GPR, "LDA_RM_9">;
+// def LDAB_5_9: MemRef24Index<0x8, 0x9, GPR, "LDAB_RM_9">;
+// def LDA_5_A: MemRef24Index<0x9, 0xA, GPR, "LDA_RM_A">;
+// def LDAB_5_A: MemRef24Index<0x8, 0xA, GPR, "LDAB_RM_A">;
+// // B is not used
+// def LDA_5_C: MemRef24Index<0x9, 0xC, GPR, "LDA_RM_C">;
+// def LDAB_5_C: MemRef24Index<0x8, 0xC, GPR, "LDAB_RM_C">;
+// def LDA_5_D: MemRef24Index<0x9, 0xD, GPR, "LDA_RM_D">;
+// def LDAB_5_D: MemRef24Index<0x8, 0xD, GPR, "LDAB_RM_D">;
+// def LDA_5_E: MemRef24Index<0x9, 0xE, GPR, "LDA_RM_E">;
+// def LDAB_5_E: MemRef24Index<0x8, 0xE, GPR, "LDAB_RM_E">;
+// // F is not used
+// def LDA_A: MemRef8<0x9, 0x8, "LDA_A">;  // A register
+// def LDAB_A: MemRef8<0x8, 0x8, "LDAB_A">;  // A register
+// def LDA_B: MemRef8<0x9, 0x9, "LDA_B">;  // B register
+// def LDAB_B: MemRef8<0x8, 0x9, "LDAB_B">;  // B register
+// def LDA_X: MemRef8<0x9, 0xA, "LDA_X">;  // X register
+// def LDAB_X: MemRef8<0x8, 0xA, "LDAB_X">;  // X register
+// def LDA_Y: MemRef8<0x9, 0xB, "LDA_Y">;  // Y register
+// def LDAB_Y: MemRef8<0x8, 0xB, "LDAB_Y">;  // Y register
+// def LDA_Z: MemRef8<0x9, 0xC, "LDA_Z">;  // Z register
+// def LDAB_Z: MemRef8<0x8, 0xC, "LDAB_Z">;  // Z register
+// def LDA_S: MemRef8<0x9, 0xD, "LDA_S">;  // S register
+// def LDAB_S: MemRef8<0x8, 0xD, "LDAB_S">;  // S register
+// def LDA_C: MemRef8<0x9, 0xE, "LDA_C">;  // C register
+// def LDAB_C: MemRef8<0x8, 0xE, "LDAB_C">;  // C register
+// def LDA_P: MemRef8<0x9, 0xF, "LDA_P">;  // P register
+// def LDAB_P: MemRef8<0x8, 0xF, "LDAB_P">;  // P register
