@@ -378,7 +378,7 @@ OperandMatchResultTy CPU6AsmParser::parseRegOrImm(OperandVector &Operands) {
 
 
     //Attempt to parse token as a register
-    dbgs() << "Attempting register parse\n";
+    LLVM_DEBUG(dbgs() << "Attempting register parse\n");
     if(parseRegister(Operands) == MatchOperand_Success)
        return MatchOperand_Success;
     
