@@ -475,7 +475,7 @@ OperandMatchResultTy CPU6AsmParser::parseIndirect(OperandVector &Operands) {
 OperandMatchResultTy CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
     // Parsing method to extract the actual argument in the PC offset operands
     // If you're reading this I really am sorry. Just know it needs to parse and handle
-    // (PC)+$arg as well as ((PC)+$arg)
+    // (PC),$arg as well as ((PC),$arg)
     SMLoc Start = getLoc();
     bool OuterParens = false;
 
@@ -496,7 +496,7 @@ OperandMatchResultTy CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
         AsmToken::LParen,
         AsmToken::Identifier,
         AsmToken::RParen,
-        AsmToken::Plus
+        AsmToken::Comma
     };
     AsmToken Buf[4];
     size_t ReadCount = getLexer().peekTokens(Buf);
@@ -522,9 +522,9 @@ OperandMatchResultTy CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
             return MatchOperand_NoMatch;
     }
 
-    dbgs() << "Checking that the string we got was 'PC'\n";
+    dbgs() << "Checking that the string " << Buf[0+OuterParens].getString() << " we got was 'PC'\n";
     // Verify the identifiers are 'P' and 'C'
-    if (Buf[1+OuterParens].getString().equals(llvm::StringRef("PC")))
+    if (Buf[0+OuterParens].getString().compare(llvm::StringRef("PC")) != 0)
         return MatchOperand_NoMatch;
     dbgs() << "Verified that we got the right string, lexing\n";
     // If we succeeded, we're confident this is where we're meant to be, so we can
@@ -538,9 +538,9 @@ OperandMatchResultTy CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
         ReadCount--;
     }
     // And emit our token for the matcher
-    StringRef tokenstr = "(PC)+";
+    StringRef tokenstr = "(PC)";
     if (OuterParens)
-        tokenstr = "((PC)+";
+        tokenstr = "((PC)";
     Operands.push_back(CPU6Operand::createToken(tokenstr, Start));
 
     // parse our operand, this will also eat our right paren
