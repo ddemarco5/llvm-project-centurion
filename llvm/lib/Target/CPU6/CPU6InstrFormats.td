@@ -115,19 +115,19 @@ class Memory16Strange<bits<5> opcode, bits<3> M, dag outs, dag ins,
 class Memory16Index<bits<4> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
         : CenturionInst16<outs, ins, opstr, argstr> {
     
-    bits<4> r;
+    bits<4> arg;
     let Inst{15-12} = opcode;
     let Inst{11-8} = 5; // This is always the M = 5 case
-    let Inst{7-4} = r;
+    let Inst{7-4} = arg;
     let Inst{3-0} = m_prime;
 }
 class Memory16IndexStrange<bits<5> opcode, bits<4> m_prime, dag outs, dag ins, string opstr, string argstr>
         : CenturionInst16<outs, ins, opstr, argstr> {
     
-    bits<4> r;
+    bits<4> arg;
     let Inst{15-11} = opcode;
     let Inst{10-8} = 0b101; // This is always the M = 5 case
-    let Inst{7-4} = r;
+    let Inst{7-4} = arg;
     let Inst{3-0} = m_prime;
 }
 

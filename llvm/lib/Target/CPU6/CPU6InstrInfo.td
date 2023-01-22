@@ -44,14 +44,17 @@ def simm16 : Operand<i16> {
     let DecoderMethod = "decodeSImmOperand<16>";
 }
 
-// Most basic instructions to implement for now
-// load
-// store
-// add
-// and
-// nor
-// branch on less than
-// branch on equal
+// a parse method for (PC)+${arg}
+// def PCOffsetOperand : AsmOperandClass {
+//     let Name = "PCOffsetOperand";
+//     let RenderMethod = "addImmOperands";
+//     let PredicateMethod = "isToken"; // IDK about this
+//     let ParserMethod = "parsePCOffset";
+// }
+
+// def pcoffimm8 : Operand<i8> {
+//     let ParserMatchClass = PCOffsetOperand;
+// }
 
 
 //-----------  Control  ---------------//
@@ -82,6 +85,14 @@ def RIM : Control<0x0B, "RIM">;     // Return from Inturrupt Modified
 def ELO : Control<0x0C, "ELO">;     // Enable link to teletype
 def PCX : Control<0x0D, "PCX">;     // Move PC to X
 def DLY : Control<0x0E, "DLY">;     // Delay
+def RSYS: Control<0x0F, "RSYS">;    // Return from JSYS using stack
+
+//---------- CPU6 2E instructions-----//
+// Instruction: <|  opcode   |  sel | M | N |>
+//               |  byte 1   |     byte 2   | 
+// opcode: 1 byte
+// sel: byte 2 high nibble
+// M and N: byte 2 low nibble, 2 bits each
 
 //-----------  Branch  ---------------//
 // The operation code byte defines the condition being tested
@@ -98,7 +109,7 @@ class Branch<bits<8> opcode, string opstr>
 def BL : Branch<0x10, "BL">;    // Branch if Link Set
 def BNL: Branch<0x11, "BNL">;   // Branch if Link Not Set
 def BF : Branch<0x12, "BF">;    // Branch if Fault Set
-def BNF: Branch<0x13, "BF">;    // Branch if Fault Not Set
+def BNF: Branch<0x13, "BNF">;    // Branch if Fault Not Set
 def BZ : Branch<0x14, "BZ">;    // Branch if Equal to Zero
 def BNZ: Branch<0x15, "BNZ">;   // Branch if Not Equal to Zero
 def BM : Branch<0x16, "BM">;    // Branch if Minus Set
@@ -109,8 +120,8 @@ def BS1: Branch<0x1A, "BS1">;   // Branch if Sense Switch 1 Set
 def BS2: Branch<0x1B, "BS2">;   // Branch if Sense Switch 2 Set
 def BS3: Branch<0x1C, "BS3">;   // Branch if Sense Switch 3 Set
 def BS4: Branch<0x1D, "BS4">;   // Branch if Sense Switch 4 Set
-def BTM: Branch<0x1E, "BTM">;   // Branch on Teletype MARK
-def BEP: Branch<0x1F, "BEP">;   // Branch on Even Parity
+def BIE: Branch<0x1E, "BIE">;   // Branch on interrupts enabled
+def BEP: Branch<0x1F, "BEP">;   // Branch on AH at interrupt level 1 bit 0 set (probably)
 
 //-----------  SingleReg  --------------//
 // There are two types of single-register operations, explicit and implicit.
@@ -260,7 +271,7 @@ def XASB: ImplicitReg<0x4F, "XASB">;    // Transfer A Register to S Register (By
 //               and data will be read from there. It's also 16 bits in length
 // 3 - Relative "(PC)+b"; Operand is an 8 bit address that is treated as a displacement to
 //               be applied to the program counter
-// 4 - Relative Indirect "((PC)+b)"; Same as above, but the data at address+displacement 
+// 4 - Relative Indirect; "((PC)+b)"; Same as above, but the data at address+displacement 
 //                        will be treated as a pointer which will be accessed.
 // 5 - Indexed Addressing; This is how all register addressing and modes
 //                         of doing so are defined. The layout looks like this.
@@ -271,20 +282,20 @@ def XASB: ImplicitReg<0x4F, "XASB">;    // Transfer A Register to S Register (By
 //         r is the register operand and M' is as follows:
 //         0 "(r)" - Use register directly as address
 //         1 "(r)" - Use register as address and increment after use
-//         2 "(r)-inc" - Decrement register and use as address
+//         2 "(r-dec)" - Decrement register and use as address
 //         3 - Unused
 //         4 "((r))" - Use regiser as indirect address
-//         5 "((r)+inc)" - Use register as indirect address and increment after use
-//         6 "((r)-inc)" - Decrement register and use as indirect address
+//         5 "((r)), inc" - Use register as indirect address and increment after use
+//         6 "((r-dec))" - Decrement register and use as indirect address
 //         7 - Not used
 //		--- 16 bit instructions above, 24 bit below
-//         8 "(r)+disp" - Add displacement byte to register and use as direct address
-//         9 "(r)+disp" - Add displacement byte and use as direct address, then increment register
-//         A "(r)-inc+disp" - Decrement register, add displacement byte, and use as direct address
+//         8 "(r+disp)" - Add displacement byte to register and use as direct address
+//         9 "(r+disp), inc" - Add displacement byte and use as direct address, then increment register
+//         A "(r-dec+disp)" - Decrement register, add displacement byte, and use as direct address
 //         B - Not used
-//         C "((r)+disp)" - Add displacement to register, and use as direct address
-//         D "((r)+disp)" - Add displacement to register, and use as direct address
-//         E "((r)-inc+disp)" - Decrement register, addd displacement byte, and use as indirect address
+//         C "(r+disp)" - Add displacement to register, and use as direct address
+//         D "((r+disp)), inc" - Add displacement to register, and use as indirect address, the increment register after
+//         E "((r-dec+disp))" - Decrement register, add displacement byte, and use as indirect address
 //         F - Not used
 //     !!IMPORTANT!! - Inc/decrementing will be by 1 or 2, depending on if instruction
 //                     is used in byte or word mode
@@ -312,22 +323,22 @@ class MemRef16<bits<4> opcode, bits<4> M, DAGOperand optype, string opstr, strin
 class MemRef16Strange<bits<5> opcode, bits<3> M, DAGOperand optype, string opstr, string argstr="$arg">
       : Memory16Strange<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
 // Two byte m prime flavor of opcode, only optype we'll need here is GPR or GPRB
-class MemRef16Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
-      : Memory16Index<opcode, m_prime, (outs), (ins optype: $r), opstr, "$r"> { }
-class MemRef16IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
-      : Memory16IndexStrange<opcode, m_prime, (outs), (ins optype: $r), opstr, "$r"> { }
+class MemRef16Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr, string argstr="$arg">
+      : Memory16Index<opcode, m_prime, (outs), (ins optype: $arg), opstr, argstr> { }
+class MemRef16IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr, string argstr="$arg">
+      : Memory16IndexStrange<opcode, m_prime, (outs), (ins optype: $arg), opstr, argstr> { }
 // Three byte flavor of opcode
 class MemRef24<bits<4> opcode, bits<4> M, DAGOperand optype, string opstr, string argstr="$arg">
       : Memory24<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
 class MemRef24Strange<bits<5> opcode, bits<3> M, DAGOperand optype, string opstr, string argstr="$arg">
       : Memory24Strange<opcode, M, (outs), (ins optype: $arg), opstr, argstr> { }
 // Three byte m_rime flavor of opcode, its M is always 5 so we don't bother passing that in
-class MemRef24Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
-      : Memory24Index<opcode, m_prime, (outs), (ins optype: $r, uimm8: $arg),
-                      opstr, "$r,$arg"> { }
-class MemRef24IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr>
-      : Memory24IndexStrange<opcode, m_prime, (outs), (ins optype: $r, uimm8: $arg),
-                      opstr, "$r,$arg"> { }
+class MemRef24Index<bits<4> opcode, bits<4> m_prime, DAGOperand optype, string opstr, string argstr="$r,$arg">
+      : Memory24Index<opcode, m_prime, (outs), (ins optype: $r, i8imm: $arg),
+                      opstr, argstr> { }
+class MemRef24IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, string opstr, string argstr="$r,$arg">
+      : Memory24IndexStrange<opcode, m_prime, (outs), (ins optype: $r, i8imm: $arg),
+                      opstr, argstr> { }
 
 class Memop<string name, int opcw, int opcb> {
     string Name = name;
@@ -343,43 +354,44 @@ foreach OP = [
         ] in {
     def OP.Name#_0 : MemRef24<OP.Opcodew, 0x0, i16imm, OP.Name>;
     def OP.Name#B_0 : MemRef24<OP.Opcodeb, 0x0, i16imm, OP.Name#"B">;
-    def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;
-    def OP.Name#B_1 : MemRef24<OP.Opcodeb, 0x1, i16imm, OP.Name#"B", "(${arg})">;
-    def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;
-    def OP.Name#B_2 : MemRef24<OP.Opcodeb, 0x2, i16imm, OP.Name#"B", "((${arg}))">;
-    def OP.Name#_3 : MemRef16<OP.Opcodew, 0x3, i8imm, OP.Name#"_PC">;
-    def OP.Name#B_3 : MemRef16<OP.Opcodeb, 0x3, i8imm, OP.Name#"B_PC">;
-    def OP.Name#_4 : MemRef16<OP.Opcodew, 0x4, i8imm, OP.Name#"_PC_I">;
-    def OP.Name#B_4 : MemRef16<OP.Opcodeb, 0x4, i8imm, OP.Name#"B_PC_I">;
-    def OP.Name#_5_0: MemRef16Index<OP.Opcodew, 0x0, GPR, OP.Name#"_RM_0">;
-    def OP.Name#B_5_0: MemRef16Index<OP.Opcodeb, 0x0, GPR, OP.Name#"B_RM_0">;
-    def OP.Name#_5_1: MemRef16Index<OP.Opcodew, 0x1, GPR, OP.Name#"_RM_1">;
-    def OP.Name#B_5_1: MemRef16Index<OP.Opcodeb, 0x1, GPR, OP.Name#"B_RM_1">;
-    def OP.Name#_5_2: MemRef16Index<OP.Opcodew, 0x2, GPR, OP.Name#"_RM_2">;
-    def OP.Name#B_5_2: MemRef16Index<OP.Opcodeb, 0x2, GPR, OP.Name#"B_RM_2">;
-    def OP.Name#_5_3: MemRef16Index<OP.Opcodew, 0x3, GPR, OP.Name#"_RM_3">;
-    def OP.Name#B_5_3: MemRef16Index<OP.Opcodeb, 0x3, GPR, OP.Name#"B_RM_3">;
-    def OP.Name#_5_4: MemRef16Index<OP.Opcodew, 0x4, GPR, OP.Name#"_RM_4">;
-    def OP.Name#B_5_4: MemRef16Index<OP.Opcodeb, 0x4, GPR, OP.Name#"B_RM_4">;
-    def OP.Name#_5_5: MemRef16Index<OP.Opcodew, 0x5, GPR, OP.Name#"_RM_5">;
-    def OP.Name#B_5_5: MemRef16Index<OP.Opcodeb, 0x5, GPR, OP.Name#"B_RM_5">;
-    def OP.Name#_5_6: MemRef16Index<OP.Opcodew, 0x6, GPR, OP.Name#"_RM_6">;
-    def OP.Name#B_5_6: MemRef16Index<OP.Opcodeb, 0x6, GPR, OP.Name#"B_RM_6">;
+    def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
+    def OP.Name#B_1 : MemRef24<OP.Opcodeb, 0x1, i16imm, OP.Name#"B", "(${arg})">;   //(ptr)
+    def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;      //((ptr))
+    def OP.Name#B_2 : MemRef24<OP.Opcodeb, 0x2, i16imm, OP.Name#"B", "((${arg}))">; //((ptr))
+    def OP.Name#_3 : MemRef16<OP.Opcodew, 0x3, i8imm, OP.Name, "(PC)+${arg}">;      //offset
+    def OP.Name#B_3 : MemRef16<OP.Opcodeb, 0x3, i8imm, OP.Name#"B", "(PC)+${arg}">; //offset
+    def OP.Name#_4 : MemRef16<OP.Opcodew, 0x4, i8imm, OP.Name, "((PC)+${arg})">;    //((offset))
+    def OP.Name#B_4 : MemRef16<OP.Opcodeb, 0x4, i8imm, OP.Name#"B", "((PC)+${arg})">; //((offset))
+    def OP.Name#_5_0: MemRef16Index<OP.Opcodew, 0x0, GPR, OP.Name, "(${arg})">;     //(r)    
+    def OP.Name#B_5_0: MemRef16Index<OP.Opcodeb, 0x0, GPRB, OP.Name#"B", "(${arg})">; //(r)
+    def OP.Name#_5_1: MemRef16Index<OP.Opcodew, 0x1, GPR, OP.Name#"_I", "(${arg})">; //I (r)
+    def OP.Name#B_5_1: MemRef16Index<OP.Opcodeb, 0x1, GPRB, OP.Name#"B_I", "(${arg})">; //I (r)      
+    def OP.Name#_5_2: MemRef16Index<OP.Opcodew, 0x2, GPR, OP.Name#"_D", "(${arg})">;    //D (r)
+    def OP.Name#B_5_2: MemRef16Index<OP.Opcodeb, 0x2, GPRB, OP.Name#"B_D", "(${arg})">; //D (r)
+    // 3 is not used
+    def OP.Name#_5_4: MemRef16Index<OP.Opcodew, 0x4, GPR, OP.Name, "((${arg}))">;       //((r))
+    def OP.Name#B_5_4: MemRef16Index<OP.Opcodeb, 0x4, GPRB, OP.Name#"B", "((${arg}))">; //((r))
+    def OP.Name#_5_5: MemRef16Index<OP.Opcodew, 0x5, GPR, OP.Name#"_I", "((${arg}))">;  //I ((r))
+    def OP.Name#B_5_5: MemRef16Index<OP.Opcodeb, 0x5, GPRB, OP.Name#"B_I", "((${arg}))">;   //I ((r))
+    def OP.Name#_5_6: MemRef16Index<OP.Opcodew, 0x6, GPR, OP.Name#"_D", "((${arg}))">;  //D ((r))
+    def OP.Name#B_5_6: MemRef16Index<OP.Opcodeb, 0x6, GPRB, OP.Name#"B_D", "((${arg}))">;   //D ((r))
     // 7 is not used
-    def OP.Name#_5_8: MemRef24Index<OP.Opcodew, 0x8, GPR, OP.Name#"_RM_8">;
-    def OP.Name#B_5_8: MemRef24Index<OP.Opcodeb, 0x8, GPR, OP.Name#"B_RM_8">;
-    def OP.Name#_5_9: MemRef24Index<OP.Opcodew, 0x9, GPR, OP.Name#"_RM_9">;
-    def OP.Name#B_5_9: MemRef24Index<OP.Opcodeb, 0x9, GPR, OP.Name#"B_RM_9">;
-    def OP.Name#_5_A: MemRef24Index<OP.Opcodew, 0xA, GPR, OP.Name#"_RM_A">;
-    def OP.Name#B_5_A: MemRef24Index<OP.Opcodeb, 0xA, GPR, OP.Name#"B_RM_A">;
+    def OP.Name#_5_8: MemRef24Index<OP.Opcodew, 0x8, GPR, OP.Name, "(${r}),$arg">;      //(r),disp
+    def OP.Name#B_5_8: MemRef24Index<OP.Opcodeb, 0x8, GPRB, OP.Name#"B", "(${r}),$arg">;    //(r),disp
+    def OP.Name#_5_9: MemRef24Index<OP.Opcodew, 0x9, GPR, OP.Name#"_I", "(${r}),$arg">; //I (r),disp
+    def OP.Name#B_5_9: MemRef24Index<OP.Opcodeb, 0x9, GPRB, OP.Name#"B_I", "(${r}),$arg">;  //I (r),disp
+    def OP.Name#_5_A: MemRef24Index<OP.Opcodew, 0xA, GPR, OP.Name#"_D", "(${r}),$arg">;  //D (r),disp
+    def OP.Name#B_5_A: MemRef24Index<OP.Opcodeb, 0xA, GPRB, OP.Name#"B_D", "(${r}),$arg">;  //D (r),disp
     // B is not used
-    def OP.Name#_5_C: MemRef24Index<OP.Opcodew, 0xC, GPR, OP.Name#"_RM_C">;
-    def OP.Name#B_5_C: MemRef24Index<OP.Opcodeb, 0xC, GPR, OP.Name#"B_RM_C">;
-    def OP.Name#_5_D: MemRef24Index<OP.Opcodew, 0xD, GPR, OP.Name#"_RM_D">;
-    def OP.Name#B_5_D: MemRef24Index<OP.Opcodeb, 0xD, GPR, OP.Name#"B_RM_D">;
-    def OP.Name#_5_E: MemRef24Index<OP.Opcodew, 0xE, GPR, OP.Name#"_RM_E">;
-    def OP.Name#B_5_E: MemRef24Index<OP.Opcodeb, 0xE, GPR, OP.Name#"B_RM_E">;
+    def OP.Name#_5_C: MemRef24Index<OP.Opcodew, 0xC, GPR, OP.Name, "(${r}),${arg}">;  //(r),disp
+    def OP.Name#B_5_C: MemRef24Index<OP.Opcodeb, 0xC, GPRB, OP.Name#"B", "(${r}),${arg}">;  //(r),disp
+    def OP.Name#_5_D: MemRef24Index<OP.Opcodew, 0xD, GPR, OP.Name#"_I", "((${r})),$arg">;   //I ((r)),disp
+    def OP.Name#B_5_D: MemRef24Index<OP.Opcodeb, 0xD, GPRB, OP.Name#"B_I", "((${r})),$arg">;   //I ((r)),disp
+    def OP.Name#_5_E: MemRef24Index<OP.Opcodew, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;   //D ((r)),disp
+    def OP.Name#B_5_E: MemRef24Index<OP.Opcodeb, 0xE, GPRB, OP.Name#"B_D", "((${r})),$arg">;   //D ((r)),disp
     // F is not used
+    // These are the implicits, they have no operands so they literally can't be implemented
+    // without virtual instructions
     def OP.Name#_A: MemRef8<OP.Opcodew, 0x8, OP.Name#"_A">;  // A register
     def OP.Name#B_A: MemRef8<OP.Opcodeb, 0x8, OP.Name#"B_A">;  // A register
     def OP.Name#_B: MemRef8<OP.Opcodew, 0x9, OP.Name#"_B">;  // B register
@@ -415,78 +427,21 @@ foreach OP = [
     }
     def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
     def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
-    def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name#"_PC">;
-    def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name#"_PC_I">;
-    def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name#"_RM_0">;
-    def OP.Name#_5_1: MemRef16IndexStrange<OP.Opcode, 0x1, GPR, OP.Name#"_RM_1">;
-    def OP.Name#_5_2: MemRef16IndexStrange<OP.Opcode, 0x2, GPR, OP.Name#"_RM_2">;
-    def OP.Name#_5_3: MemRef16IndexStrange<OP.Opcode, 0x3, GPR, OP.Name#"_RM_3">;
-    def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name#"_RM_4">;
-    def OP.Name#_5_5: MemRef16IndexStrange<OP.Opcode, 0x5, GPR, OP.Name#"_RM_5">;
-    def OP.Name#_5_6: MemRef16IndexStrange<OP.Opcode, 0x6, GPR, OP.Name#"_RM_6">;
+    def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name, "(PC)+${arg}">;
+    def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name, "((PC)+${arg})">;
+    def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name, "(${arg})">;
+    def OP.Name#_5_1: MemRef16IndexStrange<OP.Opcode, 0x1, GPR, OP.Name#"_I", "(${arg})">;
+    def OP.Name#_5_2: MemRef16IndexStrange<OP.Opcode, 0x2, GPR, OP.Name#"_D", "(${arg})">;
+    // 3 is not used
+    def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name, "((${arg}))">;
+    def OP.Name#_5_5: MemRef16IndexStrange<OP.Opcode, 0x5, GPR, OP.Name#"_I", "((${arg}))">;
+    def OP.Name#_5_6: MemRef16IndexStrange<OP.Opcode, 0x6, GPR, OP.Name#"_D", "((${arg}))">;
     // 7 is not used
-    def OP.Name#_5_8: MemRef24IndexStrange<OP.Opcode, 0x8, GPR, OP.Name#"_RM_8">;
-    def OP.Name#_5_9: MemRef24IndexStrange<OP.Opcode, 0x9, GPR, OP.Name#"_RM_9">;
-    def OP.Name#_5_A: MemRef24IndexStrange<OP.Opcode, 0xA, GPR, OP.Name#"_RM_A">;
+    def OP.Name#_5_8: MemRef24IndexStrange<OP.Opcode, 0x8, GPR, OP.Name, "(${r}),$arg">;
+    def OP.Name#_5_9: MemRef24IndexStrange<OP.Opcode, 0x9, GPR, OP.Name#"_I", "(${r}),$arg">;
+    def OP.Name#_5_A: MemRef24IndexStrange<OP.Opcode, 0xA, GPR, OP.Name#"_D", "(${r}),$arg">;
     // B is not used
-    def OP.Name#_5_C: MemRef24IndexStrange<OP.Opcode, 0xC, GPR, OP.Name#"_RM_C">;
-    def OP.Name#_5_D: MemRef24IndexStrange<OP.Opcode, 0xD, GPR, OP.Name#"_RM_D">;
-    def OP.Name#_5_E: MemRef24IndexStrange<OP.Opcode, 0xE, GPR, OP.Name#"_RM_E">;
+    def OP.Name#_5_C: MemRef24IndexStrange<OP.Opcode, 0xC, GPR, OP.Name, "(${r}),${arg}">;
+    def OP.Name#_5_D: MemRef24IndexStrange<OP.Opcode, 0xD, GPR, OP.Name#"_I", "((${r})),$arg">;
+    def OP.Name#_5_E: MemRef24IndexStrange<OP.Opcode, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;
 }
-
-// // The LDA Suite of these instructions
-// def LDA_0 : MemRef24<0x9, 0x0, i16imm, "LDA">;
-// def LDAB_0 : MemRef24<0x8, 0x0, i16imm, "LDAB">;
-// def LDA_1 : MemRef24<0x9, 0x1, i16imm, "LDA", "(${arg})">;
-// def LDAB_1 : MemRef24<0x8, 0x1, i16imm, "LDAB", "(${arg})">;
-// def LDA_2 : MemRef24<0x9, 0x2, i16imm, "LDA", "((${arg}))">;
-// def LDAB_2 : MemRef24<0x8, 0x2, i16imm, "LDAB", "((${arg}))">;
-// def LDA_3 : MemRef16<0x9, 0x3, i8imm, "LDA_PC">;
-// def LDAB_3 : MemRef16<0x8, 0x3, i8imm, "LDAB_PC">;
-// def LDA_4 : MemRef16<0x9, 0x4, i8imm, "LDA_PC_I">;
-// def LDAB_4 : MemRef16<0x8, 0x4, i8imm, "LDAB_PC_I">;
-// def LDA_5_0: MemRef16Index<0x9, 0x0, GPR, "LDA_RM_0">;
-// def LDAB_5_0: MemRef16Index<0x8, 0x0, GPR, "LDAB_RM_0">;
-// def LDA_5_1: MemRef16Index<0x9, 0x1, GPR, "LDA_RM_1">;
-// def LDAB_5_1: MemRef16Index<0x8, 0x1, GPR, "LDAB_RM_1">;
-// def LDA_5_2: MemRef16Index<0x9, 0x2, GPR, "LDA_RM_2">;
-// def LDAB_5_2: MemRef16Index<0x8, 0x2, GPR, "LDAB_RM_2">;
-// def LDA_5_3: MemRef16Index<0x9, 0x3, GPR, "LDA_RM_3">;
-// def LDAB_5_3: MemRef16Index<0x8, 0x3, GPR, "LDAB_RM_3">;
-// def LDA_5_4: MemRef16Index<0x9, 0x4, GPR, "LDA_RM_4">;
-// def LDAB_5_4: MemRef16Index<0x8, 0x4, GPR, "LDAB_RM_4">;
-// def LDA_5_5: MemRef16Index<0x8, 0x5, GPR, "LDA_RM_5">;
-// def LDAB_5_5: MemRef16Index<0x8, 0x5, GPR, "LDAB_RM_5">;
-// def LDA_5_6: MemRef16Index<0x9, 0x6, GPR, "LDA_RM_6">;
-// def LDAB_5_6: MemRef16Index<0x8, 0x6, GPR, "LDAB_RM_6">;
-// // 7 is not used
-// def LDA_5_8: MemRef24Index<0x9, 0x8, GPR, "LDA_RM_8">;
-// def LDAB_5_8: MemRef24Index<0x8, 0x8, GPR, "LDAB_RM_8">;
-// def LDA_5_9: MemRef24Index<0x9, 0x9, GPR, "LDA_RM_9">;
-// def LDAB_5_9: MemRef24Index<0x8, 0x9, GPR, "LDAB_RM_9">;
-// def LDA_5_A: MemRef24Index<0x9, 0xA, GPR, "LDA_RM_A">;
-// def LDAB_5_A: MemRef24Index<0x8, 0xA, GPR, "LDAB_RM_A">;
-// // B is not used
-// def LDA_5_C: MemRef24Index<0x9, 0xC, GPR, "LDA_RM_C">;
-// def LDAB_5_C: MemRef24Index<0x8, 0xC, GPR, "LDAB_RM_C">;
-// def LDA_5_D: MemRef24Index<0x9, 0xD, GPR, "LDA_RM_D">;
-// def LDAB_5_D: MemRef24Index<0x8, 0xD, GPR, "LDAB_RM_D">;
-// def LDA_5_E: MemRef24Index<0x9, 0xE, GPR, "LDA_RM_E">;
-// def LDAB_5_E: MemRef24Index<0x8, 0xE, GPR, "LDAB_RM_E">;
-// // F is not used
-// def LDA_A: MemRef8<0x9, 0x8, "LDA_A">;  // A register
-// def LDAB_A: MemRef8<0x8, 0x8, "LDAB_A">;  // A register
-// def LDA_B: MemRef8<0x9, 0x9, "LDA_B">;  // B register
-// def LDAB_B: MemRef8<0x8, 0x9, "LDAB_B">;  // B register
-// def LDA_X: MemRef8<0x9, 0xA, "LDA_X">;  // X register
-// def LDAB_X: MemRef8<0x8, 0xA, "LDAB_X">;  // X register
-// def LDA_Y: MemRef8<0x9, 0xB, "LDA_Y">;  // Y register
-// def LDAB_Y: MemRef8<0x8, 0xB, "LDAB_Y">;  // Y register
-// def LDA_Z: MemRef8<0x9, 0xC, "LDA_Z">;  // Z register
-// def LDAB_Z: MemRef8<0x8, 0xC, "LDAB_Z">;  // Z register
-// def LDA_S: MemRef8<0x9, 0xD, "LDA_S">;  // S register
-// def LDAB_S: MemRef8<0x8, 0xD, "LDAB_S">;  // S register
-// def LDA_C: MemRef8<0x9, 0xE, "LDA_C">;  // C register
-// def LDAB_C: MemRef8<0x8, 0xE, "LDAB_C">;  // C register
-// def LDA_P: MemRef8<0x9, 0xF, "LDA_P">;  // P register
-// def LDAB_P: MemRef8<0x8, 0xF, "LDAB_P">;  // P register
