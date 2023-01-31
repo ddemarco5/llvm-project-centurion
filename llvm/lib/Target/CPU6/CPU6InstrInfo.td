@@ -122,6 +122,7 @@ def BS3: Branch<0x1C, "BS3">;   // Branch if Sense Switch 3 Set
 def BS4: Branch<0x1D, "BS4">;   // Branch if Sense Switch 4 Set
 def BIE: Branch<0x1E, "BIE">;   // Branch on interrupts enabled
 def BEP: Branch<0x1F, "BEP">;   // Branch on AH at interrupt level 1 bit 0 set (probably)
+def JSYS: Branch<0x66, "JSYS">; // System call
 
 //-----------  SingleReg  --------------//
 // There are two types of single-register operations, explicit and implicit.
@@ -170,6 +171,43 @@ def RRRB: SingleReg16_B<0x26, "RRRB">;   // Rotate Register Right (Byte mode)
 def RLR : SingleReg16<0x37, "RLR">;      // Rotate Register Left
 def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 
+// ------------------
+//  TODO!!!! 2E Instruction block here. I need some clearer documentation on the layout
+// ------------------
+
+// ------------------
+// 2F instruction block TODO; wiki says these are '2e rs'
+// assuming this means |  opcode   |   r  |  s  |
+//                     |   byte 1  |   byte 2   |
+// ------------------
+class SingleReg16DMA<bits<8> opcode, bits<4> sel, string opstr>
+      : SingleArg16DMA<opcode, sel, (outs), (ins GPR: $argnib), opstr, "$argnib"> { }
+
+def LDDMAA: SingleReg16DMA<0x2E, 0x0, "LDDMAA">;
+def STDMAA: SingleReg16DMA<0x2E, 0x1, "STDMAA">;
+def LDDMAC: SingleReg16DMA<0x2E, 0x2, "LDDMAC">;
+def STDMAC: SingleReg16DMA<0x2E, 0x3, "STDMAC">;
+def SETDMAM: SingleReg16DMA<0x2E, 0x4, "SETDMAM">;
+def SETDMAMR: SingleReg16DMA<0x2E, 0x5, "SETDMAMR">;
+def EDMA: SingleReg16DMA<0x2E, 0x6, "EDMA">;
+def DDMA: SingleReg16DMA<0x2E, 0x7, "DDMA">;
+def LDDMAMAP: SingleReg16DMA<0x2E, 0x8, "LDDMAMAP">;
+def STDMAMAP: SingleReg16DMA<0x2E, 0x9, "STDMAMAP">;
+
+// ------------------
+//  TODO!!!! 46 Instruction block here. I need some clearer documentation on the layout
+// ------------------
+
+// ------------------
+//  TODO!!!! 47,67 Instruction block here. I need some clearer documentation on the layout
+// ------------------
+
+// ------------------
+//  TODO!!!! D6 Instruction block here. I think I understand the wiki but I need to make sure
+// ------------------
+
+
+
 //-----------  Implicit instructions  ---------------//
 // Instruction: <|opcode|>
 // opcode = 8 bits
@@ -208,11 +246,11 @@ def DNX : Implicit<0x3F, "DNX">;        // Decrement X Register
 // dr = 4 bits
 //------------------------------------//
 // Word operation flavor of opcode
-class DoubleReg16<bits<8> opcode, string opstr>
-      : SingleArg16HL<opcode, (outs GPR: $arglnibble), (ins GPR: $arghnibble),
+class DoubleReg16<bits<8> opcode, string opstr, DAGOperand optype1=GPR, DAGOperand optype2=GPR>
+      : SingleArg16HL<opcode, (outs optype1: $arglnibble), (ins optype2: $arghnibble),
                      opstr, "$arghnibble,$arglnibble"> { }
 // Byte operation flavor
-class DoubleReg16_B<bits<8> opcode, string opstr>
+class DoubleReg16_B<bits<8> opcode,  string opstr>
       : SingleArg16HL<opcode, (outs GPRB: $arglnibble), (ins GPRB: $arghnibble),
                      opstr, "$arghnibble,$arglnibble"> { }
 
@@ -228,6 +266,10 @@ def ORE : DoubleReg16<0x54, "ORE">;     // OR Exclusive
 def OREB: DoubleReg16_B<0x44, "OREB">;  // OR Exclusive (Byte mode)
 def XFR : DoubleReg16<0x55, "XFR">;     // Transfer
 def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
+def MULU: DoubleReg16<0x77, "MULU">;    // Unsigned multiply
+def DIVU: DoubleReg16<0x78, "DIVU">;    // Unsigned divide
+def PUSH: DoubleReg16<0x7E, "PUSH", GPR, i8imm>;    // Push 8 bit registers onto stack
+def POP: DoubleReg16<0x7F, "POP", GPR, i8imm>;    // Push 8 bit registers onto stack
 
 //-----------  Implicit Register Rnstructions  ---------------//
 // Instruction: <|opcode|>
@@ -445,3 +487,9 @@ foreach OP = [
     def OP.Name#_5_D: MemRef24IndexStrange<OP.Opcode, 0xD, GPR, OP.Name#"_I", "((${r})),$arg">;
     def OP.Name#_5_E: MemRef24IndexStrange<OP.Opcode, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;
 }
+
+class TwoArg24<bits<8> opcode, string opstr, string argstr="$arg1,$arg2">
+      : DoubleArg24<opcode, (outs), (ins i8imm: $arg1, i8imm: $arg2), opstr, argstr> { }
+
+def LDCC: TwoArg24<0x6E, "LDCC", "(${arg1}),(${arg2})">;
+def STCC: TwoArg24<0x6F, "STCC", "(${arg1}),(${arg2})">;

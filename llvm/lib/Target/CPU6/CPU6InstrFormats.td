@@ -47,6 +47,17 @@ class SingleArg16<bits<8> op, dag outs, dag ins, string opstr, string argstr>
     let Inst{7-0} = argbyte;
 }
 
+class SingleArg16DMA<bits<8> op, bits<4> sel, dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst16<outs, ins, opstr, argstr> {
+
+
+    bits<4> argnib;
+    let Inst{15-8} = op;
+    let Inst{7-4} = argnib;
+    let Inst{3-0} = sel;
+}
+
+
 // A 16 bit opcode, where the high and low nibble of our 2nd byte are the arguments
 class SingleArg16HL<bits<8> op, dag outs, dag ins, string opstr, string argstr>
       : CenturionInst16<outs, ins, opstr, argstr> {
@@ -67,6 +78,18 @@ class SingleArg16H<bits<8> op, dag outs, dag ins, string opstr, string argstr>
     bits<4> arghnibble;
     let Inst{15-8} = op;
     let Inst{7-4} = arghnibble;
+}
+
+// A 24 bit opcode with two 8 bit args
+class DoubleArg24<bits<8> op, dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst24<outs, ins, opstr, argstr> {
+
+
+    bits<8> arg1;
+    bits<8> arg2;
+    let Inst{23-16} = op;
+    let Inst{15-8} = arg1;
+    let Inst{7-0} = arg2;
 }
 
 
