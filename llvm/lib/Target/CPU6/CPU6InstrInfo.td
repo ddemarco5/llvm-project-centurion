@@ -82,10 +82,10 @@ def CL : Control<0x08, "CL">;       // Complement Link
 def RSR : Control<0x09, "RSR">;     // Return from Subroutine
 def RI : Control<0x0A, "RI">;       // Return from Inturrupt
 def RIM : Control<0x0B, "RIM">;     // Return from Inturrupt Modified
-def ELO : Control<0x0C, "ELO">;     // Enable link to teletype
+def SYN : Control<0x0C, "SYN">;     // Enable link to teletype
 def PCX : Control<0x0D, "PCX">;     // Move PC to X
 def DLY : Control<0x0E, "DLY">;     // Delay
-def RSYS: Control<0x0F, "RSYS">;    // Return from JSYS using stack
+def RSV: Control<0x0F, "RSV">;    // Return from JSYS using stack
 
 //---------- CPU6 2E instructions-----//
 // Instruction: <|  opcode   |  sel | M | N |>
@@ -120,9 +120,9 @@ def BS1: Branch<0x1A, "BS1">;   // Branch if Sense Switch 1 Set
 def BS2: Branch<0x1B, "BS2">;   // Branch if Sense Switch 2 Set
 def BS3: Branch<0x1C, "BS3">;   // Branch if Sense Switch 3 Set
 def BS4: Branch<0x1D, "BS4">;   // Branch if Sense Switch 4 Set
-def BIE: Branch<0x1E, "BIE">;   // Branch on interrupts enabled
-def BEP: Branch<0x1F, "BEP">;   // Branch on AH at interrupt level 1 bit 0 set (probably)
-def JSYS: Branch<0x66, "JSYS">; // System call
+def BI: Branch<0x1E, "BI">;   // Branch on interrupts enabled
+def BCK: Branch<0x1F, "BCK">;   // Branch on AH at interrupt level 1 bit 0 set (probably)
+def SVC: Branch<0x66, "SVC">; // System call
 
 //-----------  SingleReg  --------------//
 // There are two types of single-register operations, explicit and implicit.
@@ -231,7 +231,7 @@ def SRAB: Implicit<0x2C, "SRAB">;       // Shift Accumulator Right (Byte mode)
 def SLA : Implicit<0x3D, "SLA">;        // Shift Accumulator Left
 def SLAB: Implicit<0x2D, "SLAB">;       // Shift Accumulator Left (Byte mode)
 def INX : Implicit<0x3E, "INX">;        // Inrement X Register
-def DNX : Implicit<0x3F, "DNX">;        // Decrement X Register
+def DCX : Implicit<0x3F, "DCX">;        // Decrement X Register
 
 
 //-----------  DoubleReg  --------------//
@@ -266,9 +266,9 @@ def ORE : DoubleReg16<0x54, "ORE">;     // OR Exclusive
 def OREB: DoubleReg16_B<0x44, "OREB">;  // OR Exclusive (Byte mode)
 def XFR : DoubleReg16<0x55, "XFR">;     // Transfer
 def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
-def MULU: DoubleReg16<0x77, "MULU">;    // Unsigned multiply
-def DIVU: DoubleReg16<0x78, "DIVU">;    // Unsigned divide
-def PUSH: DoubleReg16<0x7E, "PUSH", GPR, i8imm>;    // Push 8 bit registers onto stack
+def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
+def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
+def STK: DoubleReg16<0x7E, "STK", GPR, i8imm>;    // Push 8 bit registers onto stack
 def POP: DoubleReg16<0x7F, "POP", GPR, i8imm>;    // Push 8 bit registers onto stack
 
 //-----------  Implicit Register Rnstructions  ---------------//
@@ -491,5 +491,5 @@ foreach OP = [
 class TwoArg24<bits<8> opcode, string opstr, string argstr="$arg1,$arg2">
       : DoubleArg24<opcode, (outs), (ins i8imm: $arg1, i8imm: $arg2), opstr, argstr> { }
 
-def LDCC: TwoArg24<0x6E, "LDCC", "(${arg1}),(${arg2})">;
-def STCC: TwoArg24<0x6F, "STCC", "(${arg1}),(${arg2})">;
+def LST: TwoArg24<0x6E, "LST", "(${arg1}),(${arg2})">;
+def SST: TwoArg24<0x6F, "SST", "(${arg1}),(${arg2})">;
