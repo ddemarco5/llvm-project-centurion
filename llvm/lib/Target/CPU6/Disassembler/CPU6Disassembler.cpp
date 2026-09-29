@@ -244,6 +244,18 @@ DecodeStatus CPU6Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
             return Result;
         }
     }
+    // 0x47 stub is 6 bytes. Try it only when the whole instruction is present.
+    if (Bytes.size() >= 6) {
+        uint64_t Wide6 = 0;
+        for (unsigned I = 0; I < 6; ++I)
+            Wide6 = (Wide6 << 8) | Bytes[I];
+        Result = decodeInstruction(DecoderTable48, MI, Wide6, Address, this, STI);
+        LLVM_DEBUG(dbgs() << "Trying to decode as 6 byte instruction.\n");
+        if (Result != MCDisassembler::Fail) {
+            Size = 6;
+            return Result;
+        }
+    }
     // BIGNUM is 7 bytes. Try it only when the whole instruction is present.
     if (Bytes.size() >= 7) {
         uint64_t Wide = 0;
