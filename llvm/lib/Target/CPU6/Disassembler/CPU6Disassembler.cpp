@@ -235,6 +235,15 @@ DecodeStatus CPU6Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
         Size = 3;
         return Result;
     }
+    // 5x literal ADD/XFR. Try it only when four bytes are present.
+    if (Bytes.size() >= 4) {
+        Result = decodeInstruction(DecoderTable32, MI, Inst, Address, this, STI);
+        LLVM_DEBUG(dbgs() << "Trying to decode as 4 byte instruction.\n");
+        if (Result != MCDisassembler::Fail) {
+            Size = 4;
+            return Result;
+        }
+    }
     // BIGNUM is 7 bytes. Try it only when the whole instruction is present.
     if (Bytes.size() >= 7) {
         uint64_t Wide = 0;
