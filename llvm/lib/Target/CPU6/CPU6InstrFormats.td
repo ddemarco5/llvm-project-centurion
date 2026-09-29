@@ -48,6 +48,16 @@ class CenturionInst32<dag outs, dag ins, string opstr, string argstr>
     let Size = 4;
 }
 
+// Five-byte instruction. webCenREE's page and block-move tails use this
+// width. The emitter writes Inst big-endian.
+class CenturionInst40<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
+
+    field bits<40> Inst;
+
+    let Size = 5;
+}
+
 // Six-byte instruction. The 0x47 stub is an opcode plus five
 // uninterpreted bytes. The emitter writes Inst big-endian.
 class CenturionInst48<dag outs, dag ins, string opstr, string argstr>

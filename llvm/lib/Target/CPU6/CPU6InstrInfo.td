@@ -541,8 +541,8 @@ def MVFR : MVFR24;
 // nibble's low bit is set. `d6 35 00 05` is st B, [X+5]: high is B
 // with the low bit set, low is X with the low bit set, then a
 // big-endian displacement.
-// Both-even (register to register) and left-odd/right-even (literal)
-// do not appear in a listing that shows the bytes. They are not defined.
+// Both-even and left-odd/right-even are the webCenREE rrsrfetchw modes
+// added below. Direct and indexed stay the load7 forms.
 class STRMem32
       : CenturionInst32<(outs), (ins GPR:$src, i16imm:$addr),
                         "STR", "$src,(${addr})"> {
@@ -578,6 +578,1534 @@ class STRIdx32
   let Inst{15-0} = disp;
 }
 def STRidx : STRIdx32;
+
+// webCenREE (Meisaka) operand widths.
+// ex_decode / decode_exmode: mode 0 is a big-endian word,
+// mode 1 is an index byte plus a displacement, mode 2 is one
+// register byte, mode 3 is an inline literal. The index byte's
+// low bit selects an 8-bit or 16-bit displacement. Its low
+// nibble is 0 here; webCenREE also allows a second even register there.
+// A register byte that is only a source keeps the register in
+// the high nibble. A register byte that is only a destination
+// keeps it in the low nibble. Both modes 2 share one byte.
+class OpSel<string name, bits<4> sel> {
+  string Name = name;
+  bits<4> Sel = sel;
+}
+
+class Mem47RR<bits<4> sel, string name>
+      : CenturionInst32<(outs), (ins uimm8:$count, GPR:$src, GPR:$dst),
+        name, "$count,$src,$dst"> {
+  bits<8> count;
+  bits<4> src;
+  bits<4> dst;
+  let Inst{31-24} = 71;
+  let Inst{23-20} = sel;
+  let Inst{19-16} = 10;
+  let Inst{15-8} = count;
+  let Inst{7-4} = src;
+  let Inst{3-0} = dst;
+}
+
+class Mem47RD<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$count, GPR:$src, i16imm:$addr),
+        name, "$count,$src,(${addr})"> {
+  bits<8> count;
+  bits<4> src;
+  bits<16> addr;
+  let Inst{47-40} = 71;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 8;
+  let Inst{31-24} = count;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = addr;
+}
+
+class Mem47DR<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$count, i16imm:$addr, GPR:$dst),
+        name, "$count,(${addr}),$dst"> {
+  bits<8> count;
+  bits<16> addr;
+  bits<4> dst;
+  let Inst{47-40} = 71;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 2;
+  let Inst{31-24} = count;
+  let Inst{23-8} = addr;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem47DD<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, i16imm:$addr, i16imm:$addr2),
+        name, "$count,(${addr}),(${addr2})"> {
+  bits<8> count;
+  bits<16> addr;
+  bits<16> addr2;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 0;
+  let Inst{39-32} = count;
+  let Inst{31-16} = addr;
+  let Inst{15-0} = addr2;
+}
+
+class Mem47I8D<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$base, simm8:$disp, i16imm:$addr),
+        name, "$count,(${base}),$disp,(${addr})"> {
+  bits<8> count;
+  bits<4> base;
+  bits<8> disp;
+  bits<16> addr;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 4;
+  let Inst{39-32} = count;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15-0} = addr;
+}
+
+class Mem47DI8<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, i16imm:$addr, GPR:$base, simm8:$disp),
+        name, "$count,(${addr}),(${base}),$disp"> {
+  bits<8> count;
+  bits<16> addr;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 1;
+  let Inst{39-32} = count;
+  let Inst{31-16} = addr;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Mem47I8I8<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$base, simm8:$disp, GPR:$base2, simm8:$disp2),
+        name, "$count,(${base}),$disp,(${base2}),$disp2"> {
+  bits<8> count;
+  bits<4> base;
+  bits<8> disp;
+  bits<4> base2;
+  bits<8> disp2;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 5;
+  let Inst{39-32} = count;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15} = base2{3};
+  let Inst{14} = base2{2};
+  let Inst{13} = base2{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp2;
+}
+
+class Mem47I8R<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$count, GPR:$base, simm8:$disp, GPR:$dst),
+        name, "$count,(${base}),$disp,$dst"> {
+  bits<8> count;
+  bits<4> base;
+  bits<8> disp;
+  bits<4> dst;
+  let Inst{47-40} = 71;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 6;
+  let Inst{31-24} = count;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 0;
+  let Inst{19-16} = 0;
+  let Inst{15-8} = disp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem47RI8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$count, GPR:$src, GPR:$base, simm8:$disp),
+        name, "$count,$src,(${base}),$disp"> {
+  bits<8> count;
+  bits<4> src;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{47-40} = 71;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 9;
+  let Inst{31-24} = count;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Mem47I16R<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$base, simm16:$wdisp, GPR:$dst),
+        name, "$count,(${base}),(${wdisp}),$dst"> {
+  bits<8> count;
+  bits<4> base;
+  bits<16> wdisp;
+  bits<4> dst;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 6;
+  let Inst{39-32} = count;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 1;
+  let Inst{27-24} = 0;
+  let Inst{23-8} = wdisp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem47RI16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$src, GPR:$base, simm16:$wdisp),
+        name, "$count,$src,(${base}),(${wdisp})"> {
+  bits<8> count;
+  bits<4> src;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 9;
+  let Inst{39-32} = count;
+  let Inst{31-28} = src;
+  let Inst{27-24} = 0;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class Fil47R<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins uimm8:$count, i8imm:$lit, GPR:$dst),
+        name, "$count,$lit,$dst"> {
+  bits<8> count;
+  bits<8> lit;
+  bits<4> dst;
+  let Inst{39-32} = 71;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 14;
+  let Inst{23-16} = count;
+  let Inst{15-8} = lit;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Fil47I8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$count, i8imm:$lit, GPR:$base, simm8:$disp),
+        name, "$count,$lit,(${base}),$disp"> {
+  bits<8> count;
+  bits<8> lit;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{47-40} = 71;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 13;
+  let Inst{31-24} = count;
+  let Inst{23-16} = lit;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Fil47I16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm8:$count, i8imm:$lit, GPR:$base, simm16:$wdisp),
+        name, "$count,$lit,(${base}),(${wdisp})"> {
+  bits<8> count;
+  bits<8> lit;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{55-48} = 71;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 13;
+  let Inst{39-32} = count;
+  let Inst{31-24} = lit;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class Mem67RR<bits<4> sel, string name>
+      : CenturionInst24<(outs), (ins GPR:$src, GPR:$dst),
+        name, "$src,$dst"> {
+  bits<4> src;
+  bits<4> dst;
+  let Inst{23-16} = 103;
+  let Inst{15-12} = sel;
+  let Inst{11-8} = 10;
+  let Inst{7-4} = src;
+  let Inst{3-0} = dst;
+}
+
+class Mem67RD<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$src, i16imm:$addr),
+        name, "$src,(${addr})"> {
+  bits<4> src;
+  bits<16> addr;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 8;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = addr;
+}
+
+class Mem67DR<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins i16imm:$addr, GPR:$dst),
+        name, "(${addr}),$dst"> {
+  bits<16> addr;
+  bits<4> dst;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 2;
+  let Inst{23-8} = addr;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem67DD<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins i16imm:$addr, i16imm:$addr2),
+        name, "(${addr}),(${addr2})"> {
+  bits<16> addr;
+  bits<16> addr2;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = addr;
+  let Inst{15-0} = addr2;
+}
+
+class Mem67I8R<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$base, simm8:$disp, GPR:$dst),
+        name, "(${base}),$disp,$dst"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> dst;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 6;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 0;
+  let Inst{19-16} = 0;
+  let Inst{15-8} = disp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem67RI8<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$src, GPR:$base, simm8:$disp),
+        name, "$src,(${base}),$disp"> {
+  bits<4> src;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 9;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Mem67I8D<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm8:$disp, i16imm:$addr),
+        name, "(${base}),$disp,(${addr})"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<16> addr;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 4;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15-0} = addr;
+}
+
+class Mem67DI8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins i16imm:$addr, GPR:$base, simm8:$disp),
+        name, "(${addr}),(${base}),$disp"> {
+  bits<16> addr;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 1;
+  let Inst{31-16} = addr;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Mem67I8I8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm8:$disp, GPR:$base2, simm8:$disp2),
+        name, "(${base}),$disp,(${base2}),$disp2"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> base2;
+  bits<8> disp2;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 5;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15} = base2{3};
+  let Inst{14} = base2{2};
+  let Inst{13} = base2{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp2;
+}
+
+class Mem67I16R<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm16:$wdisp, GPR:$dst),
+        name, "(${base}),(${wdisp}),$dst"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<4> dst;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 6;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 1;
+  let Inst{27-24} = 0;
+  let Inst{23-8} = wdisp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Mem67RI16<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$src, GPR:$base, simm16:$wdisp),
+        name, "$src,(${base}),(${wdisp})"> {
+  bits<4> src;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 9;
+  let Inst{31-28} = src;
+  let Inst{27-24} = 0;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class Mem67I16D<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm16:$wdisp, i16imm:$addr),
+        name, "(${base}),(${wdisp}),(${addr})"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<16> addr;
+  let Inst{55-48} = 103;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 4;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 1;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = wdisp;
+  let Inst{15-0} = addr;
+}
+
+class Mem67DI16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins i16imm:$addr, GPR:$base, simm16:$wdisp),
+        name, "(${addr}),(${base}),(${wdisp})"> {
+  bits<16> addr;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{55-48} = 103;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 1;
+  let Inst{39-24} = addr;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class Mem67I8I16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm8:$disp, GPR:$base2, simm16:$wdisp2),
+        name, "(${base}),$disp,(${base2}),(${wdisp2})"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> base2;
+  bits<16> wdisp2;
+  let Inst{55-48} = 103;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 5;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 0;
+  let Inst{35-32} = 0;
+  let Inst{31-24} = disp;
+  let Inst{23} = base2{3};
+  let Inst{22} = base2{2};
+  let Inst{21} = base2{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp2;
+}
+
+class Mem67I16I8<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm16:$wdisp, GPR:$base2, simm8:$disp2),
+        name, "(${base}),(${wdisp}),(${base2}),$disp2"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<4> base2;
+  bits<8> disp2;
+  let Inst{55-48} = 103;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 5;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 1;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = wdisp;
+  let Inst{15} = base2{3};
+  let Inst{14} = base2{2};
+  let Inst{13} = base2{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp2;
+}
+
+class Fil67R<bits<4> sel, string name>
+      : CenturionInst32<(outs), (ins i8imm:$lit, GPR:$dst),
+        name, "$lit,$dst"> {
+  bits<8> lit;
+  bits<4> dst;
+  let Inst{31-24} = 103;
+  let Inst{23-20} = sel;
+  let Inst{19-16} = 14;
+  let Inst{15-8} = lit;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class Fil67D<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins i8imm:$lit, i16imm:$addr),
+        name, "$lit,(${addr})"> {
+  bits<8> lit;
+  bits<16> addr;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 12;
+  let Inst{23-16} = lit;
+  let Inst{15-0} = addr;
+}
+
+class Fil67I8<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins i8imm:$lit, GPR:$base, simm8:$disp),
+        name, "$lit,(${base}),$disp"> {
+  bits<8> lit;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{39-32} = 103;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 13;
+  let Inst{23-16} = lit;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class Fil67I16<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins i8imm:$lit, GPR:$base, simm16:$wdisp),
+        name, "$lit,(${base}),(${wdisp})"> {
+  bits<8> lit;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{47-40} = 103;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 13;
+  let Inst{31-24} = lit;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class PageM3D<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins uimm8:$imm, i16imm:$addr),
+        name, "$imm,(${addr})"> {
+  bits<8> imm;
+  bits<16> addr;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 12;
+  let Inst{23-16} = imm;
+  let Inst{15-0} = addr;
+}
+
+class PageM3R<bits<4> sel, string name>
+      : CenturionInst32<(outs), (ins uimm8:$imm, GPR:$dst),
+        name, "$imm,$dst"> {
+  bits<8> imm;
+  bits<4> dst;
+  let Inst{31-24} = 46;
+  let Inst{23-20} = sel;
+  let Inst{19-16} = 14;
+  let Inst{15-8} = imm;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class PageM3I8<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins uimm8:$imm, GPR:$base, simm8:$disp),
+        name, "$imm,(${base}),$disp"> {
+  bits<8> imm;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 13;
+  let Inst{23-16} = imm;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class PageM3I16<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm8:$imm, GPR:$base, simm16:$wdisp),
+        name, "$imm,(${base}),(${wdisp})"> {
+  bits<8> imm;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 13;
+  let Inst{31-24} = imm;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class PageDD<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins i16imm:$addr, i16imm:$addr2),
+        name, "(${addr}),(${addr2})"> {
+  bits<16> addr;
+  bits<16> addr2;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = addr;
+  let Inst{15-0} = addr2;
+}
+
+class PageDR<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins i16imm:$addr, GPR:$dst),
+        name, "(${addr}),$dst"> {
+  bits<16> addr;
+  bits<4> dst;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 2;
+  let Inst{23-8} = addr;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class PageDI8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins i16imm:$addr, GPR:$base, simm8:$disp),
+        name, "(${addr}),(${base}),$disp"> {
+  bits<16> addr;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 1;
+  let Inst{31-16} = addr;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class PageDI16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins i16imm:$addr, GPR:$base, simm16:$wdisp),
+        name, "(${addr}),(${base}),(${wdisp})"> {
+  bits<16> addr;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{55-48} = 46;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 1;
+  let Inst{39-24} = addr;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class PageRD<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$src, i16imm:$addr),
+        name, "$src,(${addr})"> {
+  bits<4> src;
+  bits<16> addr;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 8;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = addr;
+}
+
+class PageRR<bits<4> sel, string name>
+      : CenturionInst24<(outs), (ins GPR:$src, GPR:$dst),
+        name, "$src,$dst"> {
+  bits<4> src;
+  bits<4> dst;
+  let Inst{23-16} = 46;
+  let Inst{15-12} = sel;
+  let Inst{11-8} = 10;
+  let Inst{7-4} = src;
+  let Inst{3-0} = dst;
+}
+
+class PageRI8<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$src, GPR:$base, simm8:$disp),
+        name, "$src,(${base}),$disp"> {
+  bits<4> src;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 9;
+  let Inst{23-20} = src;
+  let Inst{19-16} = 0;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class PageRI16<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$src, GPR:$base, simm16:$wdisp),
+        name, "$src,(${base}),(${wdisp})"> {
+  bits<4> src;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 9;
+  let Inst{31-28} = src;
+  let Inst{27-24} = 0;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class PageI8D<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm8:$disp, i16imm:$addr),
+        name, "(${base}),$disp,(${addr})"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<16> addr;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 4;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15-0} = addr;
+}
+
+class PageI8R<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins GPR:$base, simm8:$disp, GPR:$dst),
+        name, "(${base}),$disp,$dst"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> dst;
+  let Inst{39-32} = 46;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 6;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 0;
+  let Inst{19-16} = 0;
+  let Inst{15-8} = disp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class PageI8I8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm8:$disp, GPR:$base2, simm8:$disp2),
+        name, "(${base}),$disp,(${base2}),$disp2"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> base2;
+  bits<8> disp2;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 5;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 0;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = disp;
+  let Inst{15} = base2{3};
+  let Inst{14} = base2{2};
+  let Inst{13} = base2{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp2;
+}
+
+class PageI8I16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm8:$disp, GPR:$base2, simm16:$wdisp2),
+        name, "(${base}),$disp,(${base2}),(${wdisp2})"> {
+  bits<4> base;
+  bits<8> disp;
+  bits<4> base2;
+  bits<16> wdisp2;
+  let Inst{55-48} = 46;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 5;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 0;
+  let Inst{35-32} = 0;
+  let Inst{31-24} = disp;
+  let Inst{23} = base2{3};
+  let Inst{22} = base2{2};
+  let Inst{21} = base2{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp2;
+}
+
+class PageI16D<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm16:$wdisp, i16imm:$addr),
+        name, "(${base}),(${wdisp}),(${addr})"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<16> addr;
+  let Inst{55-48} = 46;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 4;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 1;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = wdisp;
+  let Inst{15-0} = addr;
+}
+
+class PageI16R<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins GPR:$base, simm16:$wdisp, GPR:$dst),
+        name, "(${base}),(${wdisp}),$dst"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<4> dst;
+  let Inst{47-40} = 46;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 6;
+  let Inst{31} = base{3};
+  let Inst{30} = base{2};
+  let Inst{29} = base{1};
+  let Inst{28} = 1;
+  let Inst{27-24} = 0;
+  let Inst{23-8} = wdisp;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class PageI16I8<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins GPR:$base, simm16:$wdisp, GPR:$base2, simm8:$disp2),
+        name, "(${base}),(${wdisp}),(${base2}),$disp2"> {
+  bits<4> base;
+  bits<16> wdisp;
+  bits<4> base2;
+  bits<8> disp2;
+  let Inst{55-48} = 46;
+  let Inst{47-44} = sel;
+  let Inst{43-40} = 5;
+  let Inst{39} = base{3};
+  let Inst{38} = base{2};
+  let Inst{37} = base{1};
+  let Inst{36} = 1;
+  let Inst{35-32} = 0;
+  let Inst{31-16} = wdisp;
+  let Inst{15} = base2{3};
+  let Inst{14} = base2{2};
+  let Inst{13} = base2{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp2;
+}
+
+class BN6LitD<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm4:$k, i8imm:$lit, i16imm:$addr),
+        name, "$k,$lit,(${addr})"> {
+  bits<4> k;
+  bits<8> lit;
+  bits<16> addr;
+  let Inst{47-40} = 70;
+  let Inst{39-36} = 0;
+  let Inst{35-32} = k;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 12;
+  let Inst{23-16} = lit;
+  let Inst{15-0} = addr;
+}
+
+class BN6LitI8<bits<4> sel, string name>
+      : CenturionInst48<(outs), (ins uimm4:$k, i8imm:$lit, GPR:$base, simm8:$disp),
+        name, "$k,$lit,(${base}),$disp"> {
+  bits<4> k;
+  bits<8> lit;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{47-40} = 70;
+  let Inst{39-36} = 0;
+  let Inst{35-32} = k;
+  let Inst{31-28} = sel;
+  let Inst{27-24} = 13;
+  let Inst{23-16} = lit;
+  let Inst{15} = base{3};
+  let Inst{14} = base{2};
+  let Inst{13} = base{1};
+  let Inst{12} = 0;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = disp;
+}
+
+class BN6LitR<bits<4> sel, string name>
+      : CenturionInst40<(outs), (ins uimm4:$k, i8imm:$lit, GPR:$dst),
+        name, "$k,$lit,$dst"> {
+  bits<4> k;
+  bits<8> lit;
+  bits<4> dst;
+  let Inst{39-32} = 70;
+  let Inst{31-28} = 0;
+  let Inst{27-24} = k;
+  let Inst{23-20} = sel;
+  let Inst{19-16} = 14;
+  let Inst{15-8} = lit;
+  let Inst{7-4} = 0;
+  let Inst{3-0} = dst;
+}
+
+class BN6LitI16<bits<4> sel, string name>
+      : CenturionInst56<(outs), (ins uimm4:$k, i8imm:$lit, GPR:$base, simm16:$wdisp),
+        name, "$k,$lit,(${base}),(${wdisp})"> {
+  bits<4> k;
+  bits<8> lit;
+  bits<4> base;
+  bits<16> wdisp;
+  let Inst{55-48} = 70;
+  let Inst{47-44} = 0;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 13;
+  let Inst{31-24} = lit;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = 0;
+  let Inst{15-0} = wdisp;
+}
+
+class STRReg16
+      : CenturionInst16<(outs), (ins GPR:$src, GPR:$dst),
+        "STR", "$src,$dst"> {
+  bits<4> src;
+  bits<4> dst;
+  let Inst{15-8} = 214;
+  let Inst{7-4} = src;
+  let Inst{3-0} = dst;
+}
+
+class STRLit32
+      : CenturionInst32<(outs), (ins GPR:$dst, i16imm:$imm),
+        "STR", "$dst,$imm"> {
+  bits<4> dst;
+  bits<16> imm;
+  let Inst{31-24} = 214;
+  let Inst{23-20} = 1;
+  let Inst{19-16} = dst;
+  let Inst{15-0} = imm;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_RR : Mem47RR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_RD : Mem47RD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_DR : Mem47DR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_DD : Mem47DD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_I8D : Mem47I8D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_DI8 : Mem47DI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_I8I8 : Mem47I8I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_I8R : Mem47I8R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_RI8 : Mem47RI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_I16R : Mem47I16R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVF", 4>,
+    OpSel<"CPF", 8>
+] in {
+  def OP.Name#_RI16 : Mem47RI16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FIL", 9>
+] in {
+  def OP.Name#_R : Fil47R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FIL", 9>
+] in {
+  def OP.Name#_I8 : Fil47I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FIL", 9>
+] in {
+  def OP.Name#_I16 : Fil47I16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_RR : Mem67RR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_RD : Mem67RD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_DR : Mem67DR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_DD : Mem67DD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I8R : Mem67I8R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_RI8 : Mem67RI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I8D : Mem67I8D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_DI8 : Mem67DI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I8I8 : Mem67I8I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I16R : Mem67I16R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_RI16 : Mem67RI16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I16D : Mem67I16D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_DI16 : Mem67DI16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I8I16 : Mem67I8I16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"MVFR", 4>,
+    OpSel<"CPFR", 8>
+] in {
+  def OP.Name#_I16I8 : Mem67I16I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FILR", 9>
+] in {
+  def OP.Name#_R : Fil67R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FILR", 9>
+] in {
+  def OP.Name#_D : Fil67D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FILR", 9>
+] in {
+  def OP.Name#_I8 : Fil67I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"FILR", 9>
+] in {
+  def OP.Name#_I16 : Fil67I16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_M3D : PageM3D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_M3R : PageM3R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_M3I8 : PageM3I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_M3I16 : PageM3I16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_DD : PageDD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_DR : PageDR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_DI8 : PageDI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_DI16 : PageDI16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_RD : PageRD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_RR : PageRR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_RI8 : PageRI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_RI16 : PageRI16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I8D : PageI8D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I8R : PageI8R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I8I8 : PageI8I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I8I16 : PageI8I16<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I16D : PageI16D<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I16R : PageI16R<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"LDM", 0>,
+    OpSel<"STM", 1>,
+    OpSel<"LSM", 2>,
+    OpSel<"SSM", 3>,
+    OpSel<"FLM", 4>,
+    OpSel<"MFM", 5>
+] in {
+  def OP.Name#_I16I8 : PageI16I8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"BNA", 0>,
+    OpSel<"BNS", 1>,
+    OpSel<"BNC", 2>,
+    OpSel<"ZAD", 3>,
+    OpSel<"ZSU", 4>,
+    OpSel<"M", 5>,
+    OpSel<"D", 6>,
+    OpSel<"DRM", 7>,
+    OpSel<"CTB", 8>,
+    OpSel<"CFB", 9>
+] in {
+  def OP.Name#_LitD : BN6LitD<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"BNA", 0>,
+    OpSel<"BNS", 1>,
+    OpSel<"BNC", 2>,
+    OpSel<"ZAD", 3>,
+    OpSel<"ZSU", 4>,
+    OpSel<"M", 5>,
+    OpSel<"D", 6>,
+    OpSel<"DRM", 7>,
+    OpSel<"CTB", 8>,
+    OpSel<"CFB", 9>
+] in {
+  def OP.Name#_LitI8 : BN6LitI8<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"BNA", 0>,
+    OpSel<"BNS", 1>,
+    OpSel<"BNC", 2>,
+    OpSel<"ZAD", 3>,
+    OpSel<"ZSU", 4>,
+    OpSel<"M", 5>,
+    OpSel<"D", 6>,
+    OpSel<"DRM", 7>,
+    OpSel<"CTB", 8>,
+    OpSel<"CFB", 9>
+] in {
+  def OP.Name#_LitR : BN6LitR<OP.Sel, OP.Name>;
+}
+
+foreach OP = [
+    OpSel<"BNA", 0>,
+    OpSel<"BNS", 1>,
+    OpSel<"BNC", 2>,
+    OpSel<"ZAD", 3>,
+    OpSel<"ZSU", 4>,
+    OpSel<"M", 5>,
+    OpSel<"D", 6>,
+    OpSel<"DRM", 7>,
+    OpSel<"CTB", 8>,
+    OpSel<"CFB", 9>
+] in {
+  def OP.Name#_LitI16 : BN6LitI16<OP.Sel, OP.Name>;
+}
+
+def STRReg : STRReg16;
+def STRLit : STRLit32;
 
 
 

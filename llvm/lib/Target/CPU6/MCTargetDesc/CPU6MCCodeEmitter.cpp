@@ -110,6 +110,14 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI,
             CB.push_back(static_cast<char>(Bits >> 8));
             CB.push_back(static_cast<char>(Bits));
             break;
+        case 5:
+            LLVM_DEBUG(dbgs() << "Emitting 5 byte opcode!\n");
+            CB.push_back(static_cast<char>(Bits >> 32));
+            CB.push_back(static_cast<char>(Bits >> 24));
+            CB.push_back(static_cast<char>(Bits >> 16));
+            CB.push_back(static_cast<char>(Bits >> 8));
+            CB.push_back(static_cast<char>(Bits));
+            break;
         case 6:
             // 0x47 stub: opcode plus five uninterpreted bytes.
             LLVM_DEBUG(dbgs() << "Emitting 6 byte opcode!\n");
