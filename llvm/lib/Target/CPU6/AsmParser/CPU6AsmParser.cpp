@@ -659,9 +659,37 @@ bool CPU6AsmParser::parseInstruction(ParseInstructionInfo &Info,
     return false; 
 }
 
-// TODO: right now we just skip directives with this, revisit if we want to add them
-// directives are .option, .attribute, etc
-bool CPU6AsmParser::ParseDirective(AsmToken DirectiveID) { return true; }
+// CPU6 words in memory are 16-bit and big-endian. The generic .2byte / .short
+// directives follow the little-endian data layout, so they do not match a
+// dumped word. .word is not a generic directive. Emit it big-endian here.
+// Any other directive is left for the generic parser.
+bool CPU6AsmParser::ParseDirective(AsmToken DirectiveID) {
+  if (DirectiveID.getString().lower() != ".word")
+    return true;
+
+  if (getParser().checkForValidSection())
+    return true;
+
+  for (;;) {
+    const MCExpr *Value = nullptr;
+    if (getParser().parseExpression(Value))
+      return true;
+    int64_t Imm = 0;
+    if (!Value->evaluateAsAbsolute(Imm) || Imm < -32768 || Imm > 65535)
+      return Error(getLexer().getLoc(), "expected a 16-bit absolute word");
+    uint16_t Word = static_cast<uint16_t>(Imm);
+    getStreamer().emitInt8(Word >> 8);
+    getStreamer().emitInt8(Word & 0xFF);
+
+    if (getLexer().is(AsmToken::EndOfStatement)) {
+      getParser().Lex();
+      return false;
+    }
+    if (getLexer().isNot(AsmToken::Comma))
+      return Error(getLexer().getLoc(), "expected comma or end of statement");
+    getLexer().Lex();
+  }
+}
 
 extern "C" void LLVMInitializeCPU6AsmParser() {
     RegisterMCAsmParser<CPU6AsmParser> X(getTheCPU6Target());
