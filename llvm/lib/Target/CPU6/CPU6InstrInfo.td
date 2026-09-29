@@ -176,7 +176,7 @@ def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 // ------------------
 
 // ------------------
-// 2F instruction block TODO; wiki says these are '2e rs'
+// wiki says these are '2e rs'
 // assuming this means |  opcode   |   r  |  s  |
 //                     |   byte 1  |   byte 2   |
 // ------------------
@@ -677,8 +677,6 @@ foreach OP = [
     def OP.Name#_5_E: MemRef24Index<OP.Opcodew, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;   //D ((r)),disp
     def OP.Name#B_5_E: MemRef24Index<OP.Opcodeb, 0xE, GPRB, OP.Name#"B_D", "((${r})),$arg">;   //D ((r)),disp
     // F is not used
-    // These are the implicits, they have no operands so they literally can't be implemented
-    // without virtual instructions
     def OP.Name#_A: MemRef8<OP.Opcodew, 0x8, OP.Name#"_A">;  // A register
     def OP.Name#B_A: MemRef8<OP.Opcodeb, 0x8, OP.Name#"B_A">;  // A register
     def OP.Name#_B: MemRef8<OP.Opcodew, 0x9, OP.Name#"_B">;  // B register
