@@ -48,6 +48,16 @@ class CenturionInst32<dag outs, dag ins, string opstr, string argstr>
     let Size = 4;
 }
 
+// Six-byte instruction. The 0x47 stub is an opcode plus five
+// uninterpreted bytes. The emitter writes Inst big-endian.
+class CenturionInst48<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
+
+    field bits<48> Inst;
+
+    let Size = 6;
+}
+
 // Seven-byte instruction. BIGNUM uses this for the 3-byte prefix plus
 // two 2-byte operand tails. The emitter writes Inst big-endian.
 class CenturionInst56<dag outs, dag ins, string opstr, string argstr>

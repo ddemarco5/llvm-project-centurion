@@ -448,8 +448,34 @@ foreach OP = [
 
 
 // ------------------
-//  TODO!!!! 47,67 Instruction block here. I need some clearer documentation on the layout
+//  0x47 and 0x67. The wiki does not settle the operation or the mnemonic.
+//  WIPL uses one width for each opcode: 0x47 is 6 bytes at both sites
+//  (47 4c 00 ff 02 65 and 47 9c 09 a0 03 65), and 0x67 is 3 bytes at its
+//  only site (67 4a 86). UNK47 / UNK67 consume that width. The trailing
+//  bytes are an opaque tail, not decoded fields. A Nakazoto listing spells
+//  the same bytes MVF, FIL, and MVFR; those names are not used here.
 // ------------------
+class Unknown48<bits<8> op, string name>
+      : CenturionInst48<(outs),
+          (ins i8imm:$b0, i8imm:$b1, i8imm:$b2, i8imm:$b3, i8imm:$b4),
+          name, "$b0, $b1, $b2, $b3, $b4"> {
+  bits<8> b0;
+  bits<8> b1;
+  bits<8> b2;
+  bits<8> b3;
+  bits<8> b4;
+  let Inst{47-40} = op;
+  let Inst{39-32} = b0;
+  let Inst{31-24} = b1;
+  let Inst{23-16} = b2;
+  let Inst{15-8} = b3;
+  let Inst{7-0} = b4;
+}
+
+def UNK47 : Unknown48<0x47, "UNK47">;
+
+def UNK67 : DoubleArg24<0x67, (outs), (ins i8imm:$arg1, i8imm:$arg2),
+                        "UNK67", "$arg1, $arg2">;
 
 // ------------------
 //  TODO!!!! D6 Instruction block here. I think I understand the wiki but I need to make sure
@@ -726,13 +752,9 @@ foreach OP = [
             Memop<"STB", 0xF, 0xE>
         ] in {
     def OP.Name#_0 : MemRef24<OP.Opcodew, 0x0, i16imm, OP.Name>;                    //immediate
-    // LDAB literal is opcode 0x80 and one immediate byte (80 f1).
-    // STAB, LDBB, and STBB literals stay 16-bit.
-    if !eq(OP.Name, "LDA") then {
-        def OP.Name#B_0 : MemRef16<OP.Opcodeb, 0x0, i8imm, OP.Name#"B">;
-    } else {
-        def OP.Name#B_0 : MemRef24<OP.Opcodeb, 0x0, i16imm, OP.Name#"B">;
-    }
+    // Byte literal is the opcode byte and one immediate byte:
+    // LDAB 0x80, STAB 0xA0, LDBB 0xC0, STBB 0xE0. Word literals stay 16-bit.
+    def OP.Name#B_0 : MemRef16<OP.Opcodeb, 0x0, i8imm, OP.Name#"B">;
     def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
     def OP.Name#B_1 : MemRef24<OP.Opcodeb, 0x1, i16imm, OP.Name#"B", "(${arg})">;   //(ptr)
     def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;      //((ptr))
