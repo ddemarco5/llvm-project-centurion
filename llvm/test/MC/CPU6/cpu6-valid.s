@@ -494,3 +494,667 @@ LDDMAA X
 # CHECK-ASM-AND-OBJ: SETDMAM X
 # CHECK-ASM: encoding: [0x2e,0x44]
 SETDMAM X
+
+# CHECK-ASM-AND-OBJ: STA 48879
+# CHECK-ASM: encoding: [0xb0,0xbe,0xef]
+STA 48879
+# CHECK-ASM-AND-OBJ: STAB 48879
+# CHECK-ASM: encoding: [0xa0,0xbe,0xef]
+STAB 48879
+# CHECK-ASM-AND-OBJ: STA (48879)
+# CHECK-ASM: encoding: [0xb1,0xbe,0xef]
+STA (48879)
+# CHECK-ASM-AND-OBJ: STAB (48879)
+# CHECK-ASM: encoding: [0xa1,0xbe,0xef]
+STAB (48879)
+# CHECK-ASM-AND-OBJ: STA ((48879))
+# CHECK-ASM: encoding: [0xb2,0xbe,0xef]
+STA ((48879))
+# CHECK-ASM-AND-OBJ: STAB ((48879))
+# CHECK-ASM: encoding: [0xa2,0xbe,0xef]
+STAB ((48879))
+
+# CHECK-ASM-AND-OBJ: STA (PC),205
+# CHECK-ASM: encoding: [0xb3,0xcd]
+STA (PC),205
+# CHECK-ASM-AND-OBJ: STAB (PC),205
+# CHECK-ASM: encoding: [0xa3,0xcd]
+STAB (PC),205
+# CHECK-ASM-AND-OBJ: STA ((PC),205)
+# CHECK-ASM: encoding: [0xb4,0xcd]
+STA ((PC),205)
+# CHECK-ASM-AND-OBJ: STAB ((PC),205)
+# CHECK-ASM: encoding: [0xa4,0xcd]
+STAB ((PC),205)
+
+# CHECK-ASM-AND-OBJ: STA (X)
+# CHECK-ASM: encoding: [0xb5,0x40]
+STA (X)
+# CHECK-ASM-AND-OBJ: STAB (XU)
+# CHECK-ASM: encoding: [0xa5,0x40]
+STAB (XU)
+# CHECK-ASM-AND-OBJ: STA_I (X)
+# CHECK-ASM: encoding: [0xb5,0x41]
+STA_I (X)
+# CHECK-ASM-AND-OBJ: STAB_I (XU)
+# CHECK-ASM: encoding: [0xa5,0x41]
+STAB_I (XU)
+# CHECK-ASM-AND-OBJ: STA_D (X)
+# CHECK-ASM: encoding: [0xb5,0x42]
+STA_D (X)
+# CHECK-ASM-AND-OBJ: STAB_D (XU)
+# CHECK-ASM: encoding: [0xa5,0x42]
+STAB_D (XU)
+
+# CHECK-ASM-AND-OBJ: STA ((X))
+# CHECK-ASM: encoding: [0xb5,0x44]
+STA ((X))
+# CHECK-ASM-AND-OBJ: STAB ((XU))
+# CHECK-ASM: encoding: [0xa5,0x44]
+STAB ((XU))
+# CHECK-ASM-AND-OBJ: STA_I ((X))
+# CHECK-ASM: encoding: [0xb5,0x45]
+STA_I ((X))
+# CHECK-ASM-AND-OBJ: STAB_I ((XU))
+# CHECK-ASM: encoding: [0xa5,0x45]
+STAB_I ((XU))
+# CHECK-ASM-AND-OBJ: STA_D ((X))
+# CHECK-ASM: encoding: [0xb5,0x46]
+STA_D ((X))
+# CHECK-ASM-AND-OBJ: STAB_D ((XU))
+# CHECK-ASM: encoding: [0xa5,0x46]
+STAB_D ((XU))
+
+# CHECK-ASM-AND-OBJ: STA (X),21
+# CHECK-ASM: encoding: [0xb5,0x48,0x15]
+STA (X),21
+# CHECK-ASM-AND-OBJ: STAB (XU),21
+# CHECK-ASM: encoding: [0xa5,0x48,0x15]
+STAB (XU),21
+# CHECK-ASM-AND-OBJ: STA_I (X),21
+# CHECK-ASM: encoding: [0xb5,0x49,0x15]
+STA_I (X),21
+# CHECK-ASM-AND-OBJ: STAB_I (XU),21
+# CHECK-ASM: encoding: [0xa5,0x49,0x15]
+STAB_I (XU),21
+# CHECK-ASM-AND-OBJ: STA_D (X),21
+# CHECK-ASM: encoding: [0xb5,0x4a,0x15]
+STA_D (X),21
+# CHECK-ASM-AND-OBJ: STAB_D (XU),21
+# CHECK-ASM: encoding: [0xa5,0x4a,0x15]
+STAB_D (XU),21
+
+# CHECK-ASM-AND-OBJ: STA_? (X),21
+# CHECK-ASM: encoding: [0xb5,0x4c,0x15]
+STA_? (X),21
+# CHECK-ASM-AND-OBJ: STAB_? (XU),21
+# CHECK-ASM: encoding: [0xa5,0x4c,0x15]
+STAB_? (XU),21
+# CHECK-ASM-AND-OBJ: STA_I ((X)),21
+# CHECK-ASM: encoding: [0xb5,0x4d,0x15]
+STA_I ((X)),21
+# CHECK-ASM-AND-OBJ: STAB_I ((XU)),21
+# CHECK-ASM: encoding: [0xa5,0x4d,0x15]
+STAB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: STA_D ((X)),21
+# CHECK-ASM: encoding: [0xb5,0x4e,0x15]
+STA_D ((X)),21
+# CHECK-ASM-AND-OBJ: STAB_D ((XU)),21
+# CHECK-ASM: encoding: [0xa5,0x4e,0x15]
+STAB_D ((XU)),21
+
+# CHECK-ASM-AND-OBJ: STA_A
+# CHECK-ASM: encoding: [0xb8]
+STA_A
+# CHECK-ASM-AND-OBJ: STAB_A
+# CHECK-ASM: encoding: [0xa8]
+STAB_A
+# CHECK-ASM-AND-OBJ: STA_B
+# CHECK-ASM: encoding: [0xb9]
+STA_B
+# CHECK-ASM-AND-OBJ: STAB_B
+# CHECK-ASM: encoding: [0xa9]
+STAB_B
+# CHECK-ASM-AND-OBJ: STA_X
+# CHECK-ASM: encoding: [0xba]
+STA_X
+# CHECK-ASM-AND-OBJ: STAB_X
+# CHECK-ASM: encoding: [0xaa]
+STAB_X
+# CHECK-ASM-AND-OBJ: STA_Y
+# CHECK-ASM: encoding: [0xbb]
+STA_Y
+# CHECK-ASM-AND-OBJ: STAB_Y
+# CHECK-ASM: encoding: [0xab]
+STAB_Y
+# CHECK-ASM-AND-OBJ: STA_Z
+# CHECK-ASM: encoding: [0xbc]
+STA_Z
+# CHECK-ASM-AND-OBJ: STAB_Z
+# CHECK-ASM: encoding: [0xac]
+STAB_Z
+# CHECK-ASM-AND-OBJ: STA_S
+# CHECK-ASM: encoding: [0xbd]
+STA_S
+# CHECK-ASM-AND-OBJ: STAB_S
+# CHECK-ASM: encoding: [0xad]
+STAB_S
+# CHECK-ASM-AND-OBJ: STA_C
+# CHECK-ASM: encoding: [0xbe]
+STA_C
+# CHECK-ASM-AND-OBJ: STAB_C
+# CHECK-ASM: encoding: [0xae]
+STAB_C
+# CHECK-ASM-AND-OBJ: STA_P
+# CHECK-ASM: encoding: [0xbf]
+STA_P
+# CHECK-ASM-AND-OBJ: STAB_P
+# CHECK-ASM: encoding: [0xaf]
+STAB_P
+
+# CHECK-ASM-AND-OBJ: LDB 48879
+# CHECK-ASM: encoding: [0xd0,0xbe,0xef]
+LDB 48879
+# CHECK-ASM-AND-OBJ: LDBB 48879
+# CHECK-ASM: encoding: [0xc0,0xbe,0xef]
+LDBB 48879
+# CHECK-ASM-AND-OBJ: LDB (48879)
+# CHECK-ASM: encoding: [0xd1,0xbe,0xef]
+LDB (48879)
+# CHECK-ASM-AND-OBJ: LDBB (48879)
+# CHECK-ASM: encoding: [0xc1,0xbe,0xef]
+LDBB (48879)
+# CHECK-ASM-AND-OBJ: LDB ((48879))
+# CHECK-ASM: encoding: [0xd2,0xbe,0xef]
+LDB ((48879))
+# CHECK-ASM-AND-OBJ: LDBB ((48879))
+# CHECK-ASM: encoding: [0xc2,0xbe,0xef]
+LDBB ((48879))
+
+# CHECK-ASM-AND-OBJ: LDB (PC),205
+# CHECK-ASM: encoding: [0xd3,0xcd]
+LDB (PC),205
+# CHECK-ASM-AND-OBJ: LDBB (PC),205
+# CHECK-ASM: encoding: [0xc3,0xcd]
+LDBB (PC),205
+# CHECK-ASM-AND-OBJ: LDB ((PC),205)
+# CHECK-ASM: encoding: [0xd4,0xcd]
+LDB ((PC),205)
+# CHECK-ASM-AND-OBJ: LDBB ((PC),205)
+# CHECK-ASM: encoding: [0xc4,0xcd]
+LDBB ((PC),205)
+
+# CHECK-ASM-AND-OBJ: LDB (X)
+# CHECK-ASM: encoding: [0xd5,0x40]
+LDB (X)
+# CHECK-ASM-AND-OBJ: LDBB (XU)
+# CHECK-ASM: encoding: [0xc5,0x40]
+LDBB (XU)
+# CHECK-ASM-AND-OBJ: LDB_I (X)
+# CHECK-ASM: encoding: [0xd5,0x41]
+LDB_I (X)
+# CHECK-ASM-AND-OBJ: LDBB_I (XU)
+# CHECK-ASM: encoding: [0xc5,0x41]
+LDBB_I (XU)
+# CHECK-ASM-AND-OBJ: LDB_D (X)
+# CHECK-ASM: encoding: [0xd5,0x42]
+LDB_D (X)
+# CHECK-ASM-AND-OBJ: LDBB_D (XU)
+# CHECK-ASM: encoding: [0xc5,0x42]
+LDBB_D (XU)
+
+# CHECK-ASM-AND-OBJ: LDB ((X))
+# CHECK-ASM: encoding: [0xd5,0x44]
+LDB ((X))
+# CHECK-ASM-AND-OBJ: LDBB ((XU))
+# CHECK-ASM: encoding: [0xc5,0x44]
+LDBB ((XU))
+# CHECK-ASM-AND-OBJ: LDB_I ((X))
+# CHECK-ASM: encoding: [0xd5,0x45]
+LDB_I ((X))
+# CHECK-ASM-AND-OBJ: LDBB_I ((XU))
+# CHECK-ASM: encoding: [0xc5,0x45]
+LDBB_I ((XU))
+# CHECK-ASM-AND-OBJ: LDB_D ((X))
+# CHECK-ASM: encoding: [0xd5,0x46]
+LDB_D ((X))
+# CHECK-ASM-AND-OBJ: LDBB_D ((XU))
+# CHECK-ASM: encoding: [0xc5,0x46]
+LDBB_D ((XU))
+
+# CHECK-ASM-AND-OBJ: LDB (X),21
+# CHECK-ASM: encoding: [0xd5,0x48,0x15]
+LDB (X),21
+# CHECK-ASM-AND-OBJ: LDBB (XU),21
+# CHECK-ASM: encoding: [0xc5,0x48,0x15]
+LDBB (XU),21
+# CHECK-ASM-AND-OBJ: LDB_I (X),21
+# CHECK-ASM: encoding: [0xd5,0x49,0x15]
+LDB_I (X),21
+# CHECK-ASM-AND-OBJ: LDBB_I (XU),21
+# CHECK-ASM: encoding: [0xc5,0x49,0x15]
+LDBB_I (XU),21
+# CHECK-ASM-AND-OBJ: LDB_D (X),21
+# CHECK-ASM: encoding: [0xd5,0x4a,0x15]
+LDB_D (X),21
+# CHECK-ASM-AND-OBJ: LDBB_D (XU),21
+# CHECK-ASM: encoding: [0xc5,0x4a,0x15]
+LDBB_D (XU),21
+
+# CHECK-ASM-AND-OBJ: LDB_? (X),21
+# CHECK-ASM: encoding: [0xd5,0x4c,0x15]
+LDB_? (X),21
+# CHECK-ASM-AND-OBJ: LDBB_? (XU),21
+# CHECK-ASM: encoding: [0xc5,0x4c,0x15]
+LDBB_? (XU),21
+# CHECK-ASM-AND-OBJ: LDB_I ((X)),21
+# CHECK-ASM: encoding: [0xd5,0x4d,0x15]
+LDB_I ((X)),21
+# CHECK-ASM-AND-OBJ: LDBB_I ((XU)),21
+# CHECK-ASM: encoding: [0xc5,0x4d,0x15]
+LDBB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: LDB_D ((X)),21
+# CHECK-ASM: encoding: [0xd5,0x4e,0x15]
+LDB_D ((X)),21
+# CHECK-ASM-AND-OBJ: LDBB_D ((XU)),21
+# CHECK-ASM: encoding: [0xc5,0x4e,0x15]
+LDBB_D ((XU)),21
+
+# CHECK-ASM-AND-OBJ: LDB_A
+# CHECK-ASM: encoding: [0xd8]
+LDB_A
+# CHECK-ASM-AND-OBJ: LDBB_A
+# CHECK-ASM: encoding: [0xc8]
+LDBB_A
+# CHECK-ASM-AND-OBJ: LDB_B
+# CHECK-ASM: encoding: [0xd9]
+LDB_B
+# CHECK-ASM-AND-OBJ: LDBB_B
+# CHECK-ASM: encoding: [0xc9]
+LDBB_B
+# CHECK-ASM-AND-OBJ: LDB_X
+# CHECK-ASM: encoding: [0xda]
+LDB_X
+# CHECK-ASM-AND-OBJ: LDBB_X
+# CHECK-ASM: encoding: [0xca]
+LDBB_X
+# CHECK-ASM-AND-OBJ: LDB_Y
+# CHECK-ASM: encoding: [0xdb]
+LDB_Y
+# CHECK-ASM-AND-OBJ: LDBB_Y
+# CHECK-ASM: encoding: [0xcb]
+LDBB_Y
+# CHECK-ASM-AND-OBJ: LDB_Z
+# CHECK-ASM: encoding: [0xdc]
+LDB_Z
+# CHECK-ASM-AND-OBJ: LDBB_Z
+# CHECK-ASM: encoding: [0xcc]
+LDBB_Z
+# CHECK-ASM-AND-OBJ: LDB_S
+# CHECK-ASM: encoding: [0xdd]
+LDB_S
+# CHECK-ASM-AND-OBJ: LDBB_S
+# CHECK-ASM: encoding: [0xcd]
+LDBB_S
+# CHECK-ASM-AND-OBJ: LDB_C
+# CHECK-ASM: encoding: [0xde]
+LDB_C
+# CHECK-ASM-AND-OBJ: LDBB_C
+# CHECK-ASM: encoding: [0xce]
+LDBB_C
+# CHECK-ASM-AND-OBJ: LDB_P
+# CHECK-ASM: encoding: [0xdf]
+LDB_P
+# CHECK-ASM-AND-OBJ: LDBB_P
+# CHECK-ASM: encoding: [0xcf]
+LDBB_P
+
+# CHECK-ASM-AND-OBJ: STB 48879
+# CHECK-ASM: encoding: [0xf0,0xbe,0xef]
+STB 48879
+# CHECK-ASM-AND-OBJ: STBB 48879
+# CHECK-ASM: encoding: [0xe0,0xbe,0xef]
+STBB 48879
+# CHECK-ASM-AND-OBJ: STB (48879)
+# CHECK-ASM: encoding: [0xf1,0xbe,0xef]
+STB (48879)
+# CHECK-ASM-AND-OBJ: STBB (48879)
+# CHECK-ASM: encoding: [0xe1,0xbe,0xef]
+STBB (48879)
+# CHECK-ASM-AND-OBJ: STB ((48879))
+# CHECK-ASM: encoding: [0xf2,0xbe,0xef]
+STB ((48879))
+# CHECK-ASM-AND-OBJ: STBB ((48879))
+# CHECK-ASM: encoding: [0xe2,0xbe,0xef]
+STBB ((48879))
+
+# CHECK-ASM-AND-OBJ: STB (PC),205
+# CHECK-ASM: encoding: [0xf3,0xcd]
+STB (PC),205
+# CHECK-ASM-AND-OBJ: STBB (PC),205
+# CHECK-ASM: encoding: [0xe3,0xcd]
+STBB (PC),205
+# CHECK-ASM-AND-OBJ: STB ((PC),205)
+# CHECK-ASM: encoding: [0xf4,0xcd]
+STB ((PC),205)
+# CHECK-ASM-AND-OBJ: STBB ((PC),205)
+# CHECK-ASM: encoding: [0xe4,0xcd]
+STBB ((PC),205)
+
+# CHECK-ASM-AND-OBJ: STB (X)
+# CHECK-ASM: encoding: [0xf5,0x40]
+STB (X)
+# CHECK-ASM-AND-OBJ: STBB (XU)
+# CHECK-ASM: encoding: [0xe5,0x40]
+STBB (XU)
+# CHECK-ASM-AND-OBJ: STB_I (X)
+# CHECK-ASM: encoding: [0xf5,0x41]
+STB_I (X)
+# CHECK-ASM-AND-OBJ: STBB_I (XU)
+# CHECK-ASM: encoding: [0xe5,0x41]
+STBB_I (XU)
+# CHECK-ASM-AND-OBJ: STB_D (X)
+# CHECK-ASM: encoding: [0xf5,0x42]
+STB_D (X)
+# CHECK-ASM-AND-OBJ: STBB_D (XU)
+# CHECK-ASM: encoding: [0xe5,0x42]
+STBB_D (XU)
+
+# CHECK-ASM-AND-OBJ: STB ((X))
+# CHECK-ASM: encoding: [0xf5,0x44]
+STB ((X))
+# CHECK-ASM-AND-OBJ: STBB ((XU))
+# CHECK-ASM: encoding: [0xe5,0x44]
+STBB ((XU))
+# CHECK-ASM-AND-OBJ: STB_I ((X))
+# CHECK-ASM: encoding: [0xf5,0x45]
+STB_I ((X))
+# CHECK-ASM-AND-OBJ: STBB_I ((XU))
+# CHECK-ASM: encoding: [0xe5,0x45]
+STBB_I ((XU))
+# CHECK-ASM-AND-OBJ: STB_D ((X))
+# CHECK-ASM: encoding: [0xf5,0x46]
+STB_D ((X))
+# CHECK-ASM-AND-OBJ: STBB_D ((XU))
+# CHECK-ASM: encoding: [0xe5,0x46]
+STBB_D ((XU))
+
+# CHECK-ASM-AND-OBJ: STB (X),21
+# CHECK-ASM: encoding: [0xf5,0x48,0x15]
+STB (X),21
+# CHECK-ASM-AND-OBJ: STBB (XU),21
+# CHECK-ASM: encoding: [0xe5,0x48,0x15]
+STBB (XU),21
+# CHECK-ASM-AND-OBJ: STB_I (X),21
+# CHECK-ASM: encoding: [0xf5,0x49,0x15]
+STB_I (X),21
+# CHECK-ASM-AND-OBJ: STBB_I (XU),21
+# CHECK-ASM: encoding: [0xe5,0x49,0x15]
+STBB_I (XU),21
+# CHECK-ASM-AND-OBJ: STB_D (X),21
+# CHECK-ASM: encoding: [0xf5,0x4a,0x15]
+STB_D (X),21
+# CHECK-ASM-AND-OBJ: STBB_D (XU),21
+# CHECK-ASM: encoding: [0xe5,0x4a,0x15]
+STBB_D (XU),21
+
+# CHECK-ASM-AND-OBJ: STB_? (X),21
+# CHECK-ASM: encoding: [0xf5,0x4c,0x15]
+STB_? (X),21
+# CHECK-ASM-AND-OBJ: STBB_? (XU),21
+# CHECK-ASM: encoding: [0xe5,0x4c,0x15]
+STBB_? (XU),21
+# CHECK-ASM-AND-OBJ: STB_I ((X)),21
+# CHECK-ASM: encoding: [0xf5,0x4d,0x15]
+STB_I ((X)),21
+# CHECK-ASM-AND-OBJ: STBB_I ((XU)),21
+# CHECK-ASM: encoding: [0xe5,0x4d,0x15]
+STBB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: STB_D ((X)),21
+# CHECK-ASM: encoding: [0xf5,0x4e,0x15]
+STB_D ((X)),21
+# CHECK-ASM-AND-OBJ: STBB_D ((XU)),21
+# CHECK-ASM: encoding: [0xe5,0x4e,0x15]
+STBB_D ((XU)),21
+
+# CHECK-ASM-AND-OBJ: STB_A
+# CHECK-ASM: encoding: [0xf8]
+STB_A
+# CHECK-ASM-AND-OBJ: STBB_A
+# CHECK-ASM: encoding: [0xe8]
+STBB_A
+# CHECK-ASM-AND-OBJ: STB_B
+# CHECK-ASM: encoding: [0xf9]
+STB_B
+# CHECK-ASM-AND-OBJ: STBB_B
+# CHECK-ASM: encoding: [0xe9]
+STBB_B
+# CHECK-ASM-AND-OBJ: STB_X
+# CHECK-ASM: encoding: [0xfa]
+STB_X
+# CHECK-ASM-AND-OBJ: STBB_X
+# CHECK-ASM: encoding: [0xea]
+STBB_X
+# CHECK-ASM-AND-OBJ: STB_Y
+# CHECK-ASM: encoding: [0xfb]
+STB_Y
+# CHECK-ASM-AND-OBJ: STBB_Y
+# CHECK-ASM: encoding: [0xeb]
+STBB_Y
+# CHECK-ASM-AND-OBJ: STB_Z
+# CHECK-ASM: encoding: [0xfc]
+STB_Z
+# CHECK-ASM-AND-OBJ: STBB_Z
+# CHECK-ASM: encoding: [0xec]
+STBB_Z
+# CHECK-ASM-AND-OBJ: STB_S
+# CHECK-ASM: encoding: [0xfd]
+STB_S
+# CHECK-ASM-AND-OBJ: STBB_S
+# CHECK-ASM: encoding: [0xed]
+STBB_S
+# CHECK-ASM-AND-OBJ: STB_C
+# CHECK-ASM: encoding: [0xfe]
+STB_C
+# CHECK-ASM-AND-OBJ: STBB_C
+# CHECK-ASM: encoding: [0xee]
+STBB_C
+# CHECK-ASM-AND-OBJ: STB_P
+# CHECK-ASM: encoding: [0xff]
+STB_P
+# CHECK-ASM-AND-OBJ: STBB_P
+# CHECK-ASM: encoding: [0xef]
+STBB_P
+
+# CHECK-ASM-AND-OBJ: LDX 48879
+# CHECK-ASM: encoding: [0x60,0xbe,0xef]
+LDX 48879
+
+# CHECK-ASM-AND-OBJ: STX 48879
+# CHECK-ASM: encoding: [0x68,0xbe,0xef]
+STX 48879
+# CHECK-ASM-AND-OBJ: STX (48879)
+# CHECK-ASM: encoding: [0x69,0xbe,0xef]
+STX (48879)
+# CHECK-ASM-AND-OBJ: STX ((48879))
+# CHECK-ASM: encoding: [0x6a,0xbe,0xef]
+STX ((48879))
+# CHECK-ASM-AND-OBJ: STX (PC),10
+# CHECK-ASM: encoding: [0x6b,0x0a]
+STX (PC),10
+# CHECK-ASM-AND-OBJ: STX ((PC),10)
+# CHECK-ASM: encoding: [0x6c,0x0a]
+STX ((PC),10)
+# CHECK-ASM-AND-OBJ: STX (X)
+# CHECK-ASM: encoding: [0x6d,0x40]
+STX (X)
+# CHECK-ASM-AND-OBJ: STX_I (X)
+# CHECK-ASM: encoding: [0x6d,0x41]
+STX_I (X)
+# CHECK-ASM-AND-OBJ: STX_D (X)
+# CHECK-ASM: encoding: [0x6d,0x42]
+STX_D (X)
+# CHECK-ASM-AND-OBJ: STX ((X))
+# CHECK-ASM: encoding: [0x6d,0x44]
+STX ((X))
+# CHECK-ASM-AND-OBJ: STX_I ((X))
+# CHECK-ASM: encoding: [0x6d,0x45]
+STX_I ((X))
+# CHECK-ASM-AND-OBJ: STX_D ((X))
+# CHECK-ASM: encoding: [0x6d,0x46]
+STX_D ((X))
+# CHECK-ASM-AND-OBJ: STX (X),10
+# CHECK-ASM: encoding: [0x6d,0x48,0x0a]
+STX (X),10
+# CHECK-ASM-AND-OBJ: STX_I (X),10
+# CHECK-ASM: encoding: [0x6d,0x49,0x0a]
+STX_I (X),10
+# CHECK-ASM-AND-OBJ: STX_D (X),10
+# CHECK-ASM: encoding: [0x6d,0x4a,0x0a]
+STX_D (X),10
+# CHECK-ASM-AND-OBJ: STX_? (X),10
+# CHECK-ASM: encoding: [0x6d,0x4c,0x0a]
+STX_? (X),10
+# CHECK-ASM-AND-OBJ: STX_I ((X)),10
+# CHECK-ASM: encoding: [0x6d,0x4d,0x0a]
+STX_I ((X)),10
+# CHECK-ASM-AND-OBJ: STX_D ((X)),10
+# CHECK-ASM: encoding: [0x6d,0x4e,0x0a]
+STX_D ((X)),10
+
+# CHECK-ASM-AND-OBJ: JMP (48879)
+# CHECK-ASM: encoding: [0x71,0xbe,0xef]
+JMP (48879)
+# CHECK-ASM-AND-OBJ: JMP ((48879))
+# CHECK-ASM: encoding: [0x72,0xbe,0xef]
+JMP ((48879))
+# CHECK-ASM-AND-OBJ: JMP (PC),10
+# CHECK-ASM: encoding: [0x73,0x0a]
+JMP (PC),10
+# CHECK-ASM-AND-OBJ: JMP ((PC),10)
+# CHECK-ASM: encoding: [0x74,0x0a]
+JMP ((PC),10)
+# CHECK-ASM-AND-OBJ: JMP (X)
+# CHECK-ASM: encoding: [0x75,0x40]
+JMP (X)
+# CHECK-ASM-AND-OBJ: JMP_I (X)
+# CHECK-ASM: encoding: [0x75,0x41]
+JMP_I (X)
+# CHECK-ASM-AND-OBJ: JMP_D (X)
+# CHECK-ASM: encoding: [0x75,0x42]
+JMP_D (X)
+# CHECK-ASM-AND-OBJ: JMP ((X))
+# CHECK-ASM: encoding: [0x75,0x44]
+JMP ((X))
+# CHECK-ASM-AND-OBJ: JMP_I ((X))
+# CHECK-ASM: encoding: [0x75,0x45]
+JMP_I ((X))
+# CHECK-ASM-AND-OBJ: JMP_D ((X))
+# CHECK-ASM: encoding: [0x75,0x46]
+JMP_D ((X))
+# CHECK-ASM-AND-OBJ: JMP (X),10
+# CHECK-ASM: encoding: [0x75,0x48,0x0a]
+JMP (X),10
+# CHECK-ASM-AND-OBJ: JMP_I (X),10
+# CHECK-ASM: encoding: [0x75,0x49,0x0a]
+JMP_I (X),10
+# CHECK-ASM-AND-OBJ: JMP_D (X),10
+# CHECK-ASM: encoding: [0x75,0x4a,0x0a]
+JMP_D (X),10
+# CHECK-ASM-AND-OBJ: JMP_? (X),10
+# CHECK-ASM: encoding: [0x75,0x4c,0x0a]
+JMP_? (X),10
+# CHECK-ASM-AND-OBJ: JMP_I ((X)),10
+# CHECK-ASM: encoding: [0x75,0x4d,0x0a]
+JMP_I ((X)),10
+# CHECK-ASM-AND-OBJ: JMP_D ((X)),10
+# CHECK-ASM: encoding: [0x75,0x4e,0x0a]
+JMP_D ((X)),10
+
+# CHECK-ASM-AND-OBJ: JSR (48879)
+# CHECK-ASM: encoding: [0x79,0xbe,0xef]
+JSR (48879)
+# CHECK-ASM-AND-OBJ: JSR ((48879))
+# CHECK-ASM: encoding: [0x7a,0xbe,0xef]
+JSR ((48879))
+# CHECK-ASM-AND-OBJ: JSR (PC),10
+# CHECK-ASM: encoding: [0x7b,0x0a]
+JSR (PC),10
+# CHECK-ASM-AND-OBJ: JSR ((PC),10)
+# CHECK-ASM: encoding: [0x7c,0x0a]
+JSR ((PC),10)
+# CHECK-ASM-AND-OBJ: JSR (X)
+# CHECK-ASM: encoding: [0x7d,0x40]
+JSR (X)
+# CHECK-ASM-AND-OBJ: JSR_I (X)
+# CHECK-ASM: encoding: [0x7d,0x41]
+JSR_I (X)
+# CHECK-ASM-AND-OBJ: JSR_D (X)
+# CHECK-ASM: encoding: [0x7d,0x42]
+JSR_D (X)
+# CHECK-ASM-AND-OBJ: JSR ((X))
+# CHECK-ASM: encoding: [0x7d,0x44]
+JSR ((X))
+# CHECK-ASM-AND-OBJ: JSR_I ((X))
+# CHECK-ASM: encoding: [0x7d,0x45]
+JSR_I ((X))
+# CHECK-ASM-AND-OBJ: JSR_D ((X))
+# CHECK-ASM: encoding: [0x7d,0x46]
+JSR_D ((X))
+# CHECK-ASM-AND-OBJ: JSR (X),10
+# CHECK-ASM: encoding: [0x7d,0x48,0x0a]
+JSR (X),10
+# CHECK-ASM-AND-OBJ: JSR_I (X),10
+# CHECK-ASM: encoding: [0x7d,0x49,0x0a]
+JSR_I (X),10
+# CHECK-ASM-AND-OBJ: JSR_D (X),10
+# CHECK-ASM: encoding: [0x7d,0x4a,0x0a]
+JSR_D (X),10
+# CHECK-ASM-AND-OBJ: JSR_? (X),10
+# CHECK-ASM: encoding: [0x7d,0x4c,0x0a]
+JSR_? (X),10
+# CHECK-ASM-AND-OBJ: JSR_I ((X)),10
+# CHECK-ASM: encoding: [0x7d,0x4d,0x0a]
+JSR_I ((X)),10
+# CHECK-ASM-AND-OBJ: JSR_D ((X)),10
+# CHECK-ASM: encoding: [0x7d,0x4e,0x0a]
+JSR_D ((X)),10
+
+# CHECK-ASM-AND-OBJ: LST (16),(32)
+# CHECK-ASM: encoding: [0x6e,0x10,0x20]
+LST (16),(32)
+# CHECK-ASM-AND-OBJ: SST (16),(32)
+# CHECK-ASM: encoding: [0x6f,0x10,0x20]
+SST (16),(32)
+
+# CHECK-ASM-AND-OBJ: MUL B,X
+# CHECK-ASM: encoding: [0x77,0x24]
+MUL B,X
+# CHECK-ASM-AND-OBJ: DIV B,X
+# CHECK-ASM: encoding: [0x78,0x24]
+DIV B,X
+
+# CHECK-ASM-AND-OBJ: STDMAA X
+# CHECK-ASM: encoding: [0x2e,0x41]
+STDMAA X
+# CHECK-ASM-AND-OBJ: LDDMAC X
+# CHECK-ASM: encoding: [0x2e,0x42]
+LDDMAC X
+# CHECK-ASM-AND-OBJ: STDMAC X
+# CHECK-ASM: encoding: [0x2e,0x43]
+STDMAC X
+# CHECK-ASM-AND-OBJ: SETDMAMR X
+# CHECK-ASM: encoding: [0x2e,0x45]
+SETDMAMR X
+# CHECK-ASM-AND-OBJ: EDMA X
+# CHECK-ASM: encoding: [0x2e,0x46]
+EDMA X
+# CHECK-ASM-AND-OBJ: DDMA X
+# CHECK-ASM: encoding: [0x2e,0x47]
+DDMA X
+# CHECK-ASM-AND-OBJ: LDDMAMAP X
+# CHECK-ASM: encoding: [0x2e,0x48]
+LDDMAMAP X
+# CHECK-ASM-AND-OBJ: STDMAMAP X
+# CHECK-ASM: encoding: [0x2e,0x49]
+STDMAMAP X
