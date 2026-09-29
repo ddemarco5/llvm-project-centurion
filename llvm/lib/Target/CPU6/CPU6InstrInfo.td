@@ -640,7 +640,13 @@ foreach OP = [
             Memop<"STB", 0xF, 0xE>
         ] in {
     def OP.Name#_0 : MemRef24<OP.Opcodew, 0x0, i16imm, OP.Name>;                    //immediate
-    def OP.Name#B_0 : MemRef24<OP.Opcodeb, 0x0, i16imm, OP.Name#"B">;               //immediate
+    // LDAB literal is opcode 0x80 and one immediate byte (80 f1).
+    // STAB, LDBB, and STBB literals stay 16-bit.
+    if !eq(OP.Name, "LDA") then {
+        def OP.Name#B_0 : MemRef16<OP.Opcodeb, 0x0, i8imm, OP.Name#"B">;
+    } else {
+        def OP.Name#B_0 : MemRef24<OP.Opcodeb, 0x0, i16imm, OP.Name#"B">;
+    }
     def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
     def OP.Name#B_1 : MemRef24<OP.Opcodeb, 0x1, i16imm, OP.Name#"B", "(${arg})">;   //(ptr)
     def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;      //((ptr))
