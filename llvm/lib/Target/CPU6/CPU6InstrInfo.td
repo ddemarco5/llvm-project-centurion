@@ -194,9 +194,254 @@ def DAB: SingleReg16DMA<0x2E, 0x7, "DAB">;
 def SMN: SingleReg16DMA<0x2E, 0x8, "SMN">;
 def RMN: SingleReg16DMA<0x2E, 0x9, "RMN">;
 
-// ------------------
-//  TODO!!!! 46 Instruction block here. I need some clearer documentation on the layout
-// ------------------
+
+//-----------  BIGNUM (0x46)  -----------//
+// The wiki prefix is `46 llllkkkk ssssmmnn`. It does not specify the
+// bytes that follow. The tail below is a layout defined here.
+//
+// Byte 0 is 0x46.
+// Byte 1 is llllkkkk. l is the 4-bit size of operand 1. k is the 4-bit
+// size of operand 2.
+// Byte 2 is ssssmmnn. s is the 4-bit selector. mm is operand 1's mode.
+// nn is operand 2's mode.
+//
+// The Instructions page names Literal, Direct, Indirect, Relative,
+// Relative Indirect, and Indexed. The BIGNUM paragraph calls out
+// literal (literal->literal). mm and nn are two bits, so this layout
+// assigns only the three named modes whose widths already exist in
+// CPU6InstrFormats.td. Indirect, relative, and relative-indirect are
+// not given a value. Value 3 is unused.
+//   0 literal: 16-bit big-endian immediate, the LDA M=0 width.
+//   1 direct:  16-bit big-endian address, the LDA M=1 width.
+//   2 indexed: base register in the high nibble of the next byte, low
+//              nibble fixed at 0, then an 8-bit displacement. Those are
+//              the LDA (r),disp field widths. LDA's m' nibble is not
+//              repeated; the mode already lives in mm or nn.
+//
+// Each tail is two bytes. Operand 1's tail is bytes 3-4. Operand 2's
+// tail is bytes 5-6.
+// Selectors 0-8: operand 1 is the source and operand 2 is the destination.
+// CFB (selector 9) swaps that pair. Operand 1 is the destination and
+// operand 2 is the source. Same opcode, different operand order.
+//
+// A, S, and C are register asm names, so selectors 0-2 are spelled
+// BNA, BNS, and BNC.
+//
+// CTB: the page does not say how the conversion base is supplied.
+// This layout uses the base register of an indexed operand. Operand 1's
+// base is that base when operand 1 is indexed; otherwise operand 2's
+// base is. A form with no indexed operand does not encode a base.
+// DRM: the remainder is written through AW and the link flag is set for
+// a zero remainder. AW is not an operand.
+
+class BN_LL<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
+          name, "$l,$k,$op1,$op2"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 0;
+  let Inst{33-32} = 0;
+  let Inst{31-16} = op1;
+  let Inst{15-0} = op2;
+}
+
+class BN_LD<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
+          name, "$l,$k,$op1,(${op2})"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 0;
+  let Inst{33-32} = 1;
+  let Inst{31-16} = op1;
+  let Inst{15-0} = op2;
+}
+
+class BN_LI<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, GPR:$op2r, i8imm:$op2d),
+          name, "$l,$k,$op1,(${op2r}),$op2d"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<4> op2r;
+  bits<8> op2d;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 0;
+  let Inst{33-32} = 2;
+  let Inst{31-16} = op1;
+  let Inst{15-12} = op2r;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = op2d;
+}
+
+class BN_DL<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
+          name, "$l,$k,(${op1}),$op2"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 1;
+  let Inst{33-32} = 0;
+  let Inst{31-16} = op1;
+  let Inst{15-0} = op2;
+}
+
+class BN_DD<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
+          name, "$l,$k,(${op1}),(${op2})"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 1;
+  let Inst{33-32} = 1;
+  let Inst{31-16} = op1;
+  let Inst{15-0} = op2;
+}
+
+class BN_DI<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, i16imm:$op1, GPR:$op2r, i8imm:$op2d),
+          name, "$l,$k,(${op1}),(${op2r}),$op2d"> {
+  bits<4> l;
+  bits<4> k;
+  bits<16> op1;
+  bits<4> op2r;
+  bits<8> op2d;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 1;
+  let Inst{33-32} = 2;
+  let Inst{31-16} = op1;
+  let Inst{15-12} = op2r;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = op2d;
+}
+
+class BN_IL<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, i16imm:$op2),
+          name, "$l,$k,(${op1r}),$op1d,$op2"> {
+  bits<4> l;
+  bits<4> k;
+  bits<4> op1r;
+  bits<8> op1d;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 2;
+  let Inst{33-32} = 0;
+  let Inst{31-28} = op1r;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = op1d;
+  let Inst{15-0} = op2;
+}
+
+class BN_ID<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, i16imm:$op2),
+          name, "$l,$k,(${op1r}),$op1d,(${op2})"> {
+  bits<4> l;
+  bits<4> k;
+  bits<4> op1r;
+  bits<8> op1d;
+  bits<16> op2;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 2;
+  let Inst{33-32} = 1;
+  let Inst{31-28} = op1r;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = op1d;
+  let Inst{15-0} = op2;
+}
+
+class BN_II<bits<4> sel, string name>
+      : CenturionInst56<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, GPR:$op2r, i8imm:$op2d),
+          name, "$l,$k,(${op1r}),$op1d,(${op2r}),$op2d"> {
+  bits<4> l;
+  bits<4> k;
+  bits<4> op1r;
+  bits<8> op1d;
+  bits<4> op2r;
+  bits<8> op2d;
+  let Inst{55-48} = 0x46;
+  let Inst{47-44} = l;
+  let Inst{43-40} = k;
+  let Inst{39-36} = sel;
+  let Inst{35-34} = 2;
+  let Inst{33-32} = 2;
+  let Inst{31-28} = op1r;
+  let Inst{27-24} = 0;
+  let Inst{23-16} = op1d;
+  let Inst{15-12} = op2r;
+  let Inst{11-8} = 0;
+  let Inst{7-0} = op2d;
+}
+
+class BNSel<string name, bits<4> sel> {
+  string Name = name;
+  bits<4> Sel = sel;
+}
+
+foreach OP = [
+    BNSel<"BNA", 0>,
+    BNSel<"BNS", 1>,
+    BNSel<"BNC", 2>,
+    BNSel<"ZAD", 3>,
+    BNSel<"ZSU", 4>,
+    BNSel<"M", 5>,
+    BNSel<"D", 6>,
+    BNSel<"DRM", 7>,
+    BNSel<"CTB", 8>,
+    BNSel<"CFB", 9>
+] in {
+  def OP.Name#_LL : BN_LL<OP.Sel, OP.Name>;
+  def OP.Name#_LD : BN_LD<OP.Sel, OP.Name>;
+  def OP.Name#_LI : BN_LI<OP.Sel, OP.Name>;
+  def OP.Name#_DL : BN_DL<OP.Sel, OP.Name>;
+  def OP.Name#_DD : BN_DD<OP.Sel, OP.Name>;
+  def OP.Name#_DI : BN_DI<OP.Sel, OP.Name>;
+  def OP.Name#_IL : BN_IL<OP.Sel, OP.Name>;
+  def OP.Name#_ID : BN_ID<OP.Sel, OP.Name>;
+  def OP.Name#_II : BN_II<OP.Sel, OP.Name>;
+}
+
 
 // ------------------
 //  TODO!!!! 47,67 Instruction block here. I need some clearer documentation on the layout

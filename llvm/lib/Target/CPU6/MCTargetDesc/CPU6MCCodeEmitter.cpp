@@ -103,6 +103,17 @@ void CPU6MCCodeEmitter::encodeInstruction(const MCInst &MI,
             CB.push_back(static_cast<char>(Bits >> 8));
             CB.push_back(static_cast<char>(Bits));
             break;
+        case 7:
+            // BIGNUM: 3-byte prefix plus two 2-byte tails.
+            LLVM_DEBUG(dbgs() << "Emitting 7 byte opcode!\n");
+            CB.push_back(static_cast<char>(Bits >> 48));
+            CB.push_back(static_cast<char>(Bits >> 40));
+            CB.push_back(static_cast<char>(Bits >> 32));
+            CB.push_back(static_cast<char>(Bits >> 24));
+            CB.push_back(static_cast<char>(Bits >> 16));
+            CB.push_back(static_cast<char>(Bits >> 8));
+            CB.push_back(static_cast<char>(Bits));
+            break;
     }
     ++MCNumEmitted; // Keep track of the # of mi's emitted.
 }

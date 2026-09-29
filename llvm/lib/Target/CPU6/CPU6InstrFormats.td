@@ -38,6 +38,16 @@ class CenturionInst24<dag outs, dag ins, string opstr, string argstr>
     let Size = 3;
 }
 
+// Seven-byte instruction. BIGNUM uses this for the 3-byte prefix plus
+// two 2-byte operand tails. The emitter writes Inst big-endian.
+class CenturionInst56<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
+
+    field bits<56> Inst;
+
+    let Size = 7;
+}
+
 class SingleArg16<bits<8> op, dag outs, dag ins, string opstr, string argstr>
       : CenturionInst16<outs, ins, opstr, argstr> {
 
