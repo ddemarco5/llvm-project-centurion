@@ -358,6 +358,7 @@ void ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(
   ECase(EM_VE);
   ECase(EM_CSKY);
   ECase(EM_LOONGARCH);
+  ECase(EM_CPU6);
   ECase(EM_INTELGT);
 #undef ECase
   IO.enumFallback<Hex16>(Value);
@@ -922,6 +923,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_XTENSA:
 #include "llvm/BinaryFormat/ELFRelocs/Xtensa.def"
+    break;
+  case ELF::EM_CPU6:
+#include "llvm/BinaryFormat/ELFRelocs/CPU6.def"
     break;
   default:
     // Nothing to do.
