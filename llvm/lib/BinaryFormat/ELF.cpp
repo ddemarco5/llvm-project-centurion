@@ -628,6 +628,8 @@ StringRef ELF::convertEMachineToArchName(uint16_t EMachine) {
     return "csky";
   case EM_LOONGARCH:
     return "loongarch";
+  case EM_CPU6:
+    return "cpu6";
   default:
     return "None";
   }

@@ -66,6 +66,8 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
     return "bpfel";
   case csky:
     return "csky";
+  case cpu6:
+    return "cpu6";
   case dxil:
     return "dxil";
   case hexagon:
@@ -515,6 +517,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
       .Case("mips64", mips64)
       .Case("mips64el", mips64el)
       .Case("msp430", msp430)
+      .Case("cpu6", cpu6)
       .Case("ppc64", ppc64)
       .Case("ppc32", ppc)
       .Case("ppc", ppc)
@@ -714,6 +717,7 @@ Triple::ArchType Triple::parseArch(StringRef ArchName) {
           .Case("wasm32", Triple::wasm32)
           .Case("wasm64", Triple::wasm64)
           .Case("csky", Triple::csky)
+          .Case("cpu6", Triple::cpu6)
           .Case("loongarch32", Triple::loongarch32)
           .Case("loongarch64", Triple::loongarch64)
           .Cases({"dxil", "dxilv1.0", "dxilv1.1", "dxilv1.2", "dxilv1.3",
@@ -1046,6 +1050,7 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::ve:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::cpu6:
     return Triple::ELF;
 
   case Triple::mipsel:
@@ -1775,6 +1780,7 @@ unsigned Triple::getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
 
   case llvm::Triple::avr:
   case llvm::Triple::msp430:
+  case llvm::Triple::cpu6:
     return 16;
 
   case llvm::Triple::aarch64_32:
@@ -1885,6 +1891,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::msp430:
   case Triple::systemz:
   case Triple::ve:
+  case Triple::cpu6:
     T.setArch(UnknownArch);
     break;
 
@@ -2007,6 +2014,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::tce:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::cpu6:
     T.setArch(UnknownArch);
     break;
 
@@ -2147,6 +2155,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::ve:
   case Triple::csky:
   case Triple::xtensa:
+  case Triple::cpu6:
 
   // ARM is intentionally unsupported here, changing the architecture would
   // drop any arch suffixes.
@@ -2293,6 +2302,7 @@ bool Triple::isLittleEndian() const {
   case Triple::x86_64:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::cpu6:
     return true;
   default:
     return false;
@@ -2543,6 +2553,7 @@ ExceptionHandling Triple::getDefaultExceptionHandling() const {
   case Triple::systemz:
   case Triple::xcore:
   case Triple::xtensa:
+  case Triple::cpu6:
     return ExceptionHandling::DwarfCFI;
   default:
     break;

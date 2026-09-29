@@ -1331,6 +1331,7 @@ constexpr EnumStringDef<unsigned, 2> ElfMachineTypeDefs[] = {
   ENUM_ENT(EM_BPF,           "EM_BPF"),
   ENUM_ENT(EM_VE,            "NEC SX-Aurora Vector Engine"),
   ENUM_ENT(EM_LOONGARCH,     "LoongArch"),
+  ENUM_ENT(EM_CPU6,          "Centurion CPU6 processor"),
   ENUM_ENT(EM_INTELGT,       "Intel Graphics Technology"),
 };
 // clang-format on
