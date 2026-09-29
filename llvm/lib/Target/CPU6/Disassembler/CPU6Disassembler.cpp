@@ -235,6 +235,18 @@ DecodeStatus CPU6Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
         Size = 3;
         return Result;
     }
+    // BIGNUM is 7 bytes. Try it only when the whole instruction is present.
+    if (Bytes.size() >= 7) {
+        uint64_t Wide = 0;
+        for (unsigned I = 0; I < 7; ++I)
+            Wide = (Wide << 8) | Bytes[I];
+        Result = decodeInstruction(DecoderTable56, MI, Wide, Address, this, STI);
+        LLVM_DEBUG(dbgs() << "Trying to decode as 7 byte instruction.\n");
+        if (Result != MCDisassembler::Fail) {
+            Size = 7;
+            return Result;
+        }
+    }
 
     // we failed to decode any instruction
     errs() << "We failed to decode any instruction!.\n";
