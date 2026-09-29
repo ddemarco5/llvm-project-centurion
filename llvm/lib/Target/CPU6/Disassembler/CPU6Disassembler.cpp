@@ -244,6 +244,18 @@ DecodeStatus CPU6Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
             return Result;
         }
     }
+    // Page and block-move tails. Try it only when five bytes are present.
+    if (Bytes.size() >= 5) {
+        uint64_t Wide5 = 0;
+        for (unsigned I = 0; I < 5; ++I)
+            Wide5 = (Wide5 << 8) | Bytes[I];
+        Result = decodeInstruction(DecoderTable40, MI, Wide5, Address, this, STI);
+        LLVM_DEBUG(dbgs() << "Trying to decode as 5 byte instruction.\n");
+        if (Result != MCDisassembler::Fail) {
+            Size = 5;
+            return Result;
+        }
+    }
     // 0x47 stub is 6 bytes. Try it only when the whole instruction is present.
     if (Bytes.size() >= 6) {
         uint64_t Wide6 = 0;

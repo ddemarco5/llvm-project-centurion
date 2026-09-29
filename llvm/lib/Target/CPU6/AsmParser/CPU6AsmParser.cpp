@@ -144,12 +144,16 @@ public:
 
     template <unsigned N> bool IsUImm() const {
         int32_t Imm;
+        if (!isImm())
+            return false;
         bool IsConstantImm = evaluateConstantImm(getImm(), Imm);
         return IsConstantImm && isUInt<N>(Imm);
     }
 
     template <signed N> bool IsSImm() const {
         int32_t Imm;
+        if (!isImm())
+            return false;
         bool IsConstantImm = evaluateConstantImm(getImm(), Imm);
         return IsConstantImm && isInt<N>(Imm);
     }
