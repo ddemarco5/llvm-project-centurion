@@ -489,11 +489,11 @@ LDX_D ((X)),10
 SVC 16
 
 # CHECK-ASM-AND-OBJ: SAD X
-# CHECK-ASM: encoding: [0x2e,0x40]
+# CHECK-ASM: encoding: [0x2f,0x40]
 SAD X
-# CHECK-ASM-AND-OBJ: SDV X
-# CHECK-ASM: encoding: [0x2e,0x44]
-SDV X
+# CHECK-ASM-AND-OBJ: SDV 0
+# CHECK-ASM: encoding: [0x2f,0x04]
+SDV 0
 
 # CHECK-ASM-AND-OBJ: STA 48879
 # CHECK-ASM: encoding: [0xb0,0xbe,0xef]
@@ -1135,28 +1135,28 @@ MUL B,X
 DIV B,X
 
 # CHECK-ASM-AND-OBJ: RAD X
-# CHECK-ASM: encoding: [0x2e,0x41]
+# CHECK-ASM: encoding: [0x2f,0x41]
 RAD X
 # CHECK-ASM-AND-OBJ: SCT X
-# CHECK-ASM: encoding: [0x2e,0x42]
+# CHECK-ASM: encoding: [0x2f,0x42]
 SCT X
 # CHECK-ASM-AND-OBJ: RCT X
-# CHECK-ASM: encoding: [0x2e,0x43]
+# CHECK-ASM: encoding: [0x2f,0x43]
 RCT X
 # CHECK-ASM-AND-OBJ: RDV X
-# CHECK-ASM: encoding: [0x2e,0x45]
+# CHECK-ASM: encoding: [0x2f,0x45]
 RDV X
 # CHECK-ASM-AND-OBJ: EAB X
-# CHECK-ASM: encoding: [0x2e,0x46]
+# CHECK-ASM: encoding: [0x2f,0x46]
 EAB X
 # CHECK-ASM-AND-OBJ: DAB X
-# CHECK-ASM: encoding: [0x2e,0x47]
+# CHECK-ASM: encoding: [0x2f,0x47]
 DAB X
 # CHECK-ASM-AND-OBJ: SMN X
-# CHECK-ASM: encoding: [0x2e,0x48]
+# CHECK-ASM: encoding: [0x2f,0x48]
 SMN X
 # CHECK-ASM-AND-OBJ: RMN X
-# CHECK-ASM: encoding: [0x2e,0x49]
+# CHECK-ASM: encoding: [0x2f,0x49]
 RMN X
 
 # CHECK-ASM-AND-OBJ: BNA 4,2,48879,205
@@ -1438,3 +1438,66 @@ CFB 4,2,(X),21,(48879)
 # CHECK-ASM-AND-OBJ: CFB 4,2,(X),21,(Y),10
 # CHECK-ASM: encoding: [0x46,0x42,0x9a,0x40,0x15,0x60,0x0a]
 CFB 4,2,(X),21,(Y),10
+# CHECK-ASM-AND-OBJ: ADD X,X,65516
+# CHECK-ASM: encoding: [0x50,0x54,0xff,0xec]
+ADD X,X,65516
+# CHECK-ASM-AND-OBJ: ADD B,X,400
+# CHECK-ASM: encoding: [0x50,0x34,0x01,0x90]
+ADD B,X,400
+# CHECK-ASM-AND-OBJ: XFR Z,61952
+# CHECK-ASM: encoding: [0x55,0x98,0xf2,0x00]
+XFR Z,61952
+# CHECK-ASM-AND-OBJ: STK X,5
+# CHECK-ASM: encoding: [0x7e,0x45]
+STK X,5
+# CHECK-ASM-AND-OBJ: STK Z,1
+# CHECK-ASM: encoding: [0x7e,0x81]
+STK Z,1
+# CHECK-ASM-AND-OBJ: POP X,5
+# CHECK-ASM: encoding: [0x7f,0x45]
+POP X,5
+# CHECK-ASM-AND-OBJ: POP Z,1
+# CHECK-ASM: encoding: [0x7f,0x81]
+POP Z,1
+# CHECK-ASM-AND-OBJ: SAR 6,P
+# CHECK-ASM: encoding: [0xd7,0x6e]
+SAR 6,P
+# CHECK-ASM-AND-OBJ: SAR 6,A
+# CHECK-ASM: encoding: [0xd7,0x60]
+SAR 6,A
+# CHECK-ASM-AND-OBJ: LAR 6,A
+# CHECK-ASM: encoding: [0xe6,0x60]
+LAR 6,A
+# CHECK-ASM-AND-OBJ: LIO AL,Z,0
+# CHECK-ASM: encoding: [0xf6,0x18,0x00]
+LIO AL,Z,0
+# CHECK-ASM-AND-OBJ: SIO AL,Z,13
+# CHECK-ASM: encoding: [0xf6,0x19,0x0d]
+SIO AL,Z,13
+# CHECK-ASM-AND-OBJ: LIO BL,Z,15
+# CHECK-ASM: encoding: [0xf6,0x38,0x0f]
+LIO BL,Z,15
+# CHECK-ASM-AND-OBJ: SIO BL,Z,0
+# CHECK-ASM: encoding: [0xf6,0x39,0x00]
+SIO BL,Z,0
+# CHECK-ASM-AND-OBJ: SUB A,A,32767
+# CHECK-ASM: encoding: [0x51,0x10,0x7f,0xff]
+SUB A,A,32767
+# CHECK-ASM-AND-OBJ: AND A,A,2
+# CHECK-ASM: encoding: [0x52,0x10,0x00,0x02]
+AND A,A,2
+# CHECK-ASM-AND-OBJ: ORI A,A,1
+# CHECK-ASM: encoding: [0x53,0x10,0x00,0x01]
+ORI A,A,1
+# CHECK-ASM-AND-OBJ: ORI B,B,3
+# CHECK-ASM: encoding: [0x53,0x32,0x00,0x03]
+ORI B,B,3
+# CHECK-ASM-AND-OBJ: ORE A,A,2
+# CHECK-ASM: encoding: [0x54,0x10,0x00,0x02]
+ORE A,A,2
+# CHECK-ASM-AND-OBJ: MUL B,B,10
+# CHECK-ASM: encoding: [0x77,0x32,0x00,0x0a]
+MUL B,B,10
+# CHECK-ASM-AND-OBJ: DIV B,B,400
+# CHECK-ASM: encoding: [0x78,0x32,0x01,0x90]
+DIV B,B,400

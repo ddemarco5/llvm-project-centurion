@@ -176,23 +176,27 @@ def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 // ------------------
 
 // ------------------
-// wiki says these are '2e rs'
-// assuming this means |  opcode   |   r  |  s  |
-//                     |   byte 1  |   byte 2   |
+// Opcode byte is 0x2F. Phire's WIPL encodes these as 2F 00/02/04/06.
+// Second byte is | r | s | (register nibble, then selector). The wiki
+// form text says `2e rs`. 0x2E stays the PageTable TODO above.
 // ------------------
 class SingleReg16DMA<bits<8> opcode, bits<4> sel, string opstr>
       : SingleArg16DMA<opcode, sel, (outs), (ins GPR: $argnib), opstr, "$argnib"> { }
+// SDV's high nibble is the DMA mode constant. Mode 0 is `2f 04`;
+// that constant is not a GPR (register A only happens to encode as 0).
+class SingleImm16DMA<bits<8> opcode, bits<4> sel, string opstr>
+      : SingleArg16DMA<opcode, sel, (outs), (ins uimm4:$argnib), opstr, "$argnib"> { }
 
-def SAD: SingleReg16DMA<0x2E, 0x0, "SAD">;
-def RAD: SingleReg16DMA<0x2E, 0x1, "RAD">;
-def SCT: SingleReg16DMA<0x2E, 0x2, "SCT">;
-def RCT: SingleReg16DMA<0x2E, 0x3, "RCT">;
-def SDV: SingleReg16DMA<0x2E, 0x4, "SDV">;
-def RDV: SingleReg16DMA<0x2E, 0x5, "RDV">;
-def EAB: SingleReg16DMA<0x2E, 0x6, "EAB">;
-def DAB: SingleReg16DMA<0x2E, 0x7, "DAB">;
-def SMN: SingleReg16DMA<0x2E, 0x8, "SMN">;
-def RMN: SingleReg16DMA<0x2E, 0x9, "RMN">;
+def SAD: SingleReg16DMA<0x2F, 0x0, "SAD">;
+def RAD: SingleReg16DMA<0x2F, 0x1, "RAD">;
+def SCT: SingleReg16DMA<0x2F, 0x2, "SCT">;
+def RCT: SingleReg16DMA<0x2F, 0x3, "RCT">;
+def SDV: SingleImm16DMA<0x2F, 0x4, "SDV">;
+def RDV: SingleReg16DMA<0x2F, 0x5, "RDV">;
+def EAB: SingleReg16DMA<0x2F, 0x6, "EAB">;
+def DAB: SingleReg16DMA<0x2F, 0x7, "DAB">;
+def SMN: SingleReg16DMA<0x2F, 0x8, "SMN">;
+def RMN: SingleReg16DMA<0x2F, 0x9, "RMN">;
 
 
 //-----------  BIGNUM (0x46)  -----------//
@@ -511,10 +515,92 @@ def ORE : DoubleReg16<0x54, "ORE">;     // OR Exclusive
 def OREB: DoubleReg16_B<0x44, "OREB">;  // OR Exclusive (Byte mode)
 def XFR : DoubleReg16<0x55, "XFR">;     // Transfer
 def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
+
+// 5x literal. High nibble is the source register with its low bit set.
+// Low nibble is the destination. The imm16 follows, big-endian.
+// Phire: `50 54 ff ec` is add X, X, 0xffec. Both nibbles are even on
+// the register-to-register form, so this does not alias it.
+class DoubleRegImm32<bits<8> opcode, string opstr>
+      : CenturionInst32<(outs), (ins GPR:$src, GPR:$dst, i16imm:$imm),
+                        opstr, "$src,$dst,$imm"> {
+  bits<4> src;
+  bits<4> dst;
+  bits<16> imm;
+  let Inst{31-24} = opcode;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = dst;
+  let Inst{15-0} = imm;
+}
+def ADDimm : DoubleRegImm32<0x50, "ADD">;
+// Same literal tail: odd high nibble, even destination, big-endian imm16.
+// load7: `51 10 7f ff` sub A,A; `52 10 00 02` and A,A; `53 10 00 01` or A,A;
+// `53 32 00 03` or B,B; `54 10 00 02` xor A,A. `77 32 00 0a` is multiply
+// and `78 32 01 90` is divide. load7's text swaps those two names; the
+// wiki's 0x78 row is DIV.
+def SUBimm : DoubleRegImm32<0x51, "SUB">;
+def ANDimm : DoubleRegImm32<0x52, "AND">;
+def ORIimm : DoubleRegImm32<0x53, "ORI">;
+def OREimm : DoubleRegImm32<0x54, "ORE">;
+
+// XFR literal ignores the source register. Phire writes the destination
+// into both nibbles and sets the source nibble's low bit: `55 98 f2 00`
+// is mov Z, 0xf200.
+class XFRImm32
+      : CenturionInst32<(outs), (ins GPR:$dst, i16imm:$imm),
+                        "XFR", "$dst,$imm"> {
+  bits<4> dst;
+  bits<16> imm;
+  let Inst{31-24} = 0x55;
+  let Inst{23} = dst{3};
+  let Inst{22} = dst{2};
+  let Inst{21} = dst{1};
+  let Inst{20} = 1;
+  let Inst{19} = dst{3};
+  let Inst{18} = dst{2};
+  let Inst{17} = dst{1};
+  let Inst{16} = dst{0};
+  let Inst{15-0} = imm;
+}
+def XFRimm : XFRImm32;
 def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
-def STK: DoubleReg16<0x7E, "STK", GPR, i8imm>;    // Push 8 bit registers onto stack
-def POP: DoubleReg16<0x7F, "POP", GPR, i8imm>;    // Push 8 bit registers onto stack
+def MULimm : DoubleRegImm32<0x77, "MUL">;
+def DIVimm : DoubleRegImm32<0x78, "DIV">;
+// High nibble is the first register. Low nibble is count-1.
+// `7e 45` pushes X, Y, Z. `7e 81` pushes Z. Same byte for POP.
+def STK : SingleReg16<0x7E, "STK">;
+def POP : SingleReg16<0x7F, "POP">;
+
+// High nibble is the interrupt level. Low nibble is the word register.
+// `d7 6e` stores A into P at level 6. `e6 60` loads A from A at level 6.
+class ILMove16<bits<8> opcode, string opstr>
+      : SingleArg16HL<opcode, (outs), (ins uimm4:$arghnibble, GPR:$arglnibble),
+                     opstr, "$arghnibble,$arglnibble"> {}
+def SAR : ILMove16<0xD7, "SAR">;
+def LAR : ILMove16<0xE6, "LAR">;
+
+// F6 byte move between a low byte register and MMIO[base + disp8].
+// The base nibble's low bit is 0 for load and 1 for store.
+// `f6 18 00` loads AL from Device[Z]. `f6 19 0d` stores AL to Device[Z+0x0d].
+class MMIO24<bit dir, string opstr>
+      : CenturionInst24<(outs), (ins GPRlo:$sr, GPR:$base, i8imm:$disp),
+                        opstr, "$sr,$base,$disp"> {
+  bits<4> sr;
+  bits<4> base;
+  bits<8> disp;
+  let Inst{23-16} = 0xF6;
+  let Inst{15-12} = sr;
+  let Inst{11} = base{3};
+  let Inst{10} = base{2};
+  let Inst{9} = base{1};
+  let Inst{8} = dir;
+  let Inst{7-0} = disp;
+}
+def LIO : MMIO24<0, "LIO">;
+def SIO : MMIO24<1, "SIO">;
 
 //-----------  Implicit Register Rnstructions  ---------------//
 // Instruction: <|opcode|>

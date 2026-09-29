@@ -38,6 +38,16 @@ class CenturionInst24<dag outs, dag ins, string opstr, string argstr>
     let Size = 3;
 }
 
+// Four byte instruction. 5x literal ADD and XFR are an opcode, a
+// register byte, and a big-endian imm16.
+class CenturionInst32<dag outs, dag ins, string opstr, string argstr>
+      : CenturionInst<outs, ins, opstr, argstr> {
+
+    field bits<32> Inst;
+
+    let Size = 4;
+}
+
 // Seven-byte instruction. BIGNUM uses this for the 3-byte prefix plus
 // two 2-byte operand tails. The emitter writes Inst big-endian.
 class CenturionInst56<dag outs, dag ins, string opstr, string argstr>
