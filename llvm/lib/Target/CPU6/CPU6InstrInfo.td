@@ -183,16 +183,16 @@ def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 class SingleReg16DMA<bits<8> opcode, bits<4> sel, string opstr>
       : SingleArg16DMA<opcode, sel, (outs), (ins GPR: $argnib), opstr, "$argnib"> { }
 
-def LDDMAA: SingleReg16DMA<0x2E, 0x0, "LDDMAA">;
-def STDMAA: SingleReg16DMA<0x2E, 0x1, "STDMAA">;
-def LDDMAC: SingleReg16DMA<0x2E, 0x2, "LDDMAC">;
-def STDMAC: SingleReg16DMA<0x2E, 0x3, "STDMAC">;
-def SETDMAM: SingleReg16DMA<0x2E, 0x4, "SETDMAM">;
-def SETDMAMR: SingleReg16DMA<0x2E, 0x5, "SETDMAMR">;
-def EDMA: SingleReg16DMA<0x2E, 0x6, "EDMA">;
-def DDMA: SingleReg16DMA<0x2E, 0x7, "DDMA">;
-def LDDMAMAP: SingleReg16DMA<0x2E, 0x8, "LDDMAMAP">;
-def STDMAMAP: SingleReg16DMA<0x2E, 0x9, "STDMAMAP">;
+def SAD: SingleReg16DMA<0x2E, 0x0, "SAD">;
+def RAD: SingleReg16DMA<0x2E, 0x1, "RAD">;
+def SCT: SingleReg16DMA<0x2E, 0x2, "SCT">;
+def RCT: SingleReg16DMA<0x2E, 0x3, "RCT">;
+def SDV: SingleReg16DMA<0x2E, 0x4, "SDV">;
+def RDV: SingleReg16DMA<0x2E, 0x5, "RDV">;
+def EAB: SingleReg16DMA<0x2E, 0x6, "EAB">;
+def DAB: SingleReg16DMA<0x2E, 0x7, "DAB">;
+def SMN: SingleReg16DMA<0x2E, 0x8, "SMN">;
+def RMN: SingleReg16DMA<0x2E, 0x9, "RMN">;
 
 // ------------------
 //  TODO!!!! 46 Instruction block here. I need some clearer documentation on the layout
