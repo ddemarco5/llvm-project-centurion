@@ -158,9 +158,12 @@ def INR : SingleReg16<0x30, "INR">;      // Increment Register
 def INRB: SingleReg16_B<0x20, "INRB">;   // Increment Register (Byte mode)
 def DCR : SingleReg16<0x31, "DCR">;      // Decrement Register
 def DCRB: SingleReg16_B<0x21, "DCRB">;   // Decrement Register (Byte mode)
-def CLR : SingleReg16H<0x32, "CLR">;     // Clear Register
-def CLRB: SingleReg16H_B<0x22, "CLRB">;  // Clear Register (Byte mode)
-def IVR : SingleReg16H<0x33, "IVR">;     // Invert Register
+// The low nibble is the value, not forced to 0. load7 `32 01` is
+// clr A, #1 and `32 02` is clr A, #2. f1 `22 32` is clr BL, #2.
+// Phire prints that nibble as the count; the encoded nibble is the value.
+def CLR : SingleReg16<0x32, "CLR">;      // Clear Register
+def CLRB: SingleReg16_B<0x22, "CLRB">;   // Clear Register (Byte mode)
+def IVR : SingleReg16<0x33, "IVR">;      // Invert Register
 def IVRB: SingleReg16H_B<0x23, "IVRB">;  // Invert Register (Byte mode)
 def SRR : SingleReg16<0x34, "SRR">;      // Shift Register Right
 def SRRB: SingleReg16_B<0x24, "SRRB">;   // Shift Register Right (Byte mode)
@@ -171,9 +174,53 @@ def RRRB: SingleReg16_B<0x26, "RRRB">;   // Rotate Register Right (Byte mode)
 def RLR : SingleReg16<0x37, "RLR">;      // Rotate Register Left
 def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 
-// ------------------
-//  TODO!!!! 2E Instruction block here. I need some clearer documentation on the layout
-// ------------------
+// Odd high nibble: the operation is on memory. Wiki OpC_30-3F and load7.
+// Nibble 1 is direct and the next word is a big-endian address:
+// `30 10 8e cd` inc [0x8ecd], #1; `32 10 90 35` clr [0x9035], #0;
+// `33 11 cf 1b` not [0xcf1b], #1.
+// Any other odd nibble is indexed from that register, and the next word
+// is a big-endian displacement: `31 70 00 35` dec [Y+0x0035], #1;
+// `32 90 00 10` clr [Z+0x0010], #0; `34 97 83 00` srl [Z+0x8300], #8.
+// The low nibble is the same count field as the register form.
+// A 2-byte def only matches an even register, so it does not swallow these.
+class CountMem32<bits<8> opcode, string opstr>
+      : CenturionInst32<(outs), (ins i16imm:$addr, uimm4:$count),
+                        opstr, "(${addr}),$count"> {
+  bits<16> addr;
+  bits<4> count;
+  let Inst{31-24} = opcode;
+  let Inst{23-20} = 1;
+  let Inst{19-16} = count;
+  let Inst{15-0} = addr;
+}
+class CountIdx32<bits<8> opcode, string opstr>
+      : CenturionInst32<(outs), (ins GPR:$base, i16imm:$disp, uimm4:$count),
+                        opstr, "(${base}),$disp,$count"> {
+  bits<4> base;
+  bits<16> disp;
+  bits<4> count;
+  let Inst{31-24} = opcode;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = count;
+  let Inst{15-0} = disp;
+}
+def INRmem : CountMem32<0x30, "INR">;
+def INRidx : CountIdx32<0x30, "INR">;
+def DCRmem : CountMem32<0x31, "DCR">;
+def DCRidx : CountIdx32<0x31, "DCR">;
+def CLRmem : CountMem32<0x32, "CLR">;
+def CLRidx : CountIdx32<0x32, "CLR">;
+def IVRmem : CountMem32<0x33, "IVR">;
+def IVRidx : CountIdx32<0x33, "IVR">;
+def SRRmem : CountMem32<0x34, "SRR">;
+def SRRidx : CountIdx32<0x34, "SRR">;
+
+// 0x2E PageTable stays unimplemented. The wiki form is `2E ssssmmnn`
+// and load7 uses both 5-byte and 6-byte tails (`2e 1c 78 80 d3`,
+// `2e 30 a1 fc a0 fb`). The mode bits change the tail width.
 
 // ------------------
 // Opcode byte is 0x2F. Phire's WIPL encodes these as 2F 00/02/04/06.
@@ -447,39 +494,90 @@ foreach OP = [
 }
 
 
-// ------------------
-//  0x47 and 0x67. The wiki does not settle the operation or the mnemonic.
-//  WIPL uses one width for each opcode: 0x47 is 6 bytes at both sites
-//  (47 4c 00 ff 02 65 and 47 9c 09 a0 03 65), and 0x67 is 3 bytes at its
-//  only site (67 4a 86). UNK47 / UNK67 consume that width. The trailing
-//  bytes are an opaque tail, not decoded fields. A Nakazoto listing spells
-//  the same bytes MVF, FIL, and MVFR; those names are not used here.
-// ------------------
-class Unknown48<bits<8> op, string name>
+// 0x47 mode 0xC and 0x67 mode 0xA. These are the WIPL sites and the
+// load7 lines with the same shape. Other 47/67 lengths stay unimplemented:
+// load7 also has 4-, 5-, and 7-byte 0x47 and 4-, 5-, and 6-byte 0x67.
+//
+// MVF is selector 4, FIL is selector 9. Both use mode nibble 0xC:
+// count-1, a literal byte, then a big-endian direct address.
+// WIPL `47 4c 00 ff 02 65` is MVF (1)=0xFF, /0x0265.
+// WIPL `47 9c 09 a0 03 65` is FIL (10)=0xA0, /0x0365.
+// MVFR is selector 4, mode nibble 0xA, then source and destination
+// registers. The length is AL and is not in the instruction.
+// WIPL `67 4a 86` is MVFR -Z,-Y. load7 `67 4a 64` is memcpy AL, [Y], [X].
+class BlockLit48<bits<4> sel, string name>
       : CenturionInst48<(outs),
-          (ins i8imm:$b0, i8imm:$b1, i8imm:$b2, i8imm:$b3, i8imm:$b4),
-          name, "$b0, $b1, $b2, $b3, $b4"> {
-  bits<8> b0;
-  bits<8> b1;
-  bits<8> b2;
-  bits<8> b3;
-  bits<8> b4;
-  let Inst{47-40} = op;
-  let Inst{39-32} = b0;
-  let Inst{31-24} = b1;
-  let Inst{23-16} = b2;
-  let Inst{15-8} = b3;
-  let Inst{7-0} = b4;
+          (ins uimm8:$count, i8imm:$byte, i16imm:$addr),
+          name, "$count,$byte,(${addr})"> {
+  bits<8> count;
+  bits<8> byte;
+  bits<16> addr;
+  let Inst{47-40} = 0x47;
+  let Inst{39-36} = sel;
+  let Inst{35-32} = 0xC;
+  let Inst{31-24} = count;
+  let Inst{23-16} = byte;
+  let Inst{15-0} = addr;
 }
+def MVF : BlockLit48<4, "MVF">;
+def FIL : BlockLit48<9, "FIL">;
 
-def UNK47 : Unknown48<0x47, "UNK47">;
+class MVFR24
+      : CenturionInst24<(outs), (ins GPR:$src, GPR:$dst),
+                        "MVFR", "$src,$dst"> {
+  bits<4> src;
+  bits<4> dst;
+  let Inst{23-16} = 0x67;
+  let Inst{15-12} = 4;
+  let Inst{11-8} = 0xA;
+  let Inst{7-4} = src;
+  let Inst{3-0} = dst;
+}
+def MVFR : MVFR24;
 
-def UNK67 : DoubleArg24<0x67, (outs), (ins i8imm:$arg1, i8imm:$arg2),
-                        "UNK67", "$arg1, $arg2">;
-
-// ------------------
-//  TODO!!!! D6 Instruction block here. I think I understand the wiki but I need to make sure
-// ------------------
+// D6. load7's direct and indexed bytes settle the register byte.
+// High nibble is the value being stored. Low nibble is the address side.
+// `d6 89 92 b7` is st Z, [0x92b7]: both nibbles are Z, and the low
+// nibble's low bit is set. `d6 35 00 05` is st B, [X+5]: high is B
+// with the low bit set, low is X with the low bit set, then a
+// big-endian displacement.
+// Both-even (register to register) and left-odd/right-even (literal)
+// do not appear in a listing that shows the bytes. They are not defined.
+class STRMem32
+      : CenturionInst32<(outs), (ins GPR:$src, i16imm:$addr),
+                        "STR", "$src,(${addr})"> {
+  bits<4> src;
+  bits<16> addr;
+  let Inst{31-24} = 0xD6;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 0;
+  let Inst{19} = src{3};
+  let Inst{18} = src{2};
+  let Inst{17} = src{1};
+  let Inst{16} = 1;
+  let Inst{15-0} = addr;
+}
+def STRmem : STRMem32;
+class STRIdx32
+      : CenturionInst32<(outs), (ins GPR:$src, GPR:$base, i16imm:$disp),
+                        "STR", "$src,(${base}),$disp"> {
+  bits<4> src;
+  bits<4> base;
+  bits<16> disp;
+  let Inst{31-24} = 0xD6;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 1;
+  let Inst{19} = base{3};
+  let Inst{18} = base{2};
+  let Inst{17} = base{1};
+  let Inst{16} = 1;
+  let Inst{15-0} = disp;
+}
+def STRidx : STRIdx32;
 
 
 
@@ -595,6 +693,29 @@ def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
 def MULimm : DoubleRegImm32<0x77, "MUL">;
 def DIVimm : DoubleRegImm32<0x78, "DIV">;
+// Odd/odd is indexed, not another imm16. load7 `78 93 00 1c` is
+// div B, [Z+0x001c], B. Wiki: dest <- dest / index(src). High nibble
+// is the index with its low bit set. Low nibble is the destination
+// with its low bit set. The tail is a big-endian displacement.
+// The literal form keeps the destination even, so the two do not alias.
+class DIVIdx32
+      : CenturionInst32<(outs), (ins GPR:$src, GPR:$dst, i16imm:$disp),
+                        "DIV", "(${src}),$dst,$disp"> {
+  bits<4> src;
+  bits<4> dst;
+  bits<16> disp;
+  let Inst{31-24} = 0x78;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 1;
+  let Inst{19} = dst{3};
+  let Inst{18} = dst{2};
+  let Inst{17} = dst{1};
+  let Inst{16} = 1;
+  let Inst{15-0} = disp;
+}
+def DIVidx : DIVIdx32;
 // High nibble is the first register. Low nibble is count-1.
 // `7e 45` pushes X, Y, Z. `7e 81` pushes Z. Same byte for POP.
 def STK : SingleReg16<0x7E, "STK">;
