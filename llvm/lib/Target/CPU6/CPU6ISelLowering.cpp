@@ -73,16 +73,13 @@ SDValue CPU6TargetLowering::LowerReturn(
     const SmallVectorImpl<ISD::OutputArg> &Outs,
     const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
     SelectionDAG &DAG) const {
-  // TODO(cpu6): `ret void` has an empty Outs. Produce a CPU6ISD::RET_GLUE
-  // node chained on Chain. The pattern in CPU6InstrPatterns.td turns that
-  // node into RSR, after RSR is marked isReturn/isTerminator/isBarrier.
-  //
-  //   if (Outs.empty())
-  //     return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, Chain);
-  //
-  // A returned value has to be copied into the register RetCC_CPU6 assigns
-  // before that node. Glue keeps the copy attached to the return so nothing
-  // can sink between them:
+  // `ret void` has an empty Outs. CPU6InstrPatterns.td matches this node to RSR.
+  if (Outs.empty())
+    return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, Chain);
+
+  // TODO(cpu6): a returned value has to be copied into the register RetCC_CPU6
+  // assigns before the RET_GLUE node. Glue keeps the copy attached to the
+  // return so nothing can sink between them. Uncomment for load-imm.ll.
   //
   //   SmallVector<CCValAssign, 4> RVLocs;
   //   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
@@ -102,13 +99,9 @@ SDValue CPU6TargetLowering::LowerReturn(
   //   if (Glue.getNode())
   //     RetOps.push_back(Glue);
   //   return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, RetOps);
-  (void)Chain;
   (void)CallConv;
   (void)IsVarArg;
-  (void)Outs;
   (void)OutVals;
-  (void)DL;
-  (void)DAG;
   llvm_unreachable("TODO(cpu6): CPU6TargetLowering::LowerReturn");
 }
 

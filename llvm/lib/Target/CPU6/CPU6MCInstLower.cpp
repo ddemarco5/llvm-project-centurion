@@ -22,26 +22,21 @@ void CPU6MCInstLower::lowerInstruction(const MachineInstr *MI,
   // layer you already have: CPU6InstPrinter writes the text, and
   // CPU6MCCodeEmitter writes the bytes when the output is an object file.
   //
-  //   OutMI.setOpcode(MI->getOpcode());
-  //   for (const MachineOperand &MO : MI->operands()) {
-  //     if (MO.isReg()) {
-  //       // Implicit operands (clobbers, dead defs) are not encoded.
-  //       if (MO.isImplicit())
-  //         continue;
-  //       OutMI.addOperand(MCOperand::createReg(MO.getReg()));
-  //     } else if (MO.isImm()) {
-  //       OutMI.addOperand(MCOperand::createImm(MO.getImm()));
-  //     } else {
-  //       llvm_unreachable("unhandled MachineOperand");
-  //     }
-  //   }
-  //
+    OutMI.setOpcode(MI->getOpcode());
+    for (const MachineOperand &MO : MI->operands()) {
+      if (MO.isReg()) {
+        // Implicit operands (clobbers, dead defs) are not encoded.
+        if (MO.isImplicit())
+          continue;
+        OutMI.addOperand(MCOperand::createReg(MO.getReg()));
+      } else if (MO.isImm()) {
+        OutMI.addOperand(MCOperand::createImm(MO.getImm()));
+      } else {
+        llvm_unreachable("unhandled MachineOperand");
+      }
+    }
+
   // Operand order has to match the instruction's (outs, ins) list. That is
   // the same order getBinaryCodeForInstr reads. RSR has no operands, so the
   // loop adds nothing and the existing one-byte encoder emits 0x09.
-  (void)MI;
-  (void)OutMI;
-  (void)Ctx;
-  (void)Printer;
-  llvm_unreachable("TODO(cpu6): CPU6MCInstLower::lowerInstruction");
 }

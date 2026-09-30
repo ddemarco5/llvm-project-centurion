@@ -79,9 +79,10 @@ def DI : Control<0x05, "DI">;       // Disable Interrupt System
 def SL : Control<0x06, "SL">;       // Set Link
 def RL : Control<0x07, "RL">;       // Reset Link
 def CL : Control<0x08, "CL">;       // Complement Link
-// Codegen treats `ret` as this instruction. It still needs
-// isReturn/isTerminator/isBarrier before the machine verifier will accept a
-// function that ends with it. See CPU6InstrPatterns.td.
+// isReturn marks the function exit. isTerminator and isBarrier tell the
+// machine verifier that control does not fall out of the block. The
+// CPU6retglue pattern in CPU6InstrPatterns.td selects this opcode.
+let isReturn = 1, isTerminator = 1, isBarrier = 1 in
 def RSR : Control<0x09, "RSR">;     // Return from Subroutine
 def RI : Control<0x0A, "RI">;       // Return from Inturrupt
 def RIM : Control<0x0B, "RIM">;     // Return from Inturrupt Modified

@@ -30,20 +30,9 @@ def SDT_CPU6Nop : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, i16>]>;
 def CPU6noop : SDNode<"CPU6ISD::NOP", SDT_CPU6Nop, []>;
 def : Pat<(CPU6noop GPR:$src), (XFR GPR:$src)>;
 
-// TODO(cpu6): mark RSR as a return, then match the node.
-//
-// In CPU6InstrInfo.td the RSR line wants to be wrapped as:
-//
-//   let isReturn = 1, isTerminator = 1, isBarrier = 1 in
-//   def RSR : Control<0x09, "RSR">;
-//
-// isTerminator + isBarrier tell the machine verifier that control does not
-// fall out of the block. isReturn tells the prologue/epilogue pass that this
-// is the function's exit.
-//
-// Then select it:
-//
-//   def : Pat<(CPU6retglue), (RSR)>;
+// Select the return node LowerReturn builds. RSR is marked isReturn,
+// isTerminator, and isBarrier in CPU6InstrInfo.td.
+def : Pat<(CPU6retglue), (RSR)>;
 
 // TODO(cpu6): load a 16-bit immediate. Copy the XFRimm encoding, but put $dst
 // in (outs) so the instruction defines a register. Same bit layout as

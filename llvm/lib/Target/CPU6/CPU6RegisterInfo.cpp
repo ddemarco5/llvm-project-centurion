@@ -37,24 +37,22 @@ CPU6RegisterInfo::getCallPreservedMask(const MachineFunction &,
 }
 
 BitVector CPU6RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
-  // TODO(cpu6): this is the first function llc calls for every function.
+  // this is the first function llc calls for every function.
   //
   // A reserved register is never handed out by the register allocator. P is
   // the program counter. Reserving the 16-bit register does not reserve its
   // byte halves; set those too, or the allocator can hand out rPL and clobber
   // P. S is the usual stack pointer. Reserve it once you decide it is not
   // general-purpose, and do the same for its halves.
-  //
-  // BitVector Reserved(getNumRegs());
-  // Reserved.set(CPU6::rP);
-  // Reserved.set(CPU6::rPU);
-  // Reserved.set(CPU6::rPL);
-  // Reserved.set(CPU6::rS);
-  // Reserved.set(CPU6::rSU);
-  // Reserved.set(CPU6::rSL);
-  // return Reserved;
-  (void)MF;
-  llvm_unreachable("TODO(cpu6): CPU6RegisterInfo::getReservedRegs");
+
+  BitVector Reserved(getNumRegs());
+  Reserved.set(CPU6::rP);
+  Reserved.set(CPU6::rPU);
+  Reserved.set(CPU6::rPL);
+  Reserved.set(CPU6::rS);
+  Reserved.set(CPU6::rSU);
+  Reserved.set(CPU6::rSL);
+  return Reserved;
 }
 
 bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
