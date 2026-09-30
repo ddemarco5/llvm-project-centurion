@@ -41,34 +41,27 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
   if (Ins.empty())
     return Chain;
 
-  // TODO(cpu6): assign each incoming value and push one SDValue per argument
+  // assign each incoming value and push one SDValue per argument
   // into InVals, in order.
-  //
-  //   MachineFunction &MF = DAG.getMachineFunction();
-  //   SmallVector<CCValAssign, 8> ArgLocs;
-  //   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
-  //   CCInfo.AnalyzeFormalArguments(Ins, CC_CPU6);
-  //
-  //   for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
-  //     CCValAssign &VA = ArgLocs[I];
-  //     if (!VA.isRegLoc())
-  //       llvm_unreachable("stack arguments need a frame load");
-  //     InVals.push_back(
-  //         DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT()));
-  //   }
-  //   return Chain;
-  //
+  MachineFunction &MF = DAG.getMachineFunction();
+  SmallVector<CCValAssign, 8> ArgLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeFormalArguments(Ins, CC_CPU6);
+
+  for (unsigned I = 0, E = ArgLocs.size(); I != E; ++I) {
+    CCValAssign &VA = ArgLocs[I];
+    if (!VA.isRegLoc())
+      llvm_unreachable("stack arguments need a frame load");
+    InVals.push_back(
+        DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT()));
+  }
+  return Chain;
+  
   // CC_CPU6 comes from CPU6CallingConv.td. Include the generated function
   // with `#define GET_CALLING_CONV_IMPL` / `#include "CPU6GenCallingConv.inc"`
   // in this file. The register you name there is where the caller is expected
   // to have left the argument; this function only copies it into a virtual
   // register the body can use.
-  (void)CallConv;
-  (void)IsVarArg;
-  (void)DL;
-  (void)DAG;
-  (void)InVals;
-  llvm_unreachable("TODO(cpu6): CPU6TargetLowering::LowerFormalArguments");
 }
 
 SDValue CPU6TargetLowering::LowerReturn(

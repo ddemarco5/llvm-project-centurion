@@ -32,18 +32,9 @@ def : Pat<(CPU6retglue), (RSR)>;
 // An i16 constant selects the same XFRimm the assembler parses.
 def : Pat<(i16 imm:$imm), (XFRimm imm:$imm)>;
 
-// `ret i16 42` then becomes XFRimm into the return register, plus RSR.
+// Mode-2 ADD writes $dst, so the pattern names only the two inputs.
+def : Pat<(add GPR:$src, (i16 imm:$imm)), (ADDimm GPR:$src, imm:$imm)>;
 
-// TODO(cpu6): add a register and an immediate.
-// ADDimm (class DoubleRegImm32 in CPU6InstrInfo.td) already encodes this:
-// opcode 0x50, source nibble with its low bit set, destination in the low
-// nibble, big-endian imm16. Phire prints `ADD X, X, 0xffec` for `50 54 ff ec`,
-// which is dst = src + imm, so the DAG node is (add src, imm) with no tied
-// operand. $dst is still an input on that class. Move it to (outs), the same
-// way XFRimm was fixed, then select the existing instruction:
-//
-//   def : Pat<(add GPR:$src, (i16 imm:$imm)), (ADDimm GPR:$src, imm:$imm)>;
-//
 // Register/register ADD is two-address: `ADD B, X` reads and writes X.
 // ADD already defines $arglnibble. Add the tied use on that same def:
 //

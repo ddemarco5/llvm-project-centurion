@@ -31,24 +31,13 @@ void CPU6InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   // Word move is XFR. Its TableGen operands are (outs dest), (ins src), and
   // the text is "XFR src,dest". BuildMI's destination argument is the out
   // operand; addReg appends the source:
-  //
-  //   if (CPU6::GPRRegClass.contains(DestReg, SrcReg)) {
-  //     BuildMI(MBB, MI, DL, get(CPU6::XFR), DestReg)
-  //         .addReg(SrcReg, getKillRegState(KillSrc));
-  //     return;
-  //   }
-  //
-  // Byte copies are XFRB, once GPRB is a legal register class. RenamableDest
-  // and RenamableSrc can stay unused until the coalescer cares.
-  (void)MBB;
-  (void)MI;
-  (void)DL;
-  (void)DestReg;
-  (void)SrcReg;
-  (void)KillSrc;
-  (void)RenamableDest;
-  (void)RenamableSrc;
-  llvm_unreachable("TODO(cpu6): CPU6InstrInfo::copyPhysReg");
+  
+  if (CPU6::GPRRegClass.contains(DestReg, SrcReg)) {
+    BuildMI(MBB, MI, DL, get(CPU6::XFR), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
+
 }
 
 void CPU6InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,

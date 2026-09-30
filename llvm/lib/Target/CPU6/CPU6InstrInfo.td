@@ -2175,12 +2175,15 @@ def OREB: DoubleReg16_B<0x44, "OREB">;  // OR Exclusive (Byte mode)
 def XFR : DoubleReg16<0x55, "XFR">;     // Transfer
 def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
 
-// 5x literal. High nibble is the source register with its low bit set.
-// Low nibble is the destination. The imm16 follows, big-endian.
-// Phire: `50 54 ff ec` is add X, X, 0xffec. Both nibbles are even on
-// the register-to-register form, so this does not alias it.
+// 5x extended form. The low bit of each nibble is a mode, not a register.
+// This def is mode 2: source nibble odd, destination nibble even, then a
+// big-endian imm16. webCenREE rrfetchw reads $src (low bit ignored) and the
+// literal, and writes $dst. ADD is dst = src + imm. Phire `50 54 ff ec` is
+// ADD X, X, 0xffec. The even/even register form is DoubleReg16, so the two
+// encodings do not alias. Condition codes change and are not modeled yet.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class DoubleRegImm32<bits<8> opcode, string opstr>
-      : CenturionInst32<(outs), (ins GPR:$src, GPR:$dst, i16imm:$imm),
+      : CenturionInst32<(outs GPR:$dst), (ins GPR:$src, i16imm:$imm),
                         opstr, "$src,$dst,$imm"> {
   bits<4> src;
   bits<4> dst;

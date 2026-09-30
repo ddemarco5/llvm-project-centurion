@@ -22,11 +22,10 @@
 // Uncomment and pick the registers you want the first arguments to land in.
 // Anything that does not match has to go to a stack slot, and we have no
 // frame store yet, so leave that for later.
-//
-// def CC_CPU6 : CallingConv<[
-//   CCIfType<[i16], CCAssignToReg<[rA, rB, rX, rY, rZ]>>,
-// ]>;
-def CC_CPU6 : CallingConv<[]>;
+
+def CC_CPU6 : CallingConv<[
+  CCIfType<[i16], CCAssignToReg<[rA, rB, rY, rZ]>>,
+]>;
 
 // Where `ret i16 %v` places %v. One register is enough for the first tests.
 
