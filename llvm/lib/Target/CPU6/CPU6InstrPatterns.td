@@ -42,3 +42,35 @@ def : Pat<(add GPR:$src, (i16 imm:$imm)), (ADDimm GPR:$src, imm:$imm)>;
 //   ... (outs GPR:$arglnibble), (ins GPR:$arghnibble, GPR:$base) ...
 //   def : Pat<(add GPR:$base, GPR:$arghnibble),
 //             (ADD GPR:$arghnibble, GPR:$base)>;
+
+// STK and POP are not selected here. A Pat matches one DAG node, and nothing
+// in the DAG means "save whichever of X, Y, Z this function clobbers."
+// That set is CSR in CPU6CallingConv.td. The prologue inserter asks
+// CPU6FrameLowering::spillCalleeSavedRegisters, which emits one STK per
+// contiguous stretch of X, Y, Z and a matching POP in front of RSR. Same
+// split as MSP430 PUSH/POP.
+
+// Frame index -> target frame index, so a displacement operand can hold the
+// slot until eliminateFrameIndex writes the offset from S.
+def to_tframeindex : SDNodeXForm<frameindex, [{
+  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
+}]>;
+
+// `LDA (S),disp` / `STA (S),disp`. M = 5, M' = 8: base plus a displacement
+// byte, direct. The assembler records (LDA_5_8, STA_5_8) have no result
+// operand, because the mnemonic already means A. These are that encoding
+// with A named, so a load or store of a frame slot can select them.
+// isCodeGenOnly: the assembler keeps parsing `LDA (X),21`.
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+def LDAfi : Memory24Index<0x9, 0x8, (outs Acc:$dst), (ins GPR:$r, i16imm:$arg),
+                          "LDA", "(${r}),$arg">;
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
+def STAfi : Memory24Index<0xB, 0x8, (outs), (ins Acc:$src, GPR:$r, i16imm:$arg),
+                          "STA", "(${r}),$arg">;
+
+// The address of an alloca is a FrameIndex. S is the base; the displacement
+// is filled in after the frame layout is known.
+def : Pat<(i16 (load (frameindex:$fi))),
+          (LDAfi (i16 rS), (to_tframeindex $fi))>;
+def : Pat<(store Acc:$src, (frameindex:$fi)),
+          (STAfi Acc:$src, (i16 rS), (to_tframeindex $fi))>;

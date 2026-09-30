@@ -1,0 +1,128 @@
+# RUN: llc -mtriple=cpu6 -run-pass=prolog-epilog -verify-machineinstrs -o - %s | FileCheck %s
+
+# STK X,5 leaves X at the new S and Z nearest the incoming S. The callee-saved
+# stack objects have to describe that same layout. The local is below them.
+
+# CHECK-LABEL: name: all3
+# CHECK: stack:
+# CHECK:      offset: -8, size: 2
+# CHECK:      offset: -2, size: 2
+# CHECK-NEXT: callee-saved-register: '$rz'
+# CHECK:      offset: -4, size: 2
+# CHECK-NEXT: callee-saved-register: '$ry'
+# CHECK:      offset: -6, size: 2
+# CHECK-NEXT: callee-saved-register: '$rx'
+# CHECK:      frame-setup STK killed $rx, 5
+# CHECK-NEXT: $rs = frame-setup ADDimm $rs, -2
+# CHECK:      STAfi killed $ra, $rs, 0
+# CHECK:      $rs = frame-destroy ADDimm $rs, 2
+# CHECK-NEXT: $rx = frame-destroy POP 5
+# CHECK-NEXT: RSR
+
+# X and Z without Y is two pushes. Z goes first so it lands in the slot
+# nearest the incoming S, and it is popped last.
+
+# CHECK-LABEL: name: gap
+# CHECK: stack:
+# CHECK:      offset: -6, size: 2
+# CHECK:      offset: -2, size: 2
+# CHECK-NEXT: callee-saved-register: '$rz'
+# CHECK:      offset: -4, size: 2
+# CHECK-NEXT: callee-saved-register: '$rx'
+# CHECK:      frame-setup STK killed $rz, 1
+# CHECK-NEXT: frame-setup STK killed $rx, 1
+# CHECK-NEXT: $rs = frame-setup ADDimm $rs, -2
+# CHECK:      $rs = frame-destroy ADDimm $rs, 2
+# CHECK-NEXT: $rx = frame-destroy POP 1
+# CHECK-NEXT: $rz = frame-destroy POP 1
+# CHECK-NEXT: RSR
+
+# Y is an incoming argument that the body still reads, so STK must not kill it.
+
+# CHECK-LABEL: name: ylive
+# CHECK:      frame-setup STK $ry, 1
+# CHECK-NEXT: $ra = XFR killed $ry
+# CHECK:      $ry = frame-destroy POP 1
+# CHECK-NEXT: RSR
+
+# An align-4 slot makes X the frame pointer, and the body writes Z. That is
+# the gap case again. X is copied from S after both pushes, so restoring S
+# from X lands exactly on the saved registers. The local is at -8, below Z at
+# -2 and X at -4, and the frame is 8.
+
+# CHECK-LABEL: name: realign
+# CHECK: stack:
+# CHECK:      offset: -8, size: 2, alignment: 4
+# CHECK:      offset: -2, size: 2
+# CHECK-NEXT: callee-saved-register: '$rz'
+# CHECK:      offset: -4, size: 2
+# CHECK-NEXT: callee-saved-register: '$rx'
+# CHECK:      frame-setup STK killed $rz, 1
+# CHECK-NEXT: frame-setup STK killed $rx, 1
+# CHECK-NEXT: $rx = frame-setup XFR $rs
+# CHECK-NEXT: $rs = frame-setup ADDimm $rs, -4
+# CHECK-NEXT: $rs = frame-setup ANDimm $rs, -4
+# CHECK:      STAfi killed $ra, $rs, 0
+# CHECK:      $rs = frame-destroy XFR $rx
+# CHECK-NEXT: $rx = frame-destroy POP 1
+# CHECK-NEXT: $rz = frame-destroy POP 1
+# CHECK-NEXT: RSR
+
+--- |
+  define i16 @all3(i16 %a) { ret i16 %a }
+  define i16 @gap(i16 %a) { ret i16 %a }
+  define i16 @ylive(i16 %a, i16 %b, i16 %y) { ret i16 %y }
+  define i16 @realign(i16 %a) { ret i16 %a }
+...
+---
+name: all3
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 2, alignment: 1 }
+body: |
+  bb.0:
+    liveins: $ra
+    $rx = XFRimm 1
+    $ry = XFRimm 1
+    $rz = XFRimm 1
+    STAfi killed $ra, $rs, %stack.0
+    $ra = LDAfi $rs, %stack.0
+    RSR implicit killed $ra
+...
+---
+name: gap
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 2, alignment: 1 }
+body: |
+  bb.0:
+    liveins: $ra
+    $rx = XFRimm 1
+    $rz = XFRimm 1
+    STAfi killed $ra, $rs, %stack.0
+    $ra = LDAfi $rs, %stack.0
+    RSR implicit killed $ra
+...
+---
+name: ylive
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $ry
+    $ra = XFR killed $ry
+    $ry = XFRimm 1
+    RSR implicit killed $ra
+...
+---
+name: realign
+tracksRegLiveness: true
+stack:
+  - { id: 0, size: 2, alignment: 4 }
+body: |
+  bb.0:
+    liveins: $ra
+    $rz = XFRimm 1
+    STAfi killed $ra, $rs, %stack.0
+    $ra = LDAfi $rs, %stack.0
+    RSR implicit killed $ra
+...

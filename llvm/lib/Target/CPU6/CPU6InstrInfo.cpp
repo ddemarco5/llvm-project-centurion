@@ -24,7 +24,7 @@ void CPU6InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                 const DebugLoc &DL, Register DestReg,
                                 Register SrcReg, bool KillSrc,
                                 bool RenamableDest, bool RenamableSrc) const {
-  // TODO(cpu6): the register allocator inserts plain COPY instructions. After
+  // the register allocator inserts plain COPY instructions. After
   // allocation those copies have to become real CPU6 instructions, or the
   // asm printer will see a COPY opcode it cannot encode.
   //

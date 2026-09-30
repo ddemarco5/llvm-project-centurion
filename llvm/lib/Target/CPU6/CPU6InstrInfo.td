@@ -2257,10 +2257,24 @@ class DIVIdx32
   let Inst{15-0} = disp;
 }
 def DIVidx : DIVIdx32;
-// High nibble is the first register. Low nibble is count-1.
-// `7e 45` pushes X, Y, Z. `7e 81` pushes Z. Same byte for POP.
-def STK : SingleReg16<0x7E, "STK">;
-def POP : SingleReg16<0x7F, "POP">;
+// Push or pop a run of bytes through S. The high nibble names the first
+// register. The low nibble is one less than the number of bytes moved, so
+// 5 means 6 bytes and 1 means 2. An even count covers whole words:
+// `7e 45` is `STK X,5` and pushes X, Y, Z; `7e 81` is `STK Z,1` and pushes Z.
+// STK walks down from the end of that run and leaves S pointing at the
+// first byte. POP uses the same operand byte (`7f 45`, `7f 81`), fills the
+// registers from S upward, and moves S back.
+// STK reads the named register (and, at the prologue, the rest of the run as
+// implicit uses). POP writes it. S is both: the instruction reads the old
+// pointer and leaves the new one. The assembler syntax stays `STK X,5`.
+let Uses = [rS], Defs = [rS], mayStore = 1 in
+def STK : SingleArg16HL<0x7E, (outs),
+                        (ins GPR:$arghnibble, uimm4:$arglnibble),
+                        "STK", "$arghnibble,$arglnibble">;
+let Uses = [rS], Defs = [rS], mayLoad = 1 in
+def POP : SingleArg16HL<0x7F, (outs GPR:$arghnibble),
+                        (ins uimm4:$arglnibble),
+                        "POP", "$arghnibble,$arglnibble">;
 
 // High nibble is the interrupt level. Low nibble is the word register.
 // `d7 6e` stores A into P at level 6. `e6 60` loads A from A at level 6.

@@ -1,16 +1,12 @@
-; The smallest function the codegen pipeline can emit.
-; Filling this in exercises, in the order llc reaches them:
-;   CPU6RegisterInfo::getReservedRegs
-;   CPU6TargetLowering::LowerReturn          (Outs is empty)
-;   RSR's isReturn / isTerminator / isBarrier flags, and the CPU6retglue pattern
-;   CPU6MCInstLower::lowerInstruction
+; The smallest function the codegen pipeline can emit. LowerReturn sees an
+; empty Outs and builds CPU6ISD::RET_GLUE, which the CPU6retglue pattern
+; selects as RSR. No register is live out and no frame is set up.
 ;
-; XFAIL until those are in place. Delete this line when llc prints RSR.
-; XFAIL: *
-; RUN: llc -mtriple=cpu6 -O0 < %s | FileCheck %s
+; RUN: llc -mtriple=cpu6 -O0 -verify-machineinstrs < %s | FileCheck %s
 
 ; CHECK-LABEL: just_return:
-; CHECK: RSR
+; CHECK-NEXT: # %bb.0:
+; CHECK-NEXT: RSR
 define void @just_return() nounwind {
   ret void
 }

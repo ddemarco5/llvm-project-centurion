@@ -14,9 +14,8 @@
 // declines, the generated function returns true and Analyze* reports
 // "unable to allocate function argument/return".
 //
-// The lists below are empty on purpose. `ret void` does not consult them.
-// The first function that returns an i16 will, once LowerReturn calls
-// AnalyzeReturn.
+// `ret void` does not consult these lists. A returned i16 does, once
+// LowerReturn calls AnalyzeReturn.
 
 // Incoming arguments. Word values are i16 because GPR holds 16 bits.
 // Uncomment and pick the registers you want the first arguments to land in.
@@ -33,8 +32,14 @@ def RetCC_CPU6 : CallingConv<[
   CCIfType<[i16], CCAssignToReg<[rA]>>,
 ]>;
 
-// Registers a call must not clobber. Empty means every allocatable register
-// is caller-saved, so a call-free function does not need a prologue.
-// Add registers here when a callee is expected to preserve them:
-//   def CSR : CalleeSavedRegs<(add rX, rY, rZ)>;
-def CSR : CalleeSavedRegs<(add)>;
+// Registers a callee must hand back unchanged. X, Y, and Z sit next to each
+// other, so STK and POP can move a contiguous stretch in one instruction.
+// A function that writes only Z saves Z. One that writes X and Z, but not Y,
+// saves those two and leaves the gap. spillCalleeSavedRegisters emits that.
+// A, B, C, and P stay caller-saved. Y and Z are also argument registers:
+// the incoming value is the argument, and the callee still restores it.
+// X has to be here: it holds the return address that RSR jumps through.
+// The order is Z, Y, X on purpose. The prologue inserter gives the first
+// register in this list the slot nearest the incoming S, and STK leaves Z
+// there with X at the lowest address.
+def CSR : CalleeSavedRegs<(add rZ, rY, rX)>;

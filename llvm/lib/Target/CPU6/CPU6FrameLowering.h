@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Inserts the prologue and epilogue. A leaf that never takes a stack slot
-// needs neither, so the first tests leave these empty.
+// Inserts the prologue and epilogue. STK and POP move S across the
+// callee-saved registers. These two functions move S across the locals.
 
 #ifndef LLVM_LIB_TARGET_CPU6_CPU6FRAMELOWERING_H
 #define LLVM_LIB_TARGET_CPU6_CPU6FRAMELOWERING_H
@@ -18,16 +18,32 @@ namespace llvm {
 
 class CPU6FrameLowering : public TargetFrameLowering {
 public:
-  // Data layout a:8 means the ABI alignment is one byte. Stack grows down
-  // toward lower addresses; nothing in the first tests depends on that yet.
+  // Data layout a:8 means the ABI alignment is one byte. The stack grows
+  // down, so slot offsets are negative and the prologue lowers S.
+  // S itself has no alignment guarantee. A function with a slot aligned
+  // above one byte realigns S in the prologue, with X as the frame pointer.
   CPU6FrameLowering()
       : TargetFrameLowering(StackGrowsDown, Align(1), /*LocalAreaOffset=*/0) {}
 
   void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
 
+  void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                            RegScavenger *RS = nullptr) const override;
+
+  // One STK per contiguous stretch of X, Y, Z, instead of a store per register.
+  bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator MI,
+                                 ArrayRef<CalleeSavedInfo> CSI,
+                                 const TargetRegisterInfo *TRI) const override;
+
+  bool restoreCalleeSavedRegisters(
+      MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+      MutableArrayRef<CalleeSavedInfo> CSI,
+      const TargetRegisterInfo *TRI) const override;
+
 protected:
-  bool hasFPImpl(const MachineFunction &MF) const override { return false; }
+  bool hasFPImpl(const MachineFunction &MF) const override;
 };
 
 } // namespace llvm

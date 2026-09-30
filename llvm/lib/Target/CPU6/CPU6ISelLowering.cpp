@@ -24,6 +24,9 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // illegal on purpose: it gets promoted to i16 until GPRB is registered.
   addRegisterClass(MVT::i16, &CPU6::GPRRegClass);
   computeRegisterProperties(STI.getRegisterInfo());
+  // S is the stack pointer the prologue adjusts. Callee-saved spills go
+  // through it via STK and POP.
+  setStackPointerRegisterToSaveRestore(CPU6::rS);
 
   setBooleanContents(ZeroOrOneBooleanContent);
   setBooleanVectorContents(ZeroOrOneBooleanContent);
@@ -52,8 +55,11 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
     CCValAssign &VA = ArgLocs[I];
     if (!VA.isRegLoc())
       llvm_unreachable("stack arguments need a frame load");
-    InVals.push_back(
-        DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT()));
+    // addLiveIn records the register as live into the entry block. Without
+    // it the register looks undefined, and the prologue's STK would treat an
+    // argument in Y or Z as dead.
+    Register VReg = MF.addLiveIn(VA.getLocReg(), &CPU6::GPRRegClass);
+    InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
   }
   return Chain;
   

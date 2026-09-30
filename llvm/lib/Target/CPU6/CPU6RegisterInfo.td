@@ -66,6 +66,9 @@ let SubRegIndices = [sub_hi, sub_lo] in {
 
 def GPR : RegisterClass<"CPU6", [i16], 8, (add rA, rB, rX, rY, rZ, rS, rC, rP)>;
 
+// LDA and STA always touch A. A result or stored value has to land there.
+def Acc : RegisterClass<"CPU6", [i16], 8, (add rA)>;
+
 def GPRhi : RegisterClass<"CPU6", [i8], 8, (add rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU)>;
 def GPRlo : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL)>;
 // All the 8 bit registers, some instructions can use both hi and lo
