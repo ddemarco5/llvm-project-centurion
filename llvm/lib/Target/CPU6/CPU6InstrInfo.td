@@ -79,6 +79,9 @@ def DI : Control<0x05, "DI">;       // Disable Interrupt System
 def SL : Control<0x06, "SL">;       // Set Link
 def RL : Control<0x07, "RL">;       // Reset Link
 def CL : Control<0x08, "CL">;       // Complement Link
+// Codegen treats `ret` as this instruction. It still needs
+// isReturn/isTerminator/isBarrier before the machine verifier will accept a
+// function that ends with it. See CPU6InstrPatterns.td.
 def RSR : Control<0x09, "RSR">;     // Return from Subroutine
 def RI : Control<0x0A, "RI">;       // Return from Inturrupt
 def RIM : Control<0x0B, "RIM">;     // Return from Inturrupt Modified
@@ -2155,6 +2158,9 @@ class DoubleReg16_B<bits<8> opcode,  string opstr>
       : SingleArg16HL<opcode, (outs GPRB: $arglnibble), (ins GPRB: $arghnibble),
                      opstr, "$arghnibble,$arglnibble"> { }
 
+// Assembler form. $arglnibble is only an output, so a SelectionDAG pattern
+// cannot say "this register is both read and written". Codegen wants its own
+// def in CPU6InstrPatterns.td.
 def ADD : DoubleReg16<0x50, "ADD">;     // Add
 def ADDB: DoubleReg16_B<0x40, "ADDB">;  // Add (Byte mode)
 def SUB : DoubleReg16<0x51, "SUB">;     // Subtract
@@ -2216,6 +2222,9 @@ class XFRImm32
   let Inst{16} = dst{0};
   let Inst{15-0} = imm;
 }
+// Assembler form. $dst is an input, so this instruction does not define a
+// virtual register and instruction selection will not match it. The codegen
+// form belongs in CPU6InstrPatterns.td.
 def XFRimm : XFRImm32;
 def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide

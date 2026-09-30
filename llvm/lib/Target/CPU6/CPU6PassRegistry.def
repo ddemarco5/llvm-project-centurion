@@ -1,0 +1,16 @@
+//===-- CPU6PassRegistry.def - Pass registry for CPU6 ------------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// Included from CPU6TargetMachine::registerPassBuilderCallbacks. No include
+// guard: the includer defines the macros around each include.
+
+#ifndef MACHINE_FUNCTION_PASS
+#define MACHINE_FUNCTION_PASS(NAME, CREATE_PASS)
+#endif
+MACHINE_FUNCTION_PASS("cpu6-isel", CPU6ISelDAGToDAGPass(*this, getOptLevel()))
+#undef MACHINE_FUNCTION_PASS

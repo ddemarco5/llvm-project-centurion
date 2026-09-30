@@ -3,11 +3,17 @@ include "llvm/Target/Target.td"
 // Register file description
 include "CPU6RegisterInfo.td"
 
+// Which registers carry arguments and results. Filled in as codegen starts.
+include "CPU6CallingConv.td"
+
 // For subtargets
 include "CPU6Devices.td"
 
 // Instruction description
 include "CPU6InstrInfo.td"
+
+// Patterns that map SelectionDAG nodes onto the instructions above.
+include "CPU6InstrPatterns.td"
 def CPU6InstrInfo : InstrInfo;
 
 
