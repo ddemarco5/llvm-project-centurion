@@ -13,6 +13,9 @@
 
 using namespace llvm;
 
+#define GET_CALLING_CONV_IMPL
+#include "CPU6GenCallingConv.inc"
+
 CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
                                        const CPU6Subtarget &STI)
     : TargetLowering(TM, STI) {
@@ -77,32 +80,28 @@ SDValue CPU6TargetLowering::LowerReturn(
   if (Outs.empty())
     return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, Chain);
 
-  // TODO(cpu6): a returned value has to be copied into the register RetCC_CPU6
+  // a returned value has to be copied into the register RetCC_CPU6
   // assigns before the RET_GLUE node. Glue keeps the copy attached to the
   // return so nothing can sink between them. Uncomment for load-imm.ll.
-  //
-  //   SmallVector<CCValAssign, 4> RVLocs;
-  //   CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
-  //                  *DAG.getContext());
-  //   CCInfo.AnalyzeReturn(Outs, RetCC_CPU6);
-  //
-  //   SDValue Glue;
-  //   SmallVector<SDValue, 4> RetOps(1, Chain);
-  //   for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
-  //     CCValAssign &VA = RVLocs[I];
-  //     assert(VA.isRegLoc() && "return value needs a register in RetCC_CPU6");
-  //     Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
-  //     Glue = Chain.getValue(1);
-  //     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
-  //   }
-  //   RetOps[0] = Chain;
-  //   if (Glue.getNode())
-  //     RetOps.push_back(Glue);
-  //   return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, RetOps);
-  (void)CallConv;
-  (void)IsVarArg;
-  (void)OutVals;
-  llvm_unreachable("TODO(cpu6): CPU6TargetLowering::LowerReturn");
+
+    SmallVector<CCValAssign, 4> RVLocs;
+    CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
+                   *DAG.getContext());
+    CCInfo.AnalyzeReturn(Outs, RetCC_CPU6);
+  
+    SDValue Glue;
+    SmallVector<SDValue, 4> RetOps(1, Chain);
+    for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
+      CCValAssign &VA = RVLocs[I];
+      assert(VA.isRegLoc() && "return value needs a register in RetCC_CPU6");
+      Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
+      Glue = Chain.getValue(1);
+      RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
+    }
+    RetOps[0] = Chain;
+    if (Glue.getNode())
+      RetOps.push_back(Glue);
+    return DAG.getNode(CPU6ISD::RET_GLUE, DL, MVT::Other, RetOps);
 }
 
 SDValue

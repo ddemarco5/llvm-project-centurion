@@ -29,11 +29,10 @@
 def CC_CPU6 : CallingConv<[]>;
 
 // Where `ret i16 %v` places %v. One register is enough for the first tests.
-//
-// def RetCC_CPU6 : CallingConv<[
-//   CCIfType<[i16], CCAssignToReg<[rA]>>,
-// ]>;
-def RetCC_CPU6 : CallingConv<[]>;
+
+def RetCC_CPU6 : CallingConv<[
+  CCIfType<[i16], CCAssignToReg<[rA]>>,
+]>;
 
 // Registers a call must not clobber. Empty means every allocatable register
 // is caller-saved, so a call-free function does not need a prologue.

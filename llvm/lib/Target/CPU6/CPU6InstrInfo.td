@@ -2206,9 +2206,12 @@ def OREimm : DoubleRegImm32<0x54, "ORE">;
 
 // XFR literal ignores the source register. Phire writes the destination
 // into both nibbles and sets the source nibble's low bit: `55 98 f2 00`
-// is mov Z, 0xf200.
+// is mov Z, 0xf200. $dst is an output so the assembler and instruction
+// selection share this record. The pattern is in CPU6InstrPatterns.td.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isMoveImm = 1,
+    isAsCheapAsAMove = 1, isReMaterializable = 1 in
 class XFRImm32
-      : CenturionInst32<(outs), (ins GPR:$dst, i16imm:$imm),
+      : CenturionInst32<(outs GPR:$dst), (ins i16imm:$imm),
                         "XFR", "$dst,$imm"> {
   bits<4> dst;
   bits<16> imm;
@@ -2223,9 +2226,6 @@ class XFRImm32
   let Inst{16} = dst{0};
   let Inst{15-0} = imm;
 }
-// Assembler form. $dst is an input, so this instruction does not define a
-// virtual register and instruction selection will not match it. The codegen
-// form belongs in CPU6InstrPatterns.td.
 def XFRimm : XFRImm32;
 def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide

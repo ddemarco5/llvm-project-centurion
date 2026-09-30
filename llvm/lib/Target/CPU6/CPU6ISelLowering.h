@@ -27,9 +27,7 @@ enum NodeType : unsigned {
   // Chain-carrying return. Optional glue keeps the copies into the return
   // register attached to the RSR. See CPU6retglue in CPU6InstrPatterns.td.
   RET_GLUE,
-  // Nothing emits this. The matching pattern only exists so the generated
-  // matcher table is not a zero-length array, which MSVC rejects. Delete it
-  // when a real pattern lands in CPU6InstrPatterns.td.
+  // Selects the NOP instruction. See CPU6noop in CPU6InstrPatterns.td.
   NOP,
 };
 } // namespace CPU6ISD
