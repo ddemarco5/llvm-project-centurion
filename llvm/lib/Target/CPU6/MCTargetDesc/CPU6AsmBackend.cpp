@@ -95,9 +95,12 @@ void CPU6AsmBackend::relaxInstruction(MCInst &,
   report_fatal_error("CPU6AsmBackend::relaxInstruction() unimplemented");
 }
 
-bool CPU6AsmBackend::writeNopData(raw_ostream &, uint64_t,
+bool CPU6AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count,
                                   const MCSubtargetInfo *) const {
-  // TODO: Figure out how we want to write our noop data here
+  // NOP is opcode 0x01 and is one byte, so any padding length is a run of
+  // them. Count is a number of bytes.
+  for (uint64_t I = 0; I != Count; ++I)
+    OS << '\x01';
   return true;
 }
 

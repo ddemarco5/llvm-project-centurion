@@ -36,6 +36,10 @@ public:
   void relaxInstruction(MCInst &Inst,
                         const MCSubtargetInfo &STI) const override;
 
+  unsigned getMaximumNopSize(const MCSubtargetInfo &STI) const override {
+    return 1;
+  }
+
   bool writeNopData(raw_ostream &OS, uint64_t Count,
                     const MCSubtargetInfo *STI) const override;
 };

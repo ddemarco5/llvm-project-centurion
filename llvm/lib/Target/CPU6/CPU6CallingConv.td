@@ -33,12 +33,14 @@ def CC_CPU6 : CallingConv<[
   CCIfType<[i16], CCAssignToStack<2, 1>>,
 ]>;
 
-// Where `ret i16 %v` places %v. One register is enough for the first tests.
-// A returned byte is in AL, the low half of A.
+// Where `ret` places its value. A returned byte is promoted to a word.
+// An i16 uses A. An i32 is split into two i16 parts before this list is
+// consulted: the low half goes in A and the high half in B, which is the
+// little-endian order of the data layout.
 
 def RetCC_CPU6 : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i16>>,
-  CCIfType<[i16], CCAssignToReg<[rA]>>,
+  CCIfType<[i16], CCAssignToReg<[rA, rB]>>,
 ]>;
 
 // Registers a callee must hand back unchanged. X, Y, and Z sit next to each
