@@ -28,8 +28,8 @@ public:
   CPU6MCInstLower(MCContext &Ctx, AsmPrinter &Printer)
       : Ctx(Ctx), Printer(Printer) {}
 
-  // TODO(cpu6): fill OutMI from MI. Ctx and Printer are here for later, when
-  // an operand is a symbol rather than a register or an immediate.
+  // Copies the opcode and the encoded operands into OutMI. A symbol, global,
+  // or block address becomes an MCExpr through Ctx and Printer.
   void lowerInstruction(const MachineInstr *MI, MCInst &OutMI) const;
 };
 
