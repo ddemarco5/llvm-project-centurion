@@ -11,6 +11,7 @@ tablegen(LLVM CPU6GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM CPU6GenDisassemblerTables.inc -gen-disassembler)
 tablegen(LLVM CPU6GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM CPU6GenDAGISel.inc -gen-dag-isel)
+tablegen(LLVM CPU6GenCompressInstEmitter.inc -gen-compress-inst-emitter)
 
 add_public_tablegen_target(CPU6CommonTableGen)
 

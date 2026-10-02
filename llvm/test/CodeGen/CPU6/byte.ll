@@ -5,9 +5,10 @@
 ; bytes of the first two arguments.
 
 ; Byte register/register ALU is two-address: the destination nibble is read
-; and written. ADDB src,dst is dst += src.
+; and written. ADDB src,dst is dst += src. With AL as the source and BL as
+; the destination the printer uses the one-byte AABB (see compress.mir).
 ; CHECK-LABEL: add_rr:
-; CHECK:      ADDB AL,BL
+; CHECK:      AABB
 ; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i8 @add_rr(i8 %a, i8 %b) {
@@ -17,7 +18,7 @@ define i8 @add_rr(i8 %a, i8 %b) {
 
 ; SUBB src,dst is dst = src - dst, so a - b leaves the result in b's byte.
 ; CHECK-LABEL: sub_rr:
-; CHECK:      SUBB AL,BL
+; CHECK:      SABB
 ; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i8 @sub_rr(i8 %a, i8 %b) {
@@ -27,7 +28,7 @@ define i8 @sub_rr(i8 %a, i8 %b) {
 
 ; INRB/DCRB r,n add or subtract n + 1, so 1-16 fit in the count nibble.
 ; CHECK-LABEL: inc1:
-; CHECK:      INRB AL,0
+; CHECK:      INAB
 ; CHECK-NEXT: RSR
 define i8 @inc1(i8 %a) {
   %v = add i8 %a, 1
@@ -70,7 +71,7 @@ define i8 @rsub(i8 %a) {
 }
 
 ; CHECK-LABEL: not:
-; CHECK:      IVRB AL
+; CHECK:      IVAB
 ; CHECK-NEXT: RSR
 define i8 @not(i8 %a) {
   %v = xor i8 %a, -1

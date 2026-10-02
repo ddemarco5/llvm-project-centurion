@@ -21,6 +21,8 @@ def CPU6InstrInfo : InstrInfo;
 def CPU6AsmWriter : AsmWriter {
     string AsmWriterClassName = "InstPrinter";
     bit isMCAsmWriter = 1;
+    // The compress emitter (CompressPat) requires it.
+    bit PassSubtarget = 1;
 }
 
 // Assembly Parsers

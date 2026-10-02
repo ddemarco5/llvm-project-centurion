@@ -2413,6 +2413,32 @@ def XAS : ImplicitReg<0x5F, "XAS">;     // Transfer A Register to S Register
 let Uses = [rAL], Defs = [rSL], hasSideEffects = 0 in
 def XASB: ImplicitReg<0x4F, "XASB">;    // Transfer A Register to S Register (Byte mode)
 
+// The AsmPrinter swaps in the one-byte implicit form once registers are
+// known (compressInst). Each pair has the same result and the same webCenREE
+// flag set, so nothing that reads the flags can tell them apart. ADD A,A,1
+// is not INA: ADD updates link, INA does not. Hand-written assembly is
+// emitted as written.
+let isCompressOnly = true in {
+def : CompressPat<(INRB rAL, 0), (INAB)>;
+def : CompressPat<(DCRB rAL, 0), (DCAB)>;
+def : CompressPat<(CLRB rAL, 0), (CLAB)>;
+def : CompressPat<(IVRB rAL), (IVAB)>;
+def : CompressPat<(SLRB rAL, 0), (SLAB)>;
+def : CompressPat<(ADDB rBL, rAL), (AABB)>;
+def : CompressPat<(SUBB rBL, rAL), (SABB)>;
+def : CompressPat<(ANDB rBL, rAL), (NABB)>;
+def : CompressPat<(XFRB rXL, rAL), (XAXB)>;
+def : CompressPat<(XFRB rYL, rAL), (XAYB)>;
+def : CompressPat<(XFRB rBL, rAL), (XABB)>;
+def : CompressPat<(XFRB rZL, rAL), (XAZB)>;
+def : CompressPat<(XFRB rSL, rAL), (XASB)>;
+def : CompressPat<(XFR rX, rA), (XAX)>;
+def : CompressPat<(XFR rY, rA), (XAY)>;
+def : CompressPat<(XFR rB, rA), (XAB)>;
+def : CompressPat<(XFR rZ, rA), (XAZ)>;
+def : CompressPat<(XFR rS, rA), (XAS)>;
+}
+
 
 //------------------------------------//
 // Memory reference instructions in CPU6 are a bit strange. They range from

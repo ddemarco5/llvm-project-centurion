@@ -12,6 +12,7 @@
 
 #include "CPU6AsmPrinter.h"
 #include "CPU6MCInstLower.h"
+#include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "TargetInfo/CPU6TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/AsmPrinterAnalysis.h"
@@ -36,10 +37,16 @@ public:
 
 } // namespace
 
+#define GEN_COMPRESS_INSTR
+#include "CPU6GenCompressInstEmitter.inc"
+
 void CPU6AsmPrinter::emitInstruction(const MachineInstr *MI) {
   CPU6MCInstLower Lower(OutContext, *this);
   MCInst TmpInst;
   Lower.lowerInstruction(MI, TmpInst);
+  MCInst CInst;
+  if (compressInst(CInst, TmpInst, getSubtargetInfo()))
+    TmpInst = CInst;
   OutStreamer->emitInstruction(TmpInst, getSubtargetInfo());
 }
 

@@ -26,7 +26,7 @@ using namespace llvm;
 void CPU6InstPrinter::printInst(const MCInst *MI, uint64_t Address,
                                 StringRef Annot, const MCSubtargetInfo &STI,
                                 raw_ostream &O) {
-  printInstruction(MI, Address, O);
+  printInstruction(MI, Address, STI, O);
   printAnnotation(O, Annot);
 }
 
@@ -35,6 +35,7 @@ void CPU6InstPrinter::printRegName(raw_ostream &O, MCRegister Reg) {
 }
 
 void CPU6InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
+                                   const MCSubtargetInfo &STI,
                                    raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(OpNo);
 

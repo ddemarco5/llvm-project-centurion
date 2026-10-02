@@ -1,0 +1,129 @@
+# RUN: llc -mtriple=cpu6 -start-after=postrapseudos -o - %s | FileCheck %s
+# RUN: llc -mtriple=cpu6 -start-after=postrapseudos -filetype=obj -o - %s \
+# RUN:   | llvm-objdump -d - | FileCheck %s --check-prefix=OBJ
+
+# The AsmPrinter replaces the explicit form with the one-byte implicit form
+# when the registers and count are exactly the implicit ones. Anything else
+# is emitted unchanged.
+
+---
+name: byte_acc
+body: |
+  bb.0:
+    $ral = INRB $ral, 0
+    $ral = DCRB $ral, 0
+    $ral = CLRB 0
+    $ral = IVRB $ral
+    $ral = SLRB $ral, 0
+    RSR
+...
+# CHECK-LABEL: byte_acc:
+# CHECK:      INAB
+# CHECK-NEXT: DCAB
+# CHECK-NEXT: CLAB
+# CHECK-NEXT: IVAB
+# CHECK-NEXT: SLAB
+# CHECK-NEXT: RSR
+# OBJ-LABEL: <byte_acc>:
+# OBJ-NEXT:  28 INAB
+# OBJ-NEXT:  29 DCAB
+# OBJ-NEXT:  2a CLAB
+# OBJ-NEXT:  2b IVAB
+# OBJ-NEXT:  2d SLAB
+# OBJ-NEXT:  09 RSR
+
+---
+name: byte_ab
+body: |
+  bb.0:
+    $rbl = ADDB $ral, $rbl
+    $rbl = SUBB $ral, $rbl
+    $rbl = ANDB $ral, $rbl
+    $rxl = XFRB $ral
+    $ryl = XFRB $ral
+    $rbl = XFRB $ral
+    $rzl = XFRB $ral
+    $rsl = XFRB $ral
+    RSR
+...
+# CHECK-LABEL: byte_ab:
+# CHECK:      AABB
+# CHECK-NEXT: SABB
+# CHECK-NEXT: NABB
+# CHECK-NEXT: XAXB
+# CHECK-NEXT: XAYB
+# CHECK-NEXT: XABB
+# CHECK-NEXT: XAZB
+# CHECK-NEXT: XASB
+# CHECK-NEXT: RSR
+# OBJ-LABEL: <byte_ab>:
+# OBJ-NEXT:  48 AABB
+# OBJ-NEXT:  49 SABB
+# OBJ-NEXT:  4a NABB
+# OBJ-NEXT:  4b XAXB
+# OBJ-NEXT:  4c XAYB
+# OBJ-NEXT:  4d XABB
+# OBJ-NEXT:  4e XAZB
+# OBJ-NEXT:  4f XASB
+# OBJ-NEXT:  09 RSR
+
+---
+name: word_xfr
+body: |
+  bb.0:
+    $rx = XFR $ra
+    $ry = XFR $ra
+    $rb = XFR $ra
+    $rz = XFR $ra
+    $rs = XFR $ra
+    RSR
+...
+# CHECK-LABEL: word_xfr:
+# CHECK:      XAX
+# CHECK-NEXT: XAY
+# CHECK-NEXT: XAB
+# CHECK-NEXT: XAZ
+# CHECK-NEXT: XAS
+# CHECK-NEXT: RSR
+# OBJ-LABEL: <word_xfr>:
+# OBJ-NEXT:  5b XAX
+# OBJ-NEXT:  5c XAY
+# OBJ-NEXT:  5d XAB
+# OBJ-NEXT:  5e XAZ
+# OBJ-NEXT:  5f XAS
+# OBJ-NEXT:  09 RSR
+
+# Wrong register, wrong count, wrong direction, or no implicit form (ORIB,
+# OREB, ADD with a literal): left alone.
+---
+name: no_compress
+body: |
+  bb.0:
+    $ral = INRB $ral, 1
+    $rbl = INRB $rbl, 0
+    $rau = INRB $rau, 0
+    $ral = CLRB 1
+    $ral = ADDB $rbl, $ral
+    $rzl = ADDB $ral, $rzl
+    $rbl = ORIB $ral, $rbl
+    $rbl = OREB $ral, $rbl
+    $ral = XFRB $rbl
+    $rcl = XFRB $ral
+    $ra = XFR $rb
+    $ra = ADDimm $ra, 1
+    RSR
+...
+# CHECK-LABEL: no_compress:
+# CHECK:      INRB AL,1
+# CHECK-NEXT: INRB BL,0
+# CHECK-NEXT: INRB AU,0
+# CHECK-NEXT: CLRB AL,1
+# CHECK-NEXT: ADDB BL,AL
+# CHECK-NEXT: ADDB AL,ZL
+# CHECK-NEXT: ORIB AL,BL
+# CHECK-NEXT: OREB AL,BL
+# CHECK-NEXT: XFRB BL,AL
+# CHECK-NEXT: XFRB AL,CL
+# CHECK-NEXT: XFR B,A
+# CHECK-NEXT: ADD A,A,1
+# CHECK-NEXT: RSR
