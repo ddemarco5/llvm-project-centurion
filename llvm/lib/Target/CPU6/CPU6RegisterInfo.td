@@ -6,6 +6,9 @@ class CPU6Reg<bits<16> Enc, string name, list<Register> subregs = []> : Register
     let Namespace = "CPU6";
 }
 
+// A word register is big-endian in the register file: the upper byte sits at
+// the even address and the lower byte at the odd one. sub_hi is bits 15-8 of
+// the word (AU), sub_lo is bits 7-0 (AL).
 let Namespace = "CPU6" in {
     def sub_lo : SubRegIndex<8>;
     def sub_hi : SubRegIndex<8, 8>;
@@ -31,7 +34,10 @@ let Namespace = "CPU6" in {
 
 // We need to prefix our registers with r here because we have instructions that share a name
 
-// Define the hi/lo 8 bit regs
+// Define the hi/lo 8 bit regs. A byte operand nibble is the register-file
+// byte address: webCenREE get_rb(n) reads byte (n & 15), and its regname
+// table lists AU AL BU BL XU XL YU YL ZU ZL SU SL CU CL PU PL in that order.
+// A word operand nibble is the even address of the pair (get_rw(n & 14)).
 def rAU : CPU6Reg<0, "AU">, DwarfRegNum<[0]>;
 def rAL : CPU6Reg<1, "AL">, DwarfRegNum<[1]>;
 def rBU : CPU6Reg<2, "BU">, DwarfRegNum<[2]>;
@@ -71,9 +77,14 @@ def Acc : RegisterClass<"CPU6", [i16], 8, (add rA)>;
 
 def GPRhi : RegisterClass<"CPU6", [i8], 8, (add rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU)>;
 def GPRlo : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL)>;
-// All the 8 bit registers, some instructions can use both hi and lo
-def GPRB  : RegisterClass<"CPU6", [i8], 8, (add rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU,
-                                            rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL)>;
+// All the 8 bit registers, some instructions can use both hi and lo. i8
+// values live here. The low halves come first so a byte lands where the byte
+// accumulator (AL) and zero/sign extension into the word want it.
+def GPRB  : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rCL, rPL,
+                                            rAU, rBU, rXU, rYU, rZU, rSU, rCU, rPU)>;
+
+// LDAB and STAB always touch AL, the byte half of the accumulator.
+def AccB : RegisterClass<"CPU6", [i8], 8, (add rAL)>;
 
 
 //TODO: Do I need to implement a pseudo register to keep track of F,L,M,V flags?

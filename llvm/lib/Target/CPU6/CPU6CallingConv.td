@@ -22,13 +22,20 @@
 // Anything that does not match has to go to a stack slot, and we have no
 // frame store yet, so leave that for later.
 
+// A byte argument travels in the word register, extended per its signext or
+// zeroext attribute, so the list stays one register per argument. Passing it
+// in AL/BL/YL/ZL instead loses what signext/zeroext promise about the upper
+// half, and makes the byte a live-in of the AL-only byte load/store class.
 def CC_CPU6 : CallingConv<[
+  CCIfType<[i8], CCPromoteToType<i16>>,
   CCIfType<[i16], CCAssignToReg<[rA, rB, rY, rZ]>>,
 ]>;
 
 // Where `ret i16 %v` places %v. One register is enough for the first tests.
+// A returned byte is in AL, the low half of A.
 
 def RetCC_CPU6 : CallingConv<[
+  CCIfType<[i8], CCPromoteToType<i16>>,
   CCIfType<[i16], CCAssignToReg<[rA]>>,
 ]>;
 

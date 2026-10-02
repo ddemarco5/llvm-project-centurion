@@ -50,6 +50,8 @@ public:
                                int &FrameIndex) const override;
   Register isStoreToStackSlot(const MachineInstr &MI,
                               int &FrameIndex) const override;
+
+  bool expandPostRAPseudo(MachineInstr &MI) const override;
 };
 
 } // namespace llvm

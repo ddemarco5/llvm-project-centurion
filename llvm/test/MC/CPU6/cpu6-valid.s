@@ -313,78 +313,78 @@ LDAB ((PC),205)
 # CHECK-ASM-AND-OBJ: LDA (X)
 # CHECK-ASM: encoding: [0x95,0x40]
 LDA (X)
-# CHECK-ASM-AND-OBJ: LDAB (XU)
+# CHECK-ASM-AND-OBJ: LDAB (X)
 # CHECK-ASM: encoding: [0x85,0x40]
-LDAB (XU)
+LDAB (X)
 # CHECK-ASM-AND-OBJ: LDA_I (X)
 # CHECK-ASM: encoding: [0x95,0x41]
 LDA_I (X)
-# CHECK-ASM-AND-OBJ: LDAB_I (XU)
+# CHECK-ASM-AND-OBJ: LDAB_I (X)
 # CHECK-ASM: encoding: [0x85,0x41]
-LDAB_I (XU)
+LDAB_I (X)
 # CHECK-ASM-AND-OBJ: LDA_D (X)
 # CHECK-ASM: encoding: [0x95,0x42]
 LDA_D (X)
-# CHECK-ASM-AND-OBJ: LDAB_D (XU)
+# CHECK-ASM-AND-OBJ: LDAB_D (X)
 # CHECK-ASM: encoding: [0x85,0x42]
-LDAB_D (XU)
+LDAB_D (X)
 
 # CHECK-ASM-AND-OBJ: LDA ((X))
 # CHECK-ASM: encoding: [0x95,0x44]
 LDA ((X))
-# CHECK-ASM-AND-OBJ: LDAB ((XU))
+# CHECK-ASM-AND-OBJ: LDAB ((X))
 # CHECK-ASM: encoding: [0x85,0x44]
-LDAB ((XU))
+LDAB ((X))
 # CHECK-ASM-AND-OBJ: LDA_I ((X))
 # CHECK-ASM: encoding: [0x95,0x45]
 LDA_I ((X))
-# CHECK-ASM-AND-OBJ: LDAB_I ((XU))
+# CHECK-ASM-AND-OBJ: LDAB_I ((X))
 # CHECK-ASM: encoding: [0x85,0x45]
-LDAB_I ((XU))
+LDAB_I ((X))
 # CHECK-ASM-AND-OBJ: LDA_D ((X))
 # CHECK-ASM: encoding: [0x95,0x46]
 LDA_D ((X))
-# CHECK-ASM-AND-OBJ: LDAB_D ((XU))
+# CHECK-ASM-AND-OBJ: LDAB_D ((X))
 # CHECK-ASM: encoding: [0x85,0x46]
-LDAB_D ((XU))
+LDAB_D ((X))
 
 # CHECK-ASM-AND-OBJ: LDA (X),21
 # CHECK-ASM: encoding: [0x95,0x48,0x15]
 LDA (X),21
-# CHECK-ASM-AND-OBJ: LDAB (XU),21
+# CHECK-ASM-AND-OBJ: LDAB (X),21
 # CHECK-ASM: encoding: [0x85,0x48,0x15]
-LDAB (XU),21
+LDAB (X),21
 # CHECK-ASM-AND-OBJ: LDA_I (X),21
 # CHECK-ASM: encoding: [0x95,0x49,0x15]
 LDA_I (X),21
-# CHECK-ASM-AND-OBJ: LDAB_I (XU),21
+# CHECK-ASM-AND-OBJ: LDAB_I (X),21
 # CHECK-ASM: encoding: [0x85,0x49,0x15]
-LDAB_I (XU),21
+LDAB_I (X),21
 # CHECK-ASM-AND-OBJ: LDA_D (X),21
 # CHECK-ASM: encoding: [0x95,0x4a,0x15]
 LDA_D (X),21
-# CHECK-ASM-AND-OBJ: LDAB_D (XU),21
+# CHECK-ASM-AND-OBJ: LDAB_D (X),21
 # CHECK-ASM: encoding: [0x85,0x4a,0x15]
-LDAB_D (XU),21
+LDAB_D (X),21
 
 # CHECK-ASM-AND-OBJ: LDA_? (X),21
 # CHECK-ASM: encoding: [0x95,0x4c,0x15]
 LDA_? (X),21
-# CHECK-ASM-AND-OBJ: LDAB_? (XU),21
+# CHECK-ASM-AND-OBJ: LDAB_? (X),21
 # CHECK-ASM: encoding: [0x85,0x4c,0x15]
-LDAB_? (XU),21
+LDAB_? (X),21
 # CHECK-ASM-AND-OBJ: LDA_I ((X)),21
 # CHECK-ASM: encoding: [0x95,0x4d,0x15]
 LDA_I ((X)),21
-# CHECK-ASM-AND-OBJ: LDAB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: LDAB_I ((X)),21
 # CHECK-ASM: encoding: [0x85,0x4d,0x15]
-LDAB_I ((XU)),21
+LDAB_I ((X)),21
 # CHECK-ASM-AND-OBJ: LDA_D ((X)),21
 # CHECK-ASM: encoding: [0x95,0x4e,0x15]
 LDA_D ((X)),21
-# CHECK-ASM-AND-OBJ: LDAB_D ((XU)),21
+# CHECK-ASM-AND-OBJ: LDAB_D ((X)),21
 # CHECK-ASM: encoding: [0x85,0x4e,0x15]
-LDAB_D ((XU)),21
+LDAB_D ((X)),21
 
 # CHECK-ASM-AND-OBJ: LDA_A
 # CHECK-ASM: encoding: [0x98]
@@ -530,78 +530,78 @@ STAB ((PC),205)
 # CHECK-ASM-AND-OBJ: STA (X)
 # CHECK-ASM: encoding: [0xb5,0x40]
 STA (X)
-# CHECK-ASM-AND-OBJ: STAB (XU)
+# CHECK-ASM-AND-OBJ: STAB (X)
 # CHECK-ASM: encoding: [0xa5,0x40]
-STAB (XU)
+STAB (X)
 # CHECK-ASM-AND-OBJ: STA_I (X)
 # CHECK-ASM: encoding: [0xb5,0x41]
 STA_I (X)
-# CHECK-ASM-AND-OBJ: STAB_I (XU)
+# CHECK-ASM-AND-OBJ: STAB_I (X)
 # CHECK-ASM: encoding: [0xa5,0x41]
-STAB_I (XU)
+STAB_I (X)
 # CHECK-ASM-AND-OBJ: STA_D (X)
 # CHECK-ASM: encoding: [0xb5,0x42]
 STA_D (X)
-# CHECK-ASM-AND-OBJ: STAB_D (XU)
+# CHECK-ASM-AND-OBJ: STAB_D (X)
 # CHECK-ASM: encoding: [0xa5,0x42]
-STAB_D (XU)
+STAB_D (X)
 
 # CHECK-ASM-AND-OBJ: STA ((X))
 # CHECK-ASM: encoding: [0xb5,0x44]
 STA ((X))
-# CHECK-ASM-AND-OBJ: STAB ((XU))
+# CHECK-ASM-AND-OBJ: STAB ((X))
 # CHECK-ASM: encoding: [0xa5,0x44]
-STAB ((XU))
+STAB ((X))
 # CHECK-ASM-AND-OBJ: STA_I ((X))
 # CHECK-ASM: encoding: [0xb5,0x45]
 STA_I ((X))
-# CHECK-ASM-AND-OBJ: STAB_I ((XU))
+# CHECK-ASM-AND-OBJ: STAB_I ((X))
 # CHECK-ASM: encoding: [0xa5,0x45]
-STAB_I ((XU))
+STAB_I ((X))
 # CHECK-ASM-AND-OBJ: STA_D ((X))
 # CHECK-ASM: encoding: [0xb5,0x46]
 STA_D ((X))
-# CHECK-ASM-AND-OBJ: STAB_D ((XU))
+# CHECK-ASM-AND-OBJ: STAB_D ((X))
 # CHECK-ASM: encoding: [0xa5,0x46]
-STAB_D ((XU))
+STAB_D ((X))
 
 # CHECK-ASM-AND-OBJ: STA (X),21
 # CHECK-ASM: encoding: [0xb5,0x48,0x15]
 STA (X),21
-# CHECK-ASM-AND-OBJ: STAB (XU),21
+# CHECK-ASM-AND-OBJ: STAB (X),21
 # CHECK-ASM: encoding: [0xa5,0x48,0x15]
-STAB (XU),21
+STAB (X),21
 # CHECK-ASM-AND-OBJ: STA_I (X),21
 # CHECK-ASM: encoding: [0xb5,0x49,0x15]
 STA_I (X),21
-# CHECK-ASM-AND-OBJ: STAB_I (XU),21
+# CHECK-ASM-AND-OBJ: STAB_I (X),21
 # CHECK-ASM: encoding: [0xa5,0x49,0x15]
-STAB_I (XU),21
+STAB_I (X),21
 # CHECK-ASM-AND-OBJ: STA_D (X),21
 # CHECK-ASM: encoding: [0xb5,0x4a,0x15]
 STA_D (X),21
-# CHECK-ASM-AND-OBJ: STAB_D (XU),21
+# CHECK-ASM-AND-OBJ: STAB_D (X),21
 # CHECK-ASM: encoding: [0xa5,0x4a,0x15]
-STAB_D (XU),21
+STAB_D (X),21
 
 # CHECK-ASM-AND-OBJ: STA_? (X),21
 # CHECK-ASM: encoding: [0xb5,0x4c,0x15]
 STA_? (X),21
-# CHECK-ASM-AND-OBJ: STAB_? (XU),21
+# CHECK-ASM-AND-OBJ: STAB_? (X),21
 # CHECK-ASM: encoding: [0xa5,0x4c,0x15]
-STAB_? (XU),21
+STAB_? (X),21
 # CHECK-ASM-AND-OBJ: STA_I ((X)),21
 # CHECK-ASM: encoding: [0xb5,0x4d,0x15]
 STA_I ((X)),21
-# CHECK-ASM-AND-OBJ: STAB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: STAB_I ((X)),21
 # CHECK-ASM: encoding: [0xa5,0x4d,0x15]
-STAB_I ((XU)),21
+STAB_I ((X)),21
 # CHECK-ASM-AND-OBJ: STA_D ((X)),21
 # CHECK-ASM: encoding: [0xb5,0x4e,0x15]
 STA_D ((X)),21
-# CHECK-ASM-AND-OBJ: STAB_D ((XU)),21
+# CHECK-ASM-AND-OBJ: STAB_D ((X)),21
 # CHECK-ASM: encoding: [0xa5,0x4e,0x15]
-STAB_D ((XU)),21
+STAB_D ((X)),21
 
 # CHECK-ASM-AND-OBJ: STA_A
 # CHECK-ASM: encoding: [0xb8]
@@ -687,78 +687,78 @@ LDBB ((PC),205)
 # CHECK-ASM-AND-OBJ: LDB (X)
 # CHECK-ASM: encoding: [0xd5,0x40]
 LDB (X)
-# CHECK-ASM-AND-OBJ: LDBB (XU)
+# CHECK-ASM-AND-OBJ: LDBB (X)
 # CHECK-ASM: encoding: [0xc5,0x40]
-LDBB (XU)
+LDBB (X)
 # CHECK-ASM-AND-OBJ: LDB_I (X)
 # CHECK-ASM: encoding: [0xd5,0x41]
 LDB_I (X)
-# CHECK-ASM-AND-OBJ: LDBB_I (XU)
+# CHECK-ASM-AND-OBJ: LDBB_I (X)
 # CHECK-ASM: encoding: [0xc5,0x41]
-LDBB_I (XU)
+LDBB_I (X)
 # CHECK-ASM-AND-OBJ: LDB_D (X)
 # CHECK-ASM: encoding: [0xd5,0x42]
 LDB_D (X)
-# CHECK-ASM-AND-OBJ: LDBB_D (XU)
+# CHECK-ASM-AND-OBJ: LDBB_D (X)
 # CHECK-ASM: encoding: [0xc5,0x42]
-LDBB_D (XU)
+LDBB_D (X)
 
 # CHECK-ASM-AND-OBJ: LDB ((X))
 # CHECK-ASM: encoding: [0xd5,0x44]
 LDB ((X))
-# CHECK-ASM-AND-OBJ: LDBB ((XU))
+# CHECK-ASM-AND-OBJ: LDBB ((X))
 # CHECK-ASM: encoding: [0xc5,0x44]
-LDBB ((XU))
+LDBB ((X))
 # CHECK-ASM-AND-OBJ: LDB_I ((X))
 # CHECK-ASM: encoding: [0xd5,0x45]
 LDB_I ((X))
-# CHECK-ASM-AND-OBJ: LDBB_I ((XU))
+# CHECK-ASM-AND-OBJ: LDBB_I ((X))
 # CHECK-ASM: encoding: [0xc5,0x45]
-LDBB_I ((XU))
+LDBB_I ((X))
 # CHECK-ASM-AND-OBJ: LDB_D ((X))
 # CHECK-ASM: encoding: [0xd5,0x46]
 LDB_D ((X))
-# CHECK-ASM-AND-OBJ: LDBB_D ((XU))
+# CHECK-ASM-AND-OBJ: LDBB_D ((X))
 # CHECK-ASM: encoding: [0xc5,0x46]
-LDBB_D ((XU))
+LDBB_D ((X))
 
 # CHECK-ASM-AND-OBJ: LDB (X),21
 # CHECK-ASM: encoding: [0xd5,0x48,0x15]
 LDB (X),21
-# CHECK-ASM-AND-OBJ: LDBB (XU),21
+# CHECK-ASM-AND-OBJ: LDBB (X),21
 # CHECK-ASM: encoding: [0xc5,0x48,0x15]
-LDBB (XU),21
+LDBB (X),21
 # CHECK-ASM-AND-OBJ: LDB_I (X),21
 # CHECK-ASM: encoding: [0xd5,0x49,0x15]
 LDB_I (X),21
-# CHECK-ASM-AND-OBJ: LDBB_I (XU),21
+# CHECK-ASM-AND-OBJ: LDBB_I (X),21
 # CHECK-ASM: encoding: [0xc5,0x49,0x15]
-LDBB_I (XU),21
+LDBB_I (X),21
 # CHECK-ASM-AND-OBJ: LDB_D (X),21
 # CHECK-ASM: encoding: [0xd5,0x4a,0x15]
 LDB_D (X),21
-# CHECK-ASM-AND-OBJ: LDBB_D (XU),21
+# CHECK-ASM-AND-OBJ: LDBB_D (X),21
 # CHECK-ASM: encoding: [0xc5,0x4a,0x15]
-LDBB_D (XU),21
+LDBB_D (X),21
 
 # CHECK-ASM-AND-OBJ: LDB_? (X),21
 # CHECK-ASM: encoding: [0xd5,0x4c,0x15]
 LDB_? (X),21
-# CHECK-ASM-AND-OBJ: LDBB_? (XU),21
+# CHECK-ASM-AND-OBJ: LDBB_? (X),21
 # CHECK-ASM: encoding: [0xc5,0x4c,0x15]
-LDBB_? (XU),21
+LDBB_? (X),21
 # CHECK-ASM-AND-OBJ: LDB_I ((X)),21
 # CHECK-ASM: encoding: [0xd5,0x4d,0x15]
 LDB_I ((X)),21
-# CHECK-ASM-AND-OBJ: LDBB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: LDBB_I ((X)),21
 # CHECK-ASM: encoding: [0xc5,0x4d,0x15]
-LDBB_I ((XU)),21
+LDBB_I ((X)),21
 # CHECK-ASM-AND-OBJ: LDB_D ((X)),21
 # CHECK-ASM: encoding: [0xd5,0x4e,0x15]
 LDB_D ((X)),21
-# CHECK-ASM-AND-OBJ: LDBB_D ((XU)),21
+# CHECK-ASM-AND-OBJ: LDBB_D ((X)),21
 # CHECK-ASM: encoding: [0xc5,0x4e,0x15]
-LDBB_D ((XU)),21
+LDBB_D ((X)),21
 
 # CHECK-ASM-AND-OBJ: LDB_A
 # CHECK-ASM: encoding: [0xd8]
@@ -844,78 +844,78 @@ STBB ((PC),205)
 # CHECK-ASM-AND-OBJ: STB (X)
 # CHECK-ASM: encoding: [0xf5,0x40]
 STB (X)
-# CHECK-ASM-AND-OBJ: STBB (XU)
+# CHECK-ASM-AND-OBJ: STBB (X)
 # CHECK-ASM: encoding: [0xe5,0x40]
-STBB (XU)
+STBB (X)
 # CHECK-ASM-AND-OBJ: STB_I (X)
 # CHECK-ASM: encoding: [0xf5,0x41]
 STB_I (X)
-# CHECK-ASM-AND-OBJ: STBB_I (XU)
+# CHECK-ASM-AND-OBJ: STBB_I (X)
 # CHECK-ASM: encoding: [0xe5,0x41]
-STBB_I (XU)
+STBB_I (X)
 # CHECK-ASM-AND-OBJ: STB_D (X)
 # CHECK-ASM: encoding: [0xf5,0x42]
 STB_D (X)
-# CHECK-ASM-AND-OBJ: STBB_D (XU)
+# CHECK-ASM-AND-OBJ: STBB_D (X)
 # CHECK-ASM: encoding: [0xe5,0x42]
-STBB_D (XU)
+STBB_D (X)
 
 # CHECK-ASM-AND-OBJ: STB ((X))
 # CHECK-ASM: encoding: [0xf5,0x44]
 STB ((X))
-# CHECK-ASM-AND-OBJ: STBB ((XU))
+# CHECK-ASM-AND-OBJ: STBB ((X))
 # CHECK-ASM: encoding: [0xe5,0x44]
-STBB ((XU))
+STBB ((X))
 # CHECK-ASM-AND-OBJ: STB_I ((X))
 # CHECK-ASM: encoding: [0xf5,0x45]
 STB_I ((X))
-# CHECK-ASM-AND-OBJ: STBB_I ((XU))
+# CHECK-ASM-AND-OBJ: STBB_I ((X))
 # CHECK-ASM: encoding: [0xe5,0x45]
-STBB_I ((XU))
+STBB_I ((X))
 # CHECK-ASM-AND-OBJ: STB_D ((X))
 # CHECK-ASM: encoding: [0xf5,0x46]
 STB_D ((X))
-# CHECK-ASM-AND-OBJ: STBB_D ((XU))
+# CHECK-ASM-AND-OBJ: STBB_D ((X))
 # CHECK-ASM: encoding: [0xe5,0x46]
-STBB_D ((XU))
+STBB_D ((X))
 
 # CHECK-ASM-AND-OBJ: STB (X),21
 # CHECK-ASM: encoding: [0xf5,0x48,0x15]
 STB (X),21
-# CHECK-ASM-AND-OBJ: STBB (XU),21
+# CHECK-ASM-AND-OBJ: STBB (X),21
 # CHECK-ASM: encoding: [0xe5,0x48,0x15]
-STBB (XU),21
+STBB (X),21
 # CHECK-ASM-AND-OBJ: STB_I (X),21
 # CHECK-ASM: encoding: [0xf5,0x49,0x15]
 STB_I (X),21
-# CHECK-ASM-AND-OBJ: STBB_I (XU),21
+# CHECK-ASM-AND-OBJ: STBB_I (X),21
 # CHECK-ASM: encoding: [0xe5,0x49,0x15]
-STBB_I (XU),21
+STBB_I (X),21
 # CHECK-ASM-AND-OBJ: STB_D (X),21
 # CHECK-ASM: encoding: [0xf5,0x4a,0x15]
 STB_D (X),21
-# CHECK-ASM-AND-OBJ: STBB_D (XU),21
+# CHECK-ASM-AND-OBJ: STBB_D (X),21
 # CHECK-ASM: encoding: [0xe5,0x4a,0x15]
-STBB_D (XU),21
+STBB_D (X),21
 
 # CHECK-ASM-AND-OBJ: STB_? (X),21
 # CHECK-ASM: encoding: [0xf5,0x4c,0x15]
 STB_? (X),21
-# CHECK-ASM-AND-OBJ: STBB_? (XU),21
+# CHECK-ASM-AND-OBJ: STBB_? (X),21
 # CHECK-ASM: encoding: [0xe5,0x4c,0x15]
-STBB_? (XU),21
+STBB_? (X),21
 # CHECK-ASM-AND-OBJ: STB_I ((X)),21
 # CHECK-ASM: encoding: [0xf5,0x4d,0x15]
 STB_I ((X)),21
-# CHECK-ASM-AND-OBJ: STBB_I ((XU)),21
+# CHECK-ASM-AND-OBJ: STBB_I ((X)),21
 # CHECK-ASM: encoding: [0xe5,0x4d,0x15]
-STBB_I ((XU)),21
+STBB_I ((X)),21
 # CHECK-ASM-AND-OBJ: STB_D ((X)),21
 # CHECK-ASM: encoding: [0xf5,0x4e,0x15]
 STB_D ((X)),21
-# CHECK-ASM-AND-OBJ: STBB_D ((XU)),21
+# CHECK-ASM-AND-OBJ: STBB_D ((X)),21
 # CHECK-ASM: encoding: [0xe5,0x4e,0x15]
-STBB_D ((XU)),21
+STBB_D ((X)),21
 
 # CHECK-ASM-AND-OBJ: STB_A
 # CHECK-ASM: encoding: [0xf8]

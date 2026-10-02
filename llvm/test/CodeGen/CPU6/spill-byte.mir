@@ -1,0 +1,84 @@
+# RUN: llc -mtriple=cpu6 -run-pass=postrapseudos -verify-machineinstrs -o - %s | FileCheck %s
+
+# Only AL has a byte load/store from (S),disp in reach of every byte register,
+# so SPILLB/RELOADB go through AL. When AL holds nothing live they clobber it;
+# when it does, three OREBs swap AL with the byte register around the access.
+# OREB src,dst is dst ^= src.
+
+# CHECK-LABEL: name: spill_al
+# CHECK:      STABfi killed $ral, $rs, 3
+# CHECK-NEXT: RSR
+---
+name: spill_al
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $ral
+    SPILLB killed $ral, $rs, 3
+    RSR
+...
+
+# CHECK-LABEL: name: spill_al_dead
+# CHECK:      $ral = XFRB killed $rbl
+# CHECK-NEXT: STABfi killed $ral, $rs, 3
+# CHECK-NEXT: RSR
+---
+name: spill_al_dead
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $rbl
+    SPILLB killed $rbl, $rs, 3
+    RSR
+...
+
+# CHECK-LABEL: name: spill_al_live
+# CHECK:      $ral = OREB $rbl, $ral
+# CHECK-NEXT: $rbl = OREB $ral, $rbl
+# CHECK-NEXT: $ral = OREB $rbl, $ral
+# CHECK-NEXT: STABfi $ral, $rs, 3
+# CHECK-NEXT: $ral = OREB $rbl, $ral
+# CHECK-NEXT: $rbl = OREB $ral, $rbl
+# CHECK-NEXT: $ral = OREB $rbl, $ral
+# CHECK-NEXT: RSR implicit $ral
+---
+name: spill_al_live
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $ral, $rbl
+    SPILLB killed $rbl, $rs, 3
+    RSR implicit $ral
+...
+
+# CHECK-LABEL: name: reload_al_dead
+# CHECK:      $ral = LDABfi $rs, 3
+# CHECK-NEXT: $rzu = XFRB killed $ral
+# CHECK-NEXT: RSR implicit $rzu
+---
+name: reload_al_dead
+tracksRegLiveness: true
+body: |
+  bb.0:
+    $rzu = RELOADB $rs, 3
+    RSR implicit $rzu
+...
+
+# AL is parked in ZU, the byte is loaded into AL, and the swap puts each
+# back where it belongs.
+# CHECK-LABEL: name: reload_al_live
+# CHECK:      $rzu = XFRB $ral
+# CHECK-NEXT: $ral = LDABfi $rs, 3
+# CHECK-NEXT: $ral = OREB $rzu, $ral
+# CHECK-NEXT: $rzu = OREB $ral, $rzu
+# CHECK-NEXT: $ral = OREB $rzu, $ral
+# CHECK-NEXT: RSR implicit $ral, implicit $rzu
+---
+name: reload_al_live
+tracksRegLiveness: true
+body: |
+  bb.0:
+    liveins: $ral
+    $rzu = RELOADB $rs, 3
+    RSR implicit $ral, implicit $rzu
+...

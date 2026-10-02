@@ -74,3 +74,119 @@ def : Pat<(i16 (load (frameindex:$fi))),
           (LDAfi (i16 rS), (to_tframeindex $fi))>;
 def : Pat<(store Acc:$src, (frameindex:$fi)),
           (STAfi Acc:$src, (i16 rS), (to_tframeindex $fi))>;
+
+// Word ALU with a literal. Mode 2 writes dst = src op imm, except SUB, which
+// is dst = imm - src.
+def : Pat<(sub (i16 imm:$imm), GPR:$src), (SUBimm GPR:$src, imm:$imm)>;
+def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
+def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
+def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
+
+//===----------------------------------------------------------------------===//
+// Bytes
+//===----------------------------------------------------------------------===//
+
+// `LDAB (S),disp` / `STAB (S),disp`: the byte twins of LDAfi/STAfi, opcode
+// rows 0x8 and 0xA with the same M = 5, M' = 8 index byte. The base is still
+// a word register; only the data is a byte, and it is always AL.
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+def LDABfi : Memory24Index<0x8, 0x8, (outs AccB:$dst), (ins GPR:$r, i16imm:$arg),
+                           "LDAB", "(${r}),$arg">;
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
+def STABfi : Memory24Index<0xA, 0x8, (outs), (ins AccB:$src, GPR:$r, i16imm:$arg),
+                           "STAB", "(${r}),$arg">;
+
+def : Pat<(i8 (load (frameindex:$fi))),
+          (LDABfi (i16 rS), (to_tframeindex $fi))>;
+def : Pat<(store AccB:$src, (frameindex:$fi)),
+          (STABfi AccB:$src, (i16 rS), (to_tframeindex $fi))>;
+
+// Byte spill and reload. The register allocator can spill any byte register,
+// but only AL and BL have byte load/store forms. expandPostRAPseudo turns
+// these into LDAB/STAB, moving the byte through AL and keeping AL intact if
+// it is live. Operands match LDABfi/STABfi so eliminateFrameIndex treats them
+// alike.
+let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0 in {
+let mayLoad = 0, mayStore = 1 in
+def SPILLB : CenturionInst<(outs), (ins GPRB:$src, GPR:$r, i16imm:$arg),
+                           "#SPILLB", "$src,(${r}),$arg">;
+let mayLoad = 1, mayStore = 0 in
+def RELOADB : CenturionInst<(outs GPRB:$dst), (ins GPR:$r, i16imm:$arg),
+                            "#RELOADB", "(${r}),$dst,$arg">;
+}
+
+// An i8 literal as the i16 operand of a word instruction. Only the low byte
+// of the result is used, so sign- or zero-extending makes no difference.
+def imm8_as_16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getSExtValue(), SDLoc(N), MVT::i16);
+}]>;
+
+// A byte in the low half of an otherwise undefined word. REG_SEQUENCE, not
+// INSERT_SUBREG into IMPLICIT_DEF: at -O0 nothing marks that IMPLICIT_DEF
+// undef, so the word looks live above the insert and pins A while AL is
+// still needed for the byte. REG_SEQUENCE writes sub_lo as a fresh def.
+defvar ByteInWord = (REG_SEQUENCE GPR, GPRB:$src, sub_lo,
+                                  (i8 (IMPLICIT_DEF)), sub_hi);
+def : Pat<(i16 (anyext GPRB:$src)), ByteInWord>;
+def : Pat<(i8 (trunc GPR:$src)), (EXTRACT_SUBREG GPR:$src, sub_lo)>;
+
+// There is no byte literal form outside AL and BL, so a byte constant is the
+// low half of a word XFR.
+def : Pat<(i8 imm:$imm),
+          (EXTRACT_SUBREG (XFRimm (imm8_as_16 imm:$imm)), sub_lo)>;
+
+// Byte ALU with a literal: run the word op on the containing register and
+// keep the low byte. The carry out of bit 7 lands in the upper half, which
+// nothing reads.
+class ByteImmPat<SDNode op, Instruction inst>
+    : Pat<(op GPRB:$src, (i8 imm:$imm)),
+          (EXTRACT_SUBREG (inst ByteInWord, (imm8_as_16 imm:$imm)), sub_lo)>;
+def : ByteImmPat<add, ADDimm>;
+def : ByteImmPat<and, ANDimm>;
+def : ByteImmPat<or, ORIimm>;
+def : ByteImmPat<xor, OREimm>;
+
+// SUB's literal form is dst = imm - src, which is a constant minus a byte.
+def : Pat<(sub (i8 imm:$imm), GPRB:$src),
+          (EXTRACT_SUBREG (SUBimm ByteInWord, (imm8_as_16 imm:$imm)), sub_lo)>;
+
+// The register/count family is two bytes and works on any byte register.
+// The count nibble n means n + 1 for INRB, DCRB and SLRB, and n itself for
+// CLRB. These beat the four-byte word literal forms above.
+def imm8_1to16 : ImmLeaf<i8, [{ return Imm >= 1 && Imm <= 16; }]>;
+def imm8_m16tom1 : ImmLeaf<i8, [{ return Imm >= -16 && Imm <= -1; }]>;
+def imm8_0to15 : ImmLeaf<i8, [{ return Imm >= 0 && Imm <= 15; }]>;
+// i8 shift amounts are i16, the pointer width. 8 and up are poison.
+def shamt8_1to7 : ImmLeaf<i16, [{ return Imm >= 1 && Imm <= 7; }]>;
+def count_minus1 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getSExtValue() - 1, SDLoc(N), MVT::i8);
+}]>;
+def neg_count_minus1 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(-N->getSExtValue() - 1, SDLoc(N), MVT::i8);
+}]>;
+
+let AddedComplexity = 1 in {
+def : Pat<(add GPRB:$r, imm8_1to16:$n), (INRB GPRB:$r, (count_minus1 $n))>;
+def : Pat<(add GPRB:$r, imm8_m16tom1:$n),
+          (DCRB GPRB:$r, (neg_count_minus1 $n))>;
+def : Pat<(i8 imm8_0to15:$n), (CLRB imm:$n)>;
+def : Pat<(not GPRB:$r), (IVRB GPRB:$r)>;
+def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
+}
+
+// Byte register/register ALU. The first operand is the source nibble, the
+// second is the destination nibble's incoming value.
+def : Pat<(add GPRB:$a, GPRB:$b), (ADDB GPRB:$a, GPRB:$b)>;
+def : Pat<(and GPRB:$a, GPRB:$b), (ANDB GPRB:$a, GPRB:$b)>;
+def : Pat<(or GPRB:$a, GPRB:$b), (ORIB GPRB:$a, GPRB:$b)>;
+def : Pat<(xor GPRB:$a, GPRB:$b), (OREB GPRB:$a, GPRB:$b)>;
+// SUBB is dst = src - dst, so a - b keeps b in the destination.
+def : Pat<(sub GPRB:$a, GPRB:$b), (SUBB GPRB:$a, GPRB:$b)>;
+
+// Extension. No instruction does it, so zext clears the upper half with AND,
+// and sext rebuilds bit 7 across the word: ((x & 0xff) ^ 0x80) - 0x80.
+def : Pat<(i16 (zext GPRB:$src)), (ANDimm ByteInWord, 255)>;
+def : Pat<(sext_inreg GPR:$src, i8),
+          (ADDimm (OREimm (ANDimm GPR:$src, 255), 128), -128)>;
+def : Pat<(i16 (sext GPRB:$src)),
+          (ADDimm (OREimm (ANDimm ByteInWord, 255), 128), -128)>;

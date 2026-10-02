@@ -89,6 +89,20 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   return false;
 }
 
+bool CPU6RegisterInfo::shouldCoalesce(MachineInstr *, const TargetRegisterClass *,
+                                      unsigned SubReg,
+                                      const TargetRegisterClass *,
+                                      unsigned DstSubReg,
+                                      const TargetRegisterClass *NewRC,
+                                      LiveIntervals &) const {
+  // Folding `%b:accb = COPY %w.sub_lo` into %w would make the whole word
+  // Acc, because only A has AL as its low byte. Two such words live at once
+  // cannot both be A, and the allocator gives up. Keep the byte copy instead.
+  if ((SubReg || DstSubReg) && NewRC->getNumRegs() == 1)
+    return false;
+  return true;
+}
+
 Register CPU6RegisterInfo::getFrameRegister(const MachineFunction &) const {
   // Every slot is addressed from S, including in a realigned function: there
   // X only remembers S for the epilogue, and the distance from X to a slot

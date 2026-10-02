@@ -19,11 +19,24 @@ using namespace llvm;
 CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
                                        const CPU6Subtarget &STI)
     : TargetLowering(TM, STI) {
-  // GPR is i16. Registering it makes i16 legal and tells the legalizer to
-  // expand anything wider (so an i32 add is not one instruction). i8 is left
-  // illegal on purpose: it gets promoted to i16 until GPRB is registered.
+  // GPR is i16 and GPRB is i8. Registering them makes both legal and tells
+  // the legalizer to expand anything wider (so an i32 add is not one
+  // instruction) and promote i1 to i8.
+  addRegisterClass(MVT::i8, &CPU6::GPRBRegClass);
   addRegisterClass(MVT::i16, &CPU6::GPRRegClass);
   computeRegisterProperties(STI.getRegisterInfo());
+
+  // A byte memory access only fills or reads the byte register; nothing
+  // extends on the way in or truncates on the way out. Split an extending
+  // load into a byte load plus an extend, and a truncating store into a
+  // truncate plus a byte store.
+  for (MVT VT : {MVT::i8, MVT::i16})
+    setLoadExtAction({ISD::EXTLOAD, ISD::ZEXTLOAD, ISD::SEXTLOAD}, VT, MVT::i1,
+                     Promote);
+  setLoadExtAction({ISD::EXTLOAD, ISD::ZEXTLOAD, ISD::SEXTLOAD}, MVT::i16,
+                   MVT::i8, Expand);
+  setTruncStoreAction(MVT::i16, MVT::i8, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   // S is the stack pointer the prologue adjusts. Callee-saved spills go
   // through it via STK and POP.
   setStackPointerRegisterToSaveRestore(CPU6::rS);
@@ -59,7 +72,18 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
     // it the register looks undefined, and the prologue's STK would treat an
     // argument in Y or Z as dead.
     Register VReg = MF.addLiveIn(VA.getLocReg(), &CPU6::GPRRegClass);
-    InVals.push_back(DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT()));
+    SDValue Arg = DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT());
+    // A promoted byte arrives as a word. Record what the caller promised
+    // about the upper half, then take the low byte.
+    if (VA.getLocInfo() == CCValAssign::SExt)
+      Arg = DAG.getNode(ISD::AssertSext, DL, VA.getLocVT(), Arg,
+                        DAG.getValueType(VA.getValVT()));
+    else if (VA.getLocInfo() == CCValAssign::ZExt)
+      Arg = DAG.getNode(ISD::AssertZext, DL, VA.getLocVT(), Arg,
+                        DAG.getValueType(VA.getValVT()));
+    if (VA.getLocVT() != VA.getValVT())
+      Arg = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Arg);
+    InVals.push_back(Arg);
   }
   return Chain;
   
@@ -93,7 +117,23 @@ SDValue CPU6TargetLowering::LowerReturn(
     for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
       CCValAssign &VA = RVLocs[I];
       assert(VA.isRegLoc() && "return value needs a register in RetCC_CPU6");
-      Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
+      SDValue Val = OutVals[I];
+      switch (VA.getLocInfo()) {
+      case CCValAssign::Full:
+        break;
+      case CCValAssign::SExt:
+        Val = DAG.getNode(ISD::SIGN_EXTEND, DL, VA.getLocVT(), Val);
+        break;
+      case CCValAssign::ZExt:
+        Val = DAG.getNode(ISD::ZERO_EXTEND, DL, VA.getLocVT(), Val);
+        break;
+      case CCValAssign::AExt:
+        Val = DAG.getNode(ISD::ANY_EXTEND, DL, VA.getLocVT(), Val);
+        break;
+      default:
+        llvm_unreachable("unexpected return value promotion");
+      }
+      Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), Val, Glue);
       Glue = Chain.getValue(1);
       RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
     }
