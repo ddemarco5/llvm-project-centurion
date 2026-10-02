@@ -1,0 +1,14 @@
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %s -o %t.o
+# RUN: llvm-cpu6-ld -base 0x100 -o %t.bin %t.o
+# RUN: %python -c "print(open(r'%t.bin','rb').read().hex())" | FileCheck %s
+
+# The assembler resolves a branch to a label in the same section. The
+# displacement byte is already 1, and there is no relocation to apply.
+# CHECK: 14010909
+
+	.globl f
+f:
+	BZ next
+	RSR
+next:
+	RSR

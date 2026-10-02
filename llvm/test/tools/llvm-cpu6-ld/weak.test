@@ -1,0 +1,9 @@
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %S/Inputs/weak.s -o %t-weak.o
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %S/Inputs/strong.s -o %t-strong.o
+# RUN: llvm-cpu6-ld -base 0x100 -e side -o %t.bin %t-weak.o %t-strong.o | FileCheck %s
+# RUN: %python -c "print(open(r'%t.bin','rb').read().hex())" | FileCheck %s --check-prefix=BYTES
+
+# The weak side occupies the first byte. The strong side is four bytes into
+# the second .text, at 0x108, and the JSR uses that address.
+# CHECK: 0x0108
+# BYTES: 09000000790108090109

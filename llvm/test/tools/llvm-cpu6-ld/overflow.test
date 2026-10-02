@@ -1,0 +1,8 @@
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %s -o %t.o
+# RUN: not llvm-cpu6-ld -base 0x10000 -o %t.bin %t.o 2>&1 | FileCheck %s
+
+# CHECK: does not fit in 16 bits
+
+	.globl f
+f:
+	RSR

@@ -1,0 +1,16 @@
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %s -o %t.o
+# RUN: llvm-cpu6-ld -base 0x100 -e side -o %t.bin %t.o | FileCheck %s
+# RUN: %python -c "print(open(r'%t.bin','rb').read().hex())" | FileCheck %s --check-prefix=BYTES
+
+# side is the first byte. The JSR's address field is the big-endian load
+# address of side.
+# CHECK: 0x0100
+# BYTES: 0979010009
+
+	.globl side
+side:
+	RSR
+	.globl caller
+caller:
+	JSR (side)
+	RSR

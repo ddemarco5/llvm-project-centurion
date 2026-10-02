@@ -1,0 +1,8 @@
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %S/Inputs/undef.s -o %t-undef.o
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %S/Inputs/dup-a.s -o %t-a.o
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %S/Inputs/dup-b.s -o %t-b.o
+# RUN: not llvm-cpu6-ld -base 0x100 -o %t.bin %t-undef.o 2>&1 | FileCheck %s --check-prefix=UNDEF
+# RUN: not llvm-cpu6-ld -base 0x100 -o %t.bin %t-a.o %t-b.o 2>&1 | FileCheck %s --check-prefix=DUP
+
+# UNDEF: undefined symbol: missing
+# DUP: duplicate symbol: foo
