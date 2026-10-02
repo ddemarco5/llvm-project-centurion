@@ -235,10 +235,12 @@ def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
 // operand, because the mnemonic already means A. These are that encoding
 // with A named, so a load or store of a frame slot can select them.
 // isCodeGenOnly: the assembler keeps parsing `LDA (X),21`.
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0,
+    Defs = [rM, rV] in
 def LDAfi : Memory24Index<0x9, 0x8, (outs Acc:$dst), (ins GPR:$r, i16imm:$arg),
                           "LDA", "(${r}),$arg">;
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1,
+    Defs = [rM, rV] in
 def STAfi : Memory24Index<0xB, 0x8, (outs), (ins Acc:$src, GPR:$r, i16imm:$arg),
                           "STA", "(${r}),$arg">;
 
@@ -252,10 +254,12 @@ def : Pat<(store Acc:$src, (frameindex:$fi)),
 // `LDAB (S),disp` / `STAB (S),disp`: the byte twins of LDAfi/STAfi, opcode
 // rows 0x8 and 0xA with the same M = 5, M' = 8 index byte. The base is still
 // a word register; only the data is a byte, and it is always AL.
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0,
+    Defs = [rM, rV] in
 def LDABfi : Memory24Index<0x8, 0x8, (outs AccB:$dst), (ins GPR:$r, i16imm:$arg),
                            "LDAB", "(${r}),$arg">;
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
+let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1,
+    Defs = [rM, rV] in
 def STABfi : Memory24Index<0xA, 0x8, (outs), (ins AccB:$src, GPR:$r, i16imm:$arg),
                            "STAB", "(${r}),$arg">;
 
@@ -270,7 +274,8 @@ def : Pat<(store AccB:$src, (frameindex:$fi)),
 // it is live. Operands match LDABfi/STABfi so eliminateFrameIndex treats them
 // alike. They are not selected; storeRegToStackSlot and loadRegFromStackSlot
 // emit them.
-let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0 in {
+// The expanded LDAB/STAB set Minus and Value, so the pseudo does too.
+let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV] in {
 let mayLoad = 0, mayStore = 1 in
 def SPILLB : CenturionInst<(outs), (ins GPRB:$src, GPR:$r, i16imm:$arg),
                            "#SPILLB", "$src,(${r}),$arg">;

@@ -14,7 +14,7 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $ral
-    SPILLB killed $ral, $rs, 3
+    SPILLB killed $ral, $rs, 3, implicit-def $rm, implicit-def $rv
     RSR
 ...
 
@@ -28,7 +28,7 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $rbl
-    SPILLB killed $rbl, $rs, 3
+    SPILLB killed $rbl, $rs, 3, implicit-def $rm, implicit-def $rv
     RSR
 ...
 
@@ -47,7 +47,7 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $ral, $rbl
-    SPILLB killed $rbl, $rs, 3
+    SPILLB killed $rbl, $rs, 3, implicit-def $rm, implicit-def $rv
     RSR implicit $ral
 ...
 
@@ -60,7 +60,7 @@ name: reload_al_dead
 tracksRegLiveness: true
 body: |
   bb.0:
-    $rzu = RELOADB $rs, 3
+    $rzu = RELOADB $rs, 3, implicit-def $rm, implicit-def $rv
     RSR implicit $rzu
 ...
 
@@ -79,6 +79,6 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $ral
-    $rzu = RELOADB $rs, 3
+    $rzu = RELOADB $rs, 3, implicit-def $rm, implicit-def $rv
     RSR implicit $ral, implicit $rzu
 ...

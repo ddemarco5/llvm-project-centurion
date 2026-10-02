@@ -86,9 +86,19 @@ def GPRB  : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rC
 // LDAB and STAB always touch AL, the byte half of the accumulator.
 def AccB : RegisterClass<"CPU6", [i8], 8, (add rAL)>;
 
-
-//TODO: Do I need to implement a pseudo register to keep track of F,L,M,V flags?
-// -- from gecho
-// FLMV are the flags (Overflow, Carry, Sign and Zero). 
-// There are instructions that can manipulate them directly,
-// but in the CPU4 you can only read them with the branch instructions.
+// Condition flags. The wiki packs them into C, in bits 7-4 of the low byte:
+//   7 Value (zero), 6 Minus (sign), 5 Fault (overflow), 4 Link (carry).
+// Bits 3-0 of that byte are the page map, and bits 15-12 are the previous
+// interrupt level. webCenREE does not keep the flags in the register file.
+// ccr_v, ccr_m, ccr_f and ccr_l are separate, and the branches read those.
+// Writing C does not, by itself, change what BL or BZ test.
+//
+// These four registers are that state. They are reserved and not part of C,
+// so a use of one is a real dependence and the allocator cannot hand it out.
+// An instruction defs only the bits it writes. XFR writes Minus and Value
+// and leaves Fault and Link, so a later branch on Link still depends on the
+// instruction that set Link.
+def rV : CPU6Reg<16, "V">;
+def rM : CPU6Reg<17, "M">;
+def rF : CPU6Reg<18, "F">;
+def rL : CPU6Reg<19, "L">;

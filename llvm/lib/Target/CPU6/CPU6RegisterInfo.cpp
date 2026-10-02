@@ -54,6 +54,12 @@ BitVector CPU6RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(CPU6::rS);
   Reserved.set(CPU6::rSU);
   Reserved.set(CPU6::rSL);
+  // Fault, Link, Minus, Value. Branches read them and arithmetic writes
+  // them. They are not general-purpose.
+  Reserved.set(CPU6::rF);
+  Reserved.set(CPU6::rL);
+  Reserved.set(CPU6::rM);
+  Reserved.set(CPU6::rV);
   // X holds the frame pointer in a function that realigns S.
   if (MF.getSubtarget().getFrameLowering()->hasFP(MF)) {
     Reserved.set(CPU6::rX);

@@ -82,11 +82,11 @@ stack:
 body: |
   bb.0:
     liveins: $ra
-    $rx = XFRimm 1
-    $ry = XFRimm 1
-    $rz = XFRimm 1
-    STAfi killed $ra, $rs, %stack.0
-    $ra = LDAfi $rs, %stack.0
+    $rx = XFRimm 1, implicit-def $rm, implicit-def $rv
+    $ry = XFRimm 1, implicit-def $rm, implicit-def $rv
+    $rz = XFRimm 1, implicit-def $rm, implicit-def $rv
+    STAfi killed $ra, $rs, %stack.0, implicit-def $rm, implicit-def $rv
+    $ra = LDAfi $rs, %stack.0, implicit-def $rm, implicit-def $rv
     RSR implicit killed $ra
 ...
 ---
@@ -97,10 +97,10 @@ stack:
 body: |
   bb.0:
     liveins: $ra
-    $rx = XFRimm 1
-    $rz = XFRimm 1
-    STAfi killed $ra, $rs, %stack.0
-    $ra = LDAfi $rs, %stack.0
+    $rx = XFRimm 1, implicit-def $rm, implicit-def $rv
+    $rz = XFRimm 1, implicit-def $rm, implicit-def $rv
+    STAfi killed $ra, $rs, %stack.0, implicit-def $rm, implicit-def $rv
+    $ra = LDAfi $rs, %stack.0, implicit-def $rm, implicit-def $rv
     RSR implicit killed $ra
 ...
 ---
@@ -109,8 +109,8 @@ tracksRegLiveness: true
 body: |
   bb.0:
     liveins: $ry
-    $ra = XFR killed $ry
-    $ry = XFRimm 1
+    $ra = XFR killed $ry, implicit-def $rm, implicit-def $rv
+    $ry = XFRimm 1, implicit-def $rm, implicit-def $rv
     RSR implicit killed $ra
 ...
 ---
@@ -121,8 +121,8 @@ stack:
 body: |
   bb.0:
     liveins: $ra
-    $rz = XFRimm 1
-    STAfi killed $ra, $rs, %stack.0
-    $ra = LDAfi $rs, %stack.0
+    $rz = XFRimm 1, implicit-def $rm, implicit-def $rv
+    STAfi killed $ra, $rs, %stack.0, implicit-def $rm, implicit-def $rv
+    $ra = LDAfi $rs, %stack.0, implicit-def $rm, implicit-def $rv
     RSR implicit killed $ra
 ...

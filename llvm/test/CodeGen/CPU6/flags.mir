@@ -1,0 +1,29 @@
+# RUN: llc -mtriple=cpu6 -run-pass=verify -verify-machineinstrs -o - %s | FileCheck %s
+
+# Branches are not selected from IR yet. This locks the bits they read, and
+# the one-bit writers. A missing or extra implicit operand is rejected by the
+# parser, so dropping a Use or a Def fails this test.
+
+# CHECK-LABEL: name: flags
+# CHECK:      SF implicit-def $rf
+# CHECK-NEXT: SL implicit-def $rl
+# CHECK-NEXT: CL implicit $rl, implicit-def $rl
+# CHECK-NEXT: BL 0, implicit $rl
+# CHECK-NEXT: BZ 0, implicit $rv
+# CHECK-NEXT: BF 0, implicit $rf
+# CHECK-NEXT: BM 0, implicit $rm
+# CHECK-NEXT: BGZ 0, implicit $rm, implicit $rv
+# CHECK-NEXT: BS1 0{{$}}
+---
+name: flags
+body: |
+  bb.0:
+    SF implicit-def $rf
+    SL implicit-def $rl
+    CL implicit $rl, implicit-def $rl
+    BL 0, implicit $rl
+    BZ 0, implicit $rv
+    BF 0, implicit $rf
+    BM 0, implicit $rm
+    BGZ 0, implicit $rm, implicit $rv
+    BS1 0
