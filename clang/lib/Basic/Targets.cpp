@@ -19,6 +19,7 @@
 #include "Targets/ARM.h"
 #include "Targets/AVR.h"
 #include "Targets/BPF.h"
+#include "Targets/CPU6.h"
 #include "Targets/CSKY.h"
 #include "Targets/DirectX.h"
 #include "Targets/Hexagon.h"
@@ -280,6 +281,9 @@ std::unique_ptr<TargetInfo> AllocateTarget(const llvm::Triple &Triple,
   case llvm::Triple::bpfeb:
   case llvm::Triple::bpfel:
     return std::make_unique<BPFTargetInfo>(Triple, Opts);
+
+  case llvm::Triple::cpu6:
+    return std::make_unique<CPU6TargetInfo>(Triple, Opts);
 
   case llvm::Triple::msp430:
     return std::make_unique<MSP430TargetInfo>(Triple, Opts);

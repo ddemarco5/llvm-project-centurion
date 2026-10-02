@@ -20,15 +20,6 @@
 
 using namespace llvm;
 
-static StringRef computeDataLayout(const Triple &TT) {
-  // e: little-endian. P1: one address space. p:16:8: 16-bit pointers, 8-bit
-  // aligned. n8: the data layout's "native" width hint. Legality for codegen
-  // comes from the register classes in CPU6TargetLowering, not from n8: GPR
-  // makes i16 the legal integer type.
-  (void)TT;
-  return "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8";
-}
-
 static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
   return RM.value_or(Reloc::Static);
 }
@@ -39,7 +30,7 @@ CPU6TargetMachine::CPU6TargetMachine(const Target &T, const Triple &TT,
                                      std::optional<Reloc::Model> RM,
                                      std::optional<CodeModel::Model> CM,
                                      CodeGenOptLevel OL, bool JIT)
-    : CodeGenTargetMachineImpl(T, computeDataLayout(TT), TT, CPU, FS, Options,
+    : CodeGenTargetMachineImpl(T, TT.computeDataLayout(), TT, CPU, FS, Options,
                                getEffectiveRelocModel(RM),
                                getEffectiveCodeModel(CM, CodeModel::Small), OL),
       TLOF(std::make_unique<TargetLoweringObjectFileELF>()),
