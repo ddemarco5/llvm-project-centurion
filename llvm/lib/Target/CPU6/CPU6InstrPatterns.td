@@ -35,13 +35,15 @@ def : Pat<(i16 imm:$imm), (XFRimm imm:$imm)>;
 // Mode-2 ADD writes $dst, so the pattern names only the two inputs.
 def : Pat<(add GPR:$src, (i16 imm:$imm)), (ADDimm GPR:$src, imm:$imm)>;
 
-// Register/register ADD is two-address: `ADD B, X` reads and writes X.
-// ADD already defines $arglnibble. Add the tied use on that same def:
-//
-//   let Constraints = "$arglnibble = $base" in
-//   ... (outs GPR:$arglnibble), (ins GPR:$arghnibble, GPR:$base) ...
-//   def : Pat<(add GPR:$base, GPR:$arghnibble),
-//             (ADD GPR:$arghnibble, GPR:$base)>;
+// Register/register word ALU is two-address: `ADD B,X` reads and writes X.
+// The first operand is the source nibble, the second the destination's
+// incoming value. SUB is dst = src - dst, so a - b keeps b in the
+// destination.
+def : Pat<(add GPR:$a, GPR:$b), (ADD GPR:$a, GPR:$b)>;
+def : Pat<(and GPR:$a, GPR:$b), (AND GPR:$a, GPR:$b)>;
+def : Pat<(or GPR:$a, GPR:$b), (ORI GPR:$a, GPR:$b)>;
+def : Pat<(xor GPR:$a, GPR:$b), (ORE GPR:$a, GPR:$b)>;
+def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
 
 // STK and POP are not selected here. A Pat matches one DAG node, and nothing
 // in the DAG means "save whichever of X, Y, Z this function clobbers."
@@ -81,6 +83,28 @@ def : Pat<(sub (i16 imm:$imm), GPR:$src), (SUBimm GPR:$src, imm:$imm)>;
 def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
 def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
+
+// The register/count family is two bytes, half the literal forms above. The
+// count nibble n means n + 1 for SLR, and n itself for CLR. A small word add
+// stays ADDimm so the allocator may give the result its own register; the
+// AsmPrinter emits INR/DCR when it does not.
+def imm16_0to15 : ImmLeaf<i16, [{ return Imm >= 0 && Imm <= 15; }]>;
+def shamt16_1to15 : ImmLeaf<i16, [{ return Imm >= 1 && Imm <= 15; }]>;
+def count_minus1 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getSExtValue() - 1, SDLoc(N), MVT::i8);
+}]>;
+def neg_count_minus1 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(-N->getSExtValue() - 1, SDLoc(N), MVT::i8);
+}]>;
+def count_as_i8 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getSExtValue(), SDLoc(N), MVT::i8);
+}]>;
+
+let AddedComplexity = 1 in {
+def : Pat<(i16 imm16_0to15:$n), (CLR (count_as_i8 $n))>;
+def : Pat<(not GPR:$r), (IVR GPR:$r, 0)>;
+def : Pat<(shl GPR:$r, shamt16_1to15:$n), (SLR GPR:$r, (count_minus1 $n))>;
+}
 
 //===----------------------------------------------------------------------===//
 // Bytes
@@ -150,20 +174,13 @@ def : ByteImmPat<xor, OREimm>;
 def : Pat<(sub (i8 imm:$imm), GPRB:$src),
           (EXTRACT_SUBREG (SUBimm ByteInWord, (imm8_as_16 imm:$imm)), sub_lo)>;
 
-// The register/count family is two bytes and works on any byte register.
-// The count nibble n means n + 1 for INRB, DCRB and SLRB, and n itself for
-// CLRB. These beat the four-byte word literal forms above.
+// The byte register/count family, as for words above. These beat the
+// four-byte word literal forms.
 def imm8_1to16 : ImmLeaf<i8, [{ return Imm >= 1 && Imm <= 16; }]>;
 def imm8_m16tom1 : ImmLeaf<i8, [{ return Imm >= -16 && Imm <= -1; }]>;
 def imm8_0to15 : ImmLeaf<i8, [{ return Imm >= 0 && Imm <= 15; }]>;
 // i8 shift amounts are i16, the pointer width. 8 and up are poison.
 def shamt8_1to7 : ImmLeaf<i16, [{ return Imm >= 1 && Imm <= 7; }]>;
-def count_minus1 : SDNodeXForm<imm, [{
-  return CurDAG->getTargetConstant(N->getSExtValue() - 1, SDLoc(N), MVT::i8);
-}]>;
-def neg_count_minus1 : SDNodeXForm<imm, [{
-  return CurDAG->getTargetConstant(-N->getSExtValue() - 1, SDLoc(N), MVT::i8);
-}]>;
 
 let AddedComplexity = 1 in {
 def : Pat<(add GPRB:$r, imm8_1to16:$n), (INRB GPRB:$r, (count_minus1 $n))>;

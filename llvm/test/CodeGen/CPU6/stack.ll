@@ -23,10 +23,10 @@ define i16 @none(i16 %a) nounwind {
 ; layout (i16:8, one byte), so it matches align1 and does not realign S.
 ; CHECK-LABEL: noalign:
 ; CHECK-NOT: STK
-; CHECK: ADD S,S,-2
+; CHECK: DCR S,1
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
-; CHECK-NEXT: ADD S,S,2
+; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @noalign(i16 %a) nounwind {
   %p = alloca i16
@@ -38,10 +38,10 @@ define i16 @noalign(i16 %a) nounwind {
 ; Two bytes, alignment 1. Frame size 2, slot at the final S.
 ; CHECK-LABEL: align1:
 ; CHECK-NOT: STK
-; CHECK: ADD S,S,-2
+; CHECK: DCR S,1
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
-; CHECK-NEXT: ADD S,S,2
+; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @align1(i16 %a) nounwind {
   %p = alloca i16, align 1
@@ -55,7 +55,7 @@ define i16 @align1(i16 %a) nounwind {
 ; CHECK-LABEL: align2:
 ; CHECK: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: ADD S,S,-2
+; CHECK-NEXT: DCR S,1
 ; CHECK-NEXT: AND S,S,-2
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
@@ -73,7 +73,7 @@ define i16 @align2(i16 %a) nounwind {
 ; CHECK-LABEL: align4:
 ; CHECK: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: ADD S,S,-2
+; CHECK-NEXT: DCR S,1
 ; CHECK-NEXT: AND S,S,-4
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
@@ -91,7 +91,7 @@ define i16 @align4(i16 %a) nounwind {
 ; CHECK-LABEL: align8:
 ; CHECK: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: ADD S,S,-6
+; CHECK-NEXT: DCR S,5
 ; CHECK-NEXT: AND S,S,-8
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
@@ -109,7 +109,7 @@ define i16 @align8(i16 %a) nounwind {
 ; only true because the prologue rounded S down to a multiple of 8.
 ; CHECK-LABEL: knownbits:
 ; CHECK: AND S,S,-8
-; CHECK: XFR A,0
+; CHECK: CLA
 ; CHECK: XFR X,S
 define i16 @knownbits() nounwind {
   %p = alloca i16, align 8
@@ -122,10 +122,10 @@ define i16 @knownbits() nounwind {
 ; Six bytes, not a power of two. No padding at alignment 1.
 ; CHECK-LABEL: six:
 ; CHECK-NOT: STK
-; CHECK: ADD S,S,-6
+; CHECK: DCR S,5
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
-; CHECK-NEXT: ADD S,S,6
+; CHECK-NEXT: INR S,5
 ; CHECK-NEXT: RSR
 define i16 @six(i16 %a) nounwind {
   %p = alloca [3 x i16], align 1
@@ -139,7 +139,7 @@ define i16 @six(i16 %a) nounwind {
 ; CHECK-LABEL: wide:
 ; CHECK: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: ADD S,S,-16
+; CHECK-NEXT: DCR S,15
 ; CHECK-NEXT: AND S,S,-2
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),0
@@ -157,12 +157,12 @@ define i16 @wide(i16 %a) nounwind {
 ; second, so the value in A is not live across both stores. The first alloca
 ; is nearer the incoming S (displacement 2). The second is at the final S.
 ; CHECK-LABEL: two:
-; CHECK: ADD S,S,-4
+; CHECK: DCR S,3
 ; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: XFR A,7
+; CHECK-NEXT: CLR A,7
 ; CHECK-NEXT: STA (S),0
 ; CHECK-NEXT: LDA (S),2
-; CHECK-NEXT: ADD S,S,4
+; CHECK-NEXT: INR S,3
 ; CHECK-NEXT: RSR
 define i16 @two(i16 %a) nounwind {
   %lo = alloca i16, align 1
@@ -179,10 +179,10 @@ define i16 @two(i16 %a) nounwind {
 ; CHECK-LABEL: padded:
 ; CHECK: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: ADD S,S,-6
+; CHECK-NEXT: DCR S,5
 ; CHECK-NEXT: AND S,S,-4
 ; CHECK-NEXT: STA (S),4
-; CHECK-NEXT: XFR A,7
+; CHECK-NEXT: CLR A,7
 ; CHECK-NEXT: STA (S),2
 ; CHECK-NEXT: LDA (S),4
 ; CHECK-NEXT: XFR X,S

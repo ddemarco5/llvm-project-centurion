@@ -9,6 +9,7 @@
 #include "CPU6RegisterInfo.h"
 #include "CPU6FrameLowering.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/CodeGen/LiveIntervals.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -89,17 +90,33 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   return false;
 }
 
-bool CPU6RegisterInfo::shouldCoalesce(MachineInstr *, const TargetRegisterClass *,
+bool CPU6RegisterInfo::shouldCoalesce(MachineInstr *MI,
+                                      const TargetRegisterClass *,
                                       unsigned SubReg,
                                       const TargetRegisterClass *,
                                       unsigned DstSubReg,
                                       const TargetRegisterClass *NewRC,
-                                      LiveIntervals &) const {
+                                      LiveIntervals &LIS) const {
+  if (NewRC->getNumRegs() != 1)
+    return true;
   // Folding `%b:accb = COPY %w.sub_lo` into %w would make the whole word
   // Acc, because only A has AL as its low byte. Two such words live at once
   // cannot both be A, and the allocator gives up. Keep the byte copy instead.
-  if ((SubReg || DstSubReg) && NewRC->getNumRegs() == 1)
+  if (SubReg || DstSubReg)
     return false;
+  // Nor pin a value to the one register where that register is already live
+  // as itself, e.g. an incoming argument in A that is copied out after the
+  // value is defined. Splitting cannot help: every piece stays in the
+  // one-register class. Left as a copy, the allocator just hints A.
+  MCRegister Only = *NewRC->begin();
+  for (const MachineOperand &MO : {MI->getOperand(0), MI->getOperand(1)}) {
+    if (!MO.getReg().isVirtual())
+      continue;
+    const LiveInterval &LI = LIS.getInterval(MO.getReg());
+    for (MCRegUnit Unit : regunits(Only))
+      if (LIS.getRegUnit(Unit).overlaps(LI))
+        return false;
+  }
   return true;
 }
 

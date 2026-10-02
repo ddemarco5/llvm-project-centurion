@@ -5,11 +5,10 @@
 ; bytes of the first two arguments.
 
 ; Byte register/register ALU is two-address: the destination nibble is read
-; and written. ADDB src,dst is dst += src. With AL as the source and BL as
-; the destination the printer uses the one-byte AABB (see compress.mir).
+; and written. ADDB src,dst is dst += src. ADDB is commutable, so the sum is
+; built in AL, where the result goes, and no copy follows.
 ; CHECK-LABEL: add_rr:
-; CHECK:      AABB
-; CHECK-NEXT: XFR B,A
+; CHECK:      ADDB BL,AL
 ; CHECK-NEXT: RSR
 define i8 @add_rr(i8 %a, i8 %b) {
   %v = add i8 %a, %b
@@ -17,6 +16,7 @@ define i8 @add_rr(i8 %a, i8 %b) {
 }
 
 ; SUBB src,dst is dst = src - dst, so a - b leaves the result in b's byte.
+; SUBB AL,BL is printed as the one-byte SABB (see compress.mir).
 ; CHECK-LABEL: sub_rr:
 ; CHECK:      SABB
 ; CHECK-NEXT: XFR B,A
@@ -89,10 +89,10 @@ define i8 @shl3(i8 %a) {
 
 ; CLRB r,n writes n (0-15); a byte store goes through AL with STAB.
 ; CHECK-LABEL: store5:
-; CHECK:      ADD S,S,-1
+; CHECK:      DCR S,0
 ; CHECK-NEXT: CLRB AL,5
 ; CHECK-NEXT: STAB (S),0
-; CHECK-NEXT: ADD S,S,1
+; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define void @store5() {
   %p = alloca i8
@@ -102,9 +102,9 @@ define void @store5() {
 
 ; A truncating store is a truncate (the low byte, AL) plus STAB.
 ; CHECK-LABEL: trunc_store:
-; CHECK:      ADD S,S,-1
+; CHECK:      DCR S,0
 ; CHECK:      STAB (S),0
-; CHECK-NEXT: ADD S,S,1
+; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define void @trunc_store(i16 %a) {
   %p = alloca i8
@@ -116,11 +116,11 @@ define void @trunc_store(i16 %a) {
 ; An extending load is LDAB into AL plus an extension of A. zext clears the
 ; upper half; sext is ((x & 0xff) ^ 0x80) - 0x80.
 ; CHECK-LABEL: zext_load:
-; CHECK:      ADD S,S,-1
+; CHECK:      DCR S,0
 ; CHECK:      STAB (S),0
 ; CHECK-NEXT: LDAB (S),0
 ; CHECK:      AND A,A,255
-; CHECK-NEXT: ADD S,S,1
+; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define i16 @zext_load(i8 %a) {
   %p = alloca i8
@@ -131,13 +131,13 @@ define i16 @zext_load(i8 %a) {
 }
 
 ; CHECK-LABEL: sext_load:
-; CHECK:      ADD S,S,-1
+; CHECK:      DCR S,0
 ; CHECK:      STAB (S),0
 ; CHECK-NEXT: LDAB (S),0
 ; CHECK:      AND A,A,255
 ; CHECK-NEXT: ORE A,A,128
 ; CHECK-NEXT: ADD A,A,-128
-; CHECK-NEXT: ADD S,S,1
+; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define i16 @sext_load(i8 %a) {
   %p = alloca i8

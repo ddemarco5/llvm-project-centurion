@@ -5,9 +5,9 @@
 ; XFR. The spill slot is at S+0 and the alloca at S+2.
 
 ; CHECK-LABEL: four:
-; CHECK:      ADD S,S,-4
+; CHECK:      DCR S,3
 ; CHECK-NEXT: STR A,(S),0 {{.*}}Spill
-; CHECK-NEXT: ADD A,A,1
+; CHECK-NEXT: INA
 ; CHECK-NEXT: STA (S),2
 ; CHECK-NEXT: ADD B,A,2
 ; CHECK-NEXT: STA (S),2
@@ -16,7 +16,7 @@
 ; CHECK-NEXT: ADD Z,A,4
 ; CHECK-NEXT: STA (S),2
 ; CHECK-NEXT: XFR (S),A,0 {{.*}}Reload
-; CHECK-NEXT: ADD S,S,4
+; CHECK-NEXT: INR S,3
 ; CHECK-NEXT: RSR
 define i16 @four(i16 %a, i16 %b, i16 %c, i16 %d) {
   %slot = alloca i16
@@ -35,13 +35,13 @@ define i16 @four(i16 %a, i16 %b, i16 %c, i16 %d) {
 ; into A for the second store.
 
 ; CHECK-LABEL: two:
-; CHECK:      ADD S,S,-6
+; CHECK:      DCR S,5
 ; CHECK-NEXT: STR A,(S),0 {{.*}}Spill
 ; CHECK-NEXT: STA (S),4
 ; CHECK-NEXT: XFR (S),A,0 {{.*}}Reload
 ; CHECK-NEXT: STA (S),2
 ; CHECK-NEXT: LDA (S),4
-; CHECK-NEXT: ADD S,S,6
+; CHECK-NEXT: INR S,5
 ; CHECK-NEXT: RSR
 define i16 @two(i16 %a) {
   %p = alloca i16

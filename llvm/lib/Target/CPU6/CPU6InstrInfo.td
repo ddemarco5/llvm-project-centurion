@@ -141,10 +141,24 @@ def SVC: Branch<0x66, "SVC">; // System call
 // sr = 4 bits 
 // # = 4 bits, this is usually the number of times you want to perform an op, CPU6 differs from EE200 here
 //------------------------------------//
-// Word operation flavor of opcode
+// Word operation flavor of opcode. webCenREE rcfetchw reads the word
+// register in the high nibble (an odd nibble is the memory form, CountMem32
+// and CountIdx32 below) and writes the result back to it. The count is the
+// low nibble plus the opcode's bias: 1 for INR, DCR, SRR, SLR, RRR, RLR.
+// IVR ignores it.
+let Constraints = "$arghnibble = $src", hasSideEffects = 0, mayLoad = 0,
+    mayStore = 0 in
 class SingleReg16<bits<8> opcode, string opstr>
-      : SingleArg16HL<opcode, (outs), (ins GPR: $arghnibble, uimm4: $arglnibble),
-                     opstr, "$arghnibble,$arglnibble"> { }
+      : SingleArg16HL<opcode, (outs GPR:$arghnibble),
+                      (ins GPR:$src, uimm4:$arglnibble),
+                      opstr, "$arghnibble,$arglnibble"> { }
+
+// CLR has no bias: CLR r,n writes n (0-15), as CLRB does.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isMoveImm = 1,
+    isAsCheapAsAMove = 1, isReMaterializable = 1 in
+class SingleReg16W<bits<8> opcode, string opstr>
+      : SingleArg16HL<opcode, (outs GPR:$arghnibble), (ins uimm4:$arglnibble),
+                      opstr, "$arghnibble,$arglnibble"> { }
 
 // Byte operation flavor. webCenREE rcfetchb reads the byte register in the
 // high nibble, adds the opcode's bias to the low nibble (1 for INRB, DCRB,
@@ -165,10 +179,6 @@ class SingleReg16W_B<bits<8> opcode, string opstr>
       : SingleArg16HL<opcode, (outs GPRB:$arghnibble), (ins uimm4:$arglnibble),
                       opstr, "$arghnibble,$arglnibble"> { }
 
-class SingleReg16H<bits<8> opcode, string opstr>
-      : SingleArg16H<opcode, (outs), (ins GPR: $arghnibble),
-                     opstr, "$arghnibble"> { }
-
 let Constraints = "$arghnibble = $src", hasSideEffects = 0, mayLoad = 0,
     mayStore = 0 in
 class SingleReg16H_B<bits<8> opcode, string opstr>
@@ -182,13 +192,14 @@ def DCRB: SingleReg16_B<0x21, "DCRB">;   // Decrement Register (Byte mode)
 // The low nibble is the value, not forced to 0. load7 `32 01` is
 // clr A, #1 and `32 02` is clr A, #2. f1 `22 32` is clr BL, #2.
 // Phire prints that nibble as the count; the encoded nibble is the value.
-def CLR : SingleReg16<0x32, "CLR">;      // Clear Register
+def CLR : SingleReg16W<0x32, "CLR">;     // Clear Register
 def CLRB: SingleReg16W_B<0x22, "CLRB">;  // Clear Register (Byte mode)
 def IVR : SingleReg16<0x33, "IVR">;      // Invert Register
 def IVRB: SingleReg16H_B<0x23, "IVRB">;  // Invert Register (Byte mode)
 def SRR : SingleReg16<0x34, "SRR">;      // Shift Register Right
-// webCenREE's SRRB/SRR opf shifts left (src << count), same as SLRB, and
-// RRRB/RLRB have no handler. No patterns use these until that is settled.
+// webCenREE's SRRB/SRR opf shifts left (src << count), same as SLRB/SLR, and
+// RRRB/RLRB/RRR/RLR have no handler. No patterns use these until that is
+// settled.
 def SRRB: SingleReg16_B<0x24, "SRRB">;   // Shift Register Right (Byte mode)
 def SLR : SingleReg16<0x35, "SLR">;      // Shift Register Left
 def SLRB: SingleReg16_B<0x25, "SLRB">;   // Shift Register Left (Byte mode)
@@ -206,6 +217,8 @@ def RLRB: SingleReg16_B<0x27, "RLRB">;   // Rotate Register Left (Byte mode)
 // `32 90 00 10` clr [Z+0x0010], #0; `34 97 83 00` srl [Z+0x8300], #8.
 // The low nibble is the same count field as the register form.
 // A 2-byte def only matches an even register, so it does not swallow these.
+// They read, modify and write the memory word; CLR only writes it.
+let hasSideEffects = 0, mayLoad = 1, mayStore = 1 in
 class CountMem32<bits<8> opcode, string opstr>
       : CenturionInst32<(outs), (ins i16imm:$addr, uimm4:$count),
                         opstr, "(${addr}),$count"> {
@@ -216,6 +229,7 @@ class CountMem32<bits<8> opcode, string opstr>
   let Inst{19-16} = count;
   let Inst{15-0} = addr;
 }
+let hasSideEffects = 0, mayLoad = 1, mayStore = 1 in
 class CountIdx32<bits<8> opcode, string opstr>
       : CenturionInst32<(outs), (ins GPR:$base, i16imm:$disp, uimm4:$count),
                         opstr, "(${base}),$disp,$count"> {
@@ -234,8 +248,10 @@ def INRmem : CountMem32<0x30, "INR">;
 def INRidx : CountIdx32<0x30, "INR">;
 def DCRmem : CountMem32<0x31, "DCR">;
 def DCRidx : CountIdx32<0x31, "DCR">;
+let mayLoad = 0 in {
 def CLRmem : CountMem32<0x32, "CLR">;
 def CLRidx : CountIdx32<0x32, "CLR">;
+}
 def IVRmem : CountMem32<0x33, "IVR">;
 def IVRidx : CountIdx32<0x33, "IVR">;
 def SRRmem : CountMem32<0x34, "SRR">;
@@ -2151,26 +2167,35 @@ class Implicit<bits<8> opcode, string opstr>
 // 1, CLAB writes 0, IVAB inverts, SRAB is an arithmetic shift right by 1 and
 // SLAB a shift left by 1. They are one byte shorter than the explicit
 // INRB AL,0 family, which selection uses because it takes any byte register.
+// The word forms do the same to A, and INX/DCX to X.
+let Uses = [rA], Defs = [rA], hasSideEffects = 0 in
 def INA : Implicit<0x38, "INA">;        // Increment Accumulator by 1
 let Uses = [rAL], Defs = [rAL], hasSideEffects = 0 in
 def INAB: Implicit<0x28, "INAB">;       // Increment Accumulator by 1 (Byte mode)
+let Uses = [rA], Defs = [rA], hasSideEffects = 0 in
 def DCA : Implicit<0x39, "DCA">;        // Decrement Accumulator by 1
 let Uses = [rAL], Defs = [rAL], hasSideEffects = 0 in
 def DCAB: Implicit<0x29, "DCAB">;       // Decrement Accumulator by 1 (Byte mode)
+let Defs = [rA], hasSideEffects = 0 in
 def CLA : Implicit<0x3A, "CLA">;        // Clear Accumulator
 let Defs = [rAL], hasSideEffects = 0 in
 def CLAB: Implicit<0x2A, "CLAB">;       // Clear Accumulator (Byte mode)
+let Uses = [rA], Defs = [rA], hasSideEffects = 0 in
 def IVA : Implicit<0x3B, "IVA">;        // Invert Accumulator
 let Uses = [rAL], Defs = [rAL], hasSideEffects = 0 in
 def IVAB: Implicit<0x2B, "IVAB">;       // Invert Accumulator (Byte mode)
+let Uses = [rA], Defs = [rA], hasSideEffects = 0 in
 def SRA : Implicit<0x3C, "SRA">;        // Shift Accumulator Right
 let Uses = [rAL], Defs = [rAL], hasSideEffects = 0 in
 def SRAB: Implicit<0x2C, "SRAB">;       // Shift Accumulator Right (Byte mode)
+let Uses = [rA], Defs = [rA], hasSideEffects = 0 in
 def SLA : Implicit<0x3D, "SLA">;        // Shift Accumulator Left
 let Uses = [rAL], Defs = [rAL], hasSideEffects = 0 in
 def SLAB: Implicit<0x2D, "SLAB">;       // Shift Accumulator Left (Byte mode)
+let Uses = [rX], Defs = [rX], hasSideEffects = 0 in {
 def INX : Implicit<0x3E, "INX">;        // Inrement X Register
 def DCX : Implicit<0x3F, "DCX">;        // Decrement X Register
+}
 
 
 //-----------  DoubleReg  --------------//
@@ -2184,10 +2209,20 @@ def DCX : Implicit<0x3F, "DCX">;        // Decrement X Register
 // sr = 4 bits
 // dr = 4 bits
 //------------------------------------//
-// Word operation flavor of opcode
-class DoubleReg16<bits<8> opcode, string opstr, DAGOperand optype1=GPR, DAGOperand optype2=GPR>
-      : SingleArg16HL<opcode, (outs optype1: $arglnibble), (ins optype2: $arghnibble),
+// Word operation flavor of opcode. Both nibbles even: webCenREE rrfetchw
+// mode 0 reads two word registers. Odd nibbles are the literal and indexed
+// forms (DoubleRegImm32, XFRIdx32 and friends).
+class DoubleReg16<bits<8> opcode, string opstr>
+      : SingleArg16HL<opcode, (outs GPR:$arglnibble), (ins GPR:$arghnibble),
                      opstr, "$arghnibble,$arglnibble"> { }
+// Word ALU ops read the destination too, with the same operand order as the
+// byte forms: SUB src,dst is dst = src - dst.
+let Constraints = "$arglnibble = $base", hasSideEffects = 0,
+    mayLoad = 0, mayStore = 0 in
+class DoubleReg16RMW<bits<8> opcode, string opstr>
+      : SingleArg16HL<opcode, (outs GPR:$arglnibble),
+                      (ins GPR:$arghnibble, GPR:$base),
+                      opstr, "$arghnibble,$arglnibble"> { }
 // Byte operation flavor. webCenREE rrfetchb reads both nibbles as byte
 // register numbers (AL is 1, BU is 2); the byte form has no literal or
 // indexed modes, so odd nibbles are registers here.
@@ -2204,19 +2239,23 @@ class DoubleReg16_BRMW<bits<8> opcode, string opstr>
                       (ins GPRB:$arghnibble, GPRB:$base),
                       opstr, "$arghnibble,$arglnibble"> { }
 
-// Assembler form. $arglnibble is only an output, so a SelectionDAG pattern
-// cannot say "this register is both read and written". Codegen wants its own
-// def in CPU6InstrPatterns.td.
-def ADD : DoubleReg16<0x50, "ADD">;     // Add
+// The two-address pass may swap source and destination of all but SUB to
+// leave the result where it is wanted.
+let isCommutable = 1 in {
+def ADD : DoubleReg16RMW<0x50, "ADD">;     // Add
 def ADDB: DoubleReg16_BRMW<0x40, "ADDB">;  // Add (Byte mode)
-def SUB : DoubleReg16<0x51, "SUB">;     // Subtract
+}
+def SUB : DoubleReg16RMW<0x51, "SUB">;     // Subtract
 def SUBB: DoubleReg16_BRMW<0x41, "SUBB">;  // Subtract (Byte mode)
-def AND : DoubleReg16<0x52, "AND">;     // AND
+let isCommutable = 1 in {
+def AND : DoubleReg16RMW<0x52, "AND">;     // AND
 def ANDB: DoubleReg16_BRMW<0x42, "ANDB">;  // AND (Byte mode)
-def ORI : DoubleReg16<0x53, "ORI">;     // OR Inlusive
+def ORI : DoubleReg16RMW<0x53, "ORI">;     // OR Inlusive
 def ORIB: DoubleReg16_BRMW<0x43, "ORIB">;  // OR Inclusive (Byte mode)
-def ORE : DoubleReg16<0x54, "ORE">;     // OR Exclusive
+def ORE : DoubleReg16RMW<0x54, "ORE">;     // OR Exclusive
 def OREB: DoubleReg16_BRMW<0x44, "OREB">;  // OR Exclusive (Byte mode)
+}
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 def XFR : DoubleReg16<0x55, "XFR">;     // Transfer
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
@@ -2300,6 +2339,9 @@ class XFRIdx32
   let Inst{15-0} = disp;
 }
 def XFRidx : XFRIdx32;
+// webCenREE decodes MUL and DIV as OPM.RRX, which throws, so which registers
+// they read and write (a remainder or a 32-bit product) is not settled. The
+// operand lists stay as the assembler needs them and nothing selects them.
 def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
 def MULimm : DoubleRegImm32<0x77, "MUL">;
@@ -2384,31 +2426,39 @@ class ImplicitReg<bits<8> opcode, string opstr>
     let Inst{7-0} = opcode;
 }
 
-// Byte forms: webCenREE sr: REG.AL, dr: the named register's low byte. AABB
-// is BL = AL + BL, SABB is BL = AL - BL (same src - dst order as SUBB), NABB
-// is BL = AL & BL, and XAxB copies AL into xL. XASB writes SL, the low byte
-// of the stack pointer.
+// webCenREE sr: REG.A, dr: the named register; the byte forms use the low
+// bytes. AAB is B = A + B, SAB is B = A - B (same src - dst order as SUB),
+// NAB is B = A & B, and XAx copies A into x. XAS/XASB write the stack
+// pointer (or its low byte).
+let Uses = [rA, rB], Defs = [rB], hasSideEffects = 0 in
 def AAB : ImplicitReg<0x58, "AAB">;     // Add A Register and B Register
 let Uses = [rAL, rBL], Defs = [rBL], hasSideEffects = 0 in
 def AABB: ImplicitReg<0x48, "AABB">;    // Add A Register and B Register (Byte mode)
+let Uses = [rA, rB], Defs = [rB], hasSideEffects = 0 in
 def SAB : ImplicitReg<0x59, "SAB">;     // Subtract A Register and B Register
 let Uses = [rAL, rBL], Defs = [rBL], hasSideEffects = 0 in
 def SABB: ImplicitReg<0x49, "SABB">;    // Subtract A Register and B Register (Byte mode)
+let Uses = [rA, rB], Defs = [rB], hasSideEffects = 0 in
 def NAB : ImplicitReg<0x5A, "NAB">;     // AND A Register and B Register
 let Uses = [rAL, rBL], Defs = [rBL], hasSideEffects = 0 in
 def NABB: ImplicitReg<0x4A, "NABB">;    // AND A Register and B Register (Byte mode)
+let Uses = [rA], Defs = [rX], hasSideEffects = 0 in
 def XAX : ImplicitReg<0x5B, "XAX">;     // Transfer A Register to X Register
 let Uses = [rAL], Defs = [rXL], hasSideEffects = 0 in
 def XAXB: ImplicitReg<0x4B, "XAXB">;    // Transfer A Register to X Register (Byte mode)
+let Uses = [rA], Defs = [rY], hasSideEffects = 0 in
 def XAY : ImplicitReg<0x5C, "XAY">;     // Transfer A Register to Y Register
 let Uses = [rAL], Defs = [rYL], hasSideEffects = 0 in
 def XAYB: ImplicitReg<0x4C, "XAYB">;    // Transfer A Register to Y Register (Byte mode)
+let Uses = [rA], Defs = [rB], hasSideEffects = 0 in
 def XAB : ImplicitReg<0x5D, "XAB">;     // Transfer A Register to B Register
 let Uses = [rAL], Defs = [rBL], hasSideEffects = 0 in
 def XABB: ImplicitReg<0x4D, "XABB">;    // Transfer A Register to B Register (Byte mode)
+let Uses = [rA], Defs = [rZ], hasSideEffects = 0 in
 def XAZ : ImplicitReg<0x5E, "XAZ">;     // Transfer A Register to Z Register
 let Uses = [rAL], Defs = [rZL], hasSideEffects = 0 in
 def XAZB: ImplicitReg<0x4E, "XAZB">;    // Transfer A Register to Z Register (Byte mode)
+let Uses = [rA], Defs = [rS], hasSideEffects = 0 in
 def XAS : ImplicitReg<0x5F, "XAS">;     // Transfer A Register to S Register
 let Uses = [rAL], Defs = [rSL], hasSideEffects = 0 in
 def XASB: ImplicitReg<0x4F, "XASB">;    // Transfer A Register to S Register (Byte mode)
@@ -2427,6 +2477,16 @@ def : CompressPat<(SLRB rAL, 0), (SLAB)>;
 def : CompressPat<(ADDB rBL, rAL), (AABB)>;
 def : CompressPat<(SUBB rBL, rAL), (SABB)>;
 def : CompressPat<(ANDB rBL, rAL), (NABB)>;
+def : CompressPat<(INR rA, 0), (INA)>;
+def : CompressPat<(DCR rA, 0), (DCA)>;
+def : CompressPat<(CLR rA, 0), (CLA)>;
+def : CompressPat<(IVR rA, 0), (IVA)>;
+def : CompressPat<(SLR rA, 0), (SLA)>;
+def : CompressPat<(INR rX, 0), (INX)>;
+def : CompressPat<(DCR rX, 0), (DCX)>;
+def : CompressPat<(ADD rB, rA), (AAB)>;
+def : CompressPat<(SUB rB, rA), (SAB)>;
+def : CompressPat<(AND rB, rA), (NAB)>;
 def : CompressPat<(XFRB rXL, rAL), (XAXB)>;
 def : CompressPat<(XFRB rYL, rAL), (XAYB)>;
 def : CompressPat<(XFRB rBL, rAL), (XABB)>;
@@ -2525,65 +2585,27 @@ class MemRef24IndexStrange<bits<5> opcode, bits<4> m_prime, DAGOperand optype, s
       : Memory24IndexStrange<opcode, m_prime, (outs), (ins optype: $r, i8imm: $arg),
                       opstr, argstr> { }
 
-class Memop<string name, int opcw> {
-    string Name = name;
-    int Opcodew = opcw;
-}
-
-foreach OP = [
-            Memop<"LDA", 0x9>,
-            Memop<"STA", 0xB>,
-            Memop<"LDB", 0xD>,
-            Memop<"STB", 0xF>
-        ] in {
-    def OP.Name#_0 : MemRef24<OP.Opcodew, 0x0, i16imm, OP.Name>;                    //immediate
-    def OP.Name#_1 : MemRef24<OP.Opcodew, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
-    def OP.Name#_2 : MemRef24<OP.Opcodew, 0x2, i16imm, OP.Name, "((${arg}))">;      //((ptr))
-    def OP.Name#_3 : MemRef16<OP.Opcodew, 0x3, i8imm, OP.Name, "(PC),$arg">;        //((offset)
-    def OP.Name#_4 : MemRef16<OP.Opcodew, 0x4, i8imm, OP.Name, "((PC),${arg})">;    //((offset))
-    def OP.Name#_5_0: MemRef16Index<OP.Opcodew, 0x0, GPR, OP.Name, "(${arg})">;     //(r)    
-    def OP.Name#_5_1: MemRef16Index<OP.Opcodew, 0x1, GPR, OP.Name#"_I", "(${arg})">; //I (r)
-    def OP.Name#_5_2: MemRef16Index<OP.Opcodew, 0x2, GPR, OP.Name#"_D", "(${arg})">;    //D (r)
-    // 3 is not used
-    def OP.Name#_5_4: MemRef16Index<OP.Opcodew, 0x4, GPR, OP.Name, "((${arg}))">;       //((r))
-    def OP.Name#_5_5: MemRef16Index<OP.Opcodew, 0x5, GPR, OP.Name#"_I", "((${arg}))">;  //I ((r))
-    def OP.Name#_5_6: MemRef16Index<OP.Opcodew, 0x6, GPR, OP.Name#"_D", "((${arg}))">;  //D ((r))
-    // 7 is not used
-    def OP.Name#_5_8: MemRef24Index<OP.Opcodew, 0x8, GPR, OP.Name, "(${r}),$arg">;      //(r),disp
-    def OP.Name#_5_9: MemRef24Index<OP.Opcodew, 0x9, GPR, OP.Name#"_I", "(${r}),$arg">; //I (r),disp
-    def OP.Name#_5_A: MemRef24Index<OP.Opcodew, 0xA, GPR, OP.Name#"_D", "(${r}),$arg">;  //D (r),disp
-    // B is not used
-    def OP.Name#_5_C: MemRef24Index<OP.Opcodew, 0xC, GPR, OP.Name#"_?", "(${r}),$arg">;  //(r),disp
-    def OP.Name#_5_D: MemRef24Index<OP.Opcodew, 0xD, GPR, OP.Name#"_I", "((${r})),$arg">;   //I ((r)),disp
-    def OP.Name#_5_E: MemRef24Index<OP.Opcodew, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;   //D ((r)),disp
-    // F is not used
-    def OP.Name#_A: MemRef8<OP.Opcodew, 0x8, OP.Name#"_A">;  // A register
-    def OP.Name#_B: MemRef8<OP.Opcodew, 0x9, OP.Name#"_B">;  // B register
-    def OP.Name#_X: MemRef8<OP.Opcodew, 0xA, OP.Name#"_X">;  // X register
-    def OP.Name#_Y: MemRef8<OP.Opcodew, 0xB, OP.Name#"_Y">;  // Y register
-    def OP.Name#_Z: MemRef8<OP.Opcodew, 0xC, OP.Name#"_Z">;  // Z register
-    def OP.Name#_S: MemRef8<OP.Opcodew, 0xD, OP.Name#"_S">;  // S register
-    def OP.Name#_C: MemRef8<OP.Opcodew, 0xE, OP.Name#"_C">;  // C register
-    def OP.Name#_P: MemRef8<OP.Opcodew, 0xF, OP.Name#"_P">;  // P register
-}
-
-// Byte loads and stores: LDAB 0x8x and STAB 0xAx move AL, LDBB 0xCx and
-// STBB 0xEx move BL (webCenREE dr/sr: REG.AL, REG.BL). The data register is
-// fixed, so it is an implicit def or use rather than an operand.
+// Loads and stores through A and B. Byte: LDAB 0x8x and STAB 0xAx move AL,
+// LDBB 0xCx and STBB 0xEx move BL. Word: LDA 0x9x, STA 0xBx, LDB 0xDx and
+// STB 0xFx move A and B (webCenREE dr/sr: REG.AL, REG.BL, REG.A, REG.B). The
+// data register is fixed, so it is an implicit def or use rather than an
+// operand.
 //
-// The literal form is the opcode and one byte. LDAB reads that byte; STAB
-// writes it, patching the instruction stream.
+// The literal form is the opcode and the value: one byte for the byte ops, a
+// big-endian word for the word ops. The load reads it; the store writes it,
+// patching the instruction stream.
 //
 // Modes 1, 2, 9, A, 5 and 6, D and E post-increment or pre-decrement the
-// index register by one (by two when indirect: the pointer is a word), so it
-// is also an output tied to the index. Modes with bit 2 set (4, 5, 6, C, D,
-// E) and the ((ptr)) forms read a pointer first, so a store through them
-// loads as well.
-class ByteMemop<string name, int opc, Register reg, bit isload> {
+// index register (by the operand size, or by two when indirect: the pointer
+// is a word), so it is also an output tied to the index. Modes with bit 2
+// set (4, 5, 6, C, D, E) and the ((ptr)) forms read a pointer first, so a
+// store through them loads as well.
+class DataMemop<string name, int opc, Register reg, bit isload, bit isword> {
     string Name = name;
     int Opcode = opc;
     Register Reg = reg;
     bit IsLoad = isload;
+    bit IsWord = isword;
 }
 class MemRef16IndexWB<bits<4> opcode, bits<4> m_prime, string opstr, string argstr>
       : Memory16Index<opcode, m_prime, (outs GPR:$wb), (ins GPR:$arg), opstr, argstr> {
@@ -2602,17 +2624,25 @@ class RegDirect<string sfx, Register reg, bits<4> m> {
 }
 
 foreach OP = [
-            ByteMemop<"LDAB", 0x8, rAL, 1>,
-            ByteMemop<"STAB", 0xA, rAL, 0>,
-            ByteMemop<"LDBB", 0xC, rBL, 1>,
-            ByteMemop<"STBB", 0xE, rBL, 0>
+            DataMemop<"LDAB", 0x8, rAL, 1, 0>,
+            DataMemop<"LDA",  0x9, rA,  1, 1>,
+            DataMemop<"STAB", 0xA, rAL, 0, 0>,
+            DataMemop<"STA",  0xB, rA,  0, 1>,
+            DataMemop<"LDBB", 0xC, rBL, 1, 0>,
+            DataMemop<"LDB",  0xD, rB,  1, 1>,
+            DataMemop<"STBB", 0xE, rBL, 0, 0>,
+            DataMemop<"STB",  0xF, rB,  0, 1>
         ] in {
   defvar DataDefs = !if(OP.IsLoad, [OP.Reg], []<Register>);
   defvar DataUses = !if(OP.IsLoad, []<Register>, [OP.Reg]);
   defvar IsStore = !not(OP.IsLoad);
   let Defs = DataDefs, Uses = DataUses, hasSideEffects = 0 in {
-    let mayLoad = 0, mayStore = IsStore in
-    def OP.Name#_0 : MemRef16<OP.Opcode, 0x0, i8imm, OP.Name>;                       //literal
+    let mayLoad = 0, mayStore = IsStore in {
+      if OP.IsWord then
+        def OP.Name#_0 : MemRef24<OP.Opcode, 0x0, i16imm, OP.Name>;                  //literal
+      else
+        def OP.Name#_0 : MemRef16<OP.Opcode, 0x0, i8imm, OP.Name>;                   //literal
+    }
 
     let mayLoad = OP.IsLoad, mayStore = IsStore in {
       def OP.Name#_1 : MemRef24<OP.Opcode, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
@@ -2651,16 +2681,55 @@ class Memopstrange<string name, bits<5> opc> {
     int Opcode = opc;
 }
 
+// LDX 0x6x and STX 0x6x+8 move X (webCenREE dr/sr: REG.X) with the same
+// modes and operand rules as LDA/STA, minus register-direct: 0x66 is SVC and
+// 0x67 is the MEM. group.
+class MemRef16IndexStrangeWB<bits<5> opcode, bits<4> m_prime, string opstr, string argstr>
+      : Memory16IndexStrange<opcode, m_prime, (outs GPR:$wb), (ins GPR:$arg), opstr, argstr> {
+    let Constraints = "$wb = $arg";
+}
+class MemRef24IndexStrangeWB<bits<5> opcode, bits<4> m_prime, string opstr, string argstr>
+      : Memory24IndexStrange<opcode, m_prime, (outs GPR:$wb), (ins GPR:$r, i8imm:$arg),
+                             opstr, argstr> {
+    let Constraints = "$wb = $r";
+}
 foreach OP = [
-            Memopstrange<"LDX", 0b01100>,
-            Memopstrange<"STX", 0b01101>,
+            DataMemop<"LDX", 0b01100, rX, 1, 1>,
+            DataMemop<"STX", 0b01101, rX, 0, 1>
+        ] in {
+  defvar IsStore = !not(OP.IsLoad);
+  let Defs = !if(OP.IsLoad, [OP.Reg], []<Register>),
+      Uses = !if(OP.IsLoad, []<Register>, [OP.Reg]), hasSideEffects = 0 in {
+    let mayLoad = 0, mayStore = IsStore in
+    def OP.Name#_0 : MemRef24Strange<OP.Opcode, 0b000, i16imm, OP.Name>;
+    let mayLoad = OP.IsLoad, mayStore = IsStore in {
+      def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
+      def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name, "(PC),$arg">;
+      def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name, "(${arg})">;
+      def OP.Name#_5_1: MemRef16IndexStrangeWB<OP.Opcode, 0x1, OP.Name#"_I", "(${arg})">;
+      def OP.Name#_5_2: MemRef16IndexStrangeWB<OP.Opcode, 0x2, OP.Name#"_D", "(${arg})">;
+      def OP.Name#_5_8: MemRef24IndexStrange<OP.Opcode, 0x8, GPR, OP.Name, "(${r}),$arg">;
+      def OP.Name#_5_9: MemRef24IndexStrangeWB<OP.Opcode, 0x9, OP.Name#"_I", "(${r}),$arg">;
+      def OP.Name#_5_A: MemRef24IndexStrangeWB<OP.Opcode, 0xA, OP.Name#"_D", "(${r}),$arg">;
+    }
+    let mayLoad = 1, mayStore = IsStore in {
+      def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
+      def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name, "((PC),${arg})">;
+      def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name, "((${arg}))">;
+      def OP.Name#_5_5: MemRef16IndexStrangeWB<OP.Opcode, 0x5, OP.Name#"_I", "((${arg}))">;
+      def OP.Name#_5_6: MemRef16IndexStrangeWB<OP.Opcode, 0x6, OP.Name#"_D", "((${arg}))">;
+      def OP.Name#_5_C: MemRef24IndexStrange<OP.Opcode, 0xC, GPR, OP.Name#"_?", "(${r}),${arg}">;
+      def OP.Name#_5_D: MemRef24IndexStrangeWB<OP.Opcode, 0xD, OP.Name#"_I", "((${r})),$arg">;
+      def OP.Name#_5_E: MemRef24IndexStrangeWB<OP.Opcode, 0xE, OP.Name#"_D", "((${r})),$arg">;
+    }
+  }
+}
+
+// JMP and JSR have no literal form.
+foreach OP = [
             Memopstrange<"JMP", 0b01110>,
             Memopstrange<"JSR", 0b01111>
         ] in {
-    // JMP and JSR don't have an M 0 variant
-    if !or(!eq(OP.Name, "LDX"), !eq(OP.Name,"STX")) then {
-        def OP.Name#_0 : MemRef24Strange<OP.Opcode, 0b000, i16imm, OP.Name>;
-    }
     def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
     def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
     def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name, "(PC),$arg">;

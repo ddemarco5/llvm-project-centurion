@@ -93,8 +93,89 @@ body: |
 # OBJ-NEXT:  5f XAS
 # OBJ-NEXT:  09 RSR
 
+---
+name: word_acc
+body: |
+  bb.0:
+    $ra = INR $ra, 0
+    $ra = DCR $ra, 0
+    $ra = CLR 0
+    $ra = IVR $ra, 0
+    $ra = SLR $ra, 0
+    $rx = INR $rx, 0
+    $rx = DCR $rx, 0
+    $rb = ADD $ra, $rb
+    $rb = SUB $ra, $rb
+    $rb = AND $ra, $rb
+    RSR
+...
+# CHECK-LABEL: word_acc:
+# CHECK:      INA
+# CHECK-NEXT: DCA
+# CHECK-NEXT: CLA
+# CHECK-NEXT: IVA
+# CHECK-NEXT: SLA
+# CHECK-NEXT: INX
+# CHECK-NEXT: DCX
+# CHECK-NEXT: AAB
+# CHECK-NEXT: SAB
+# CHECK-NEXT: NAB
+# CHECK-NEXT: RSR
+# OBJ-LABEL: <word_acc>:
+# OBJ-NEXT:  38 INA
+# OBJ-NEXT:  39 DCA
+# OBJ-NEXT:  3a CLA
+# OBJ-NEXT:  3b IVA
+# OBJ-NEXT:  3d SLA
+# OBJ-NEXT:  3e INX
+# OBJ-NEXT:  3f DCX
+# OBJ-NEXT:  58 AAB
+# OBJ-NEXT:  59 SAB
+# OBJ-NEXT:  5a NAB
+# OBJ-NEXT:  09 RSR
+
+# ADD r,r,n becomes INR r,n-1 for n in 1..16 and DCR r,-n-1 for n in
+# -16..-1, then the implicit form if there is one. Outside that range, or
+# with a separate destination, the four-byte ADD stays.
+---
+name: add_imm
+body: |
+  bb.0:
+    $ra = ADDimm $ra, 1
+    $ra = ADDimm $ra, -1
+    $rb = ADDimm $rb, 16
+    $rb = ADDimm $rb, -16
+    $rs = ADDimm $rs, -6
+    $rx = ADDimm $rx, 1
+    $ra = ADDimm $ra, 17
+    $ra = ADDimm $ra, -17
+    $ra = ADDimm $ra, 0
+    $rb = ADDimm $ra, 1
+    RSR
+...
+# CHECK-LABEL: add_imm:
+# CHECK:      INA
+# CHECK-NEXT: DCA
+# CHECK-NEXT: INR B,15
+# CHECK-NEXT: DCR B,15
+# CHECK-NEXT: DCR S,5
+# CHECK-NEXT: INX
+# CHECK-NEXT: ADD A,A,17
+# CHECK-NEXT: ADD A,A,-17
+# CHECK-NEXT: ADD A,A,0
+# CHECK-NEXT: ADD A,B,1
+# CHECK-NEXT: RSR
+# OBJ-LABEL: <add_imm>:
+# OBJ-NEXT:  38 INA
+# OBJ-NEXT:  39 DCA
+# OBJ-NEXT:  30 2f INR B,15
+# OBJ-NEXT:  31 2f DCR B,15
+# OBJ-NEXT:  31 a5 DCR S,5
+# OBJ-NEXT:  3e INX
+# OBJ-NEXT:  50 10 00 11 ADD A,A,17
+
 # Wrong register, wrong count, wrong direction, or no implicit form (ORIB,
-# OREB, ADD with a literal): left alone.
+# OREB): left alone.
 ---
 name: no_compress
 body: |
@@ -110,7 +191,10 @@ body: |
     $ral = XFRB $rbl
     $rcl = XFRB $ral
     $ra = XFR $rb
-    $ra = ADDimm $ra, 1
+    $rb = INR $rb, 0
+    $ra = INR $ra, 1
+    $ra = CLR 1
+    $ra = ADD $rb, $ra
     RSR
 ...
 # CHECK-LABEL: no_compress:
@@ -125,5 +209,8 @@ body: |
 # CHECK-NEXT: XFRB BL,AL
 # CHECK-NEXT: XFRB AL,CL
 # CHECK-NEXT: XFR B,A
-# CHECK-NEXT: ADD A,A,1
+# CHECK-NEXT: INR B,0
+# CHECK-NEXT: INR A,1
+# CHECK-NEXT: CLR A,1
+# CHECK-NEXT: ADD B,A
 # CHECK-NEXT: RSR
