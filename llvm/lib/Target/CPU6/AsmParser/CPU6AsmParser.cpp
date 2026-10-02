@@ -164,6 +164,35 @@ public:
     bool isUImm8() { return IsUImm<8>(); }
     bool isUImm16() { return IsUImm<16>(); }
 
+    // A symbol is not a constant yet. The assembler resolves it later, as a
+    // PC-relative branch displacement or a 16-bit absolute address.
+    bool isBRTarget() const {
+        if (!isImm())
+            return false;
+        int32_t Imm;
+        if (!evaluateConstantImm(getImm(), Imm))
+            return true;
+        return isInt<8>(Imm);
+    }
+
+    bool isPCOff8() const {
+        if (!isImm())
+            return false;
+        int32_t Imm;
+        if (!evaluateConstantImm(getImm(), Imm))
+            return true;
+        return isInt<8>(Imm) || isUInt<8>(Imm);
+    }
+
+    bool isAbs16() const {
+        if (!isImm())
+            return false;
+        int32_t Imm;
+        if (!evaluateConstantImm(getImm(), Imm))
+            return true;
+        return isInt<16>(Imm) || isUInt<16>(Imm);
+    }
+
     /// getStartLoc - Gets location of the first token of this operand
     SMLoc getStartLoc() const override { return StartLoc; }
     /// getEndLoc - Gets location of the last token of this operand
@@ -307,6 +336,15 @@ bool CPU6AsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode, Opera
     case Match_InvalidSImm8:
         return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(), 
                       "signed 8 bit integer must be between 127 and -128");
+    case Match_InvalidBRTarget:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(),
+                      "branch target out of range for an 8-bit displacement");
+    case Match_InvalidPCOff8:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(),
+                      "PC-relative displacement out of range");
+    case Match_InvalidAbs16:
+        return Error(((CPU6Operand &)*Operands[ErrorInfo]).getStartLoc(),
+                      "absolute address does not fit in 16 bits");
     }
 
 llvm_unreachable("Unknown match type detected!");
@@ -357,7 +395,9 @@ ParseStatus CPU6AsmParser::parseRegister(OperandVector &Operands) {
   return ParseStatus::Success;
 }
 
-// TODO: Revisit this guy and make sure we can parse all the supported immediate expressions
+// A number, a label, or an expression such as lbl+2. The instruction's
+// operand class decides whether that expression is a branch displacement
+// or an absolute address.
 ParseStatus CPU6AsmParser::parseImmediate(OperandVector &Operands) {
     SMLoc S = getLoc();
     SMLoc E;
@@ -368,6 +408,9 @@ ParseStatus CPU6AsmParser::parseImmediate(OperandVector &Operands) {
         return ParseStatus::NoMatch;
     case AsmToken::Hash:
     case AsmToken::Minus:
+    case AsmToken::Plus:
+    case AsmToken::Dot:
+    case AsmToken::Identifier:
     case AsmToken::Integer:
     case AsmToken::String:
         if (getParser().parseExpression(Res, E))

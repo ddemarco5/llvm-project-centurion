@@ -25,6 +25,8 @@ public:
   void applyFixup(const MCFragment &, const MCFixup &, const MCValue &Target,
                   uint8_t *Data, uint64_t Value, bool IsResolved) override;
 
+  MCFixupKindInfo getFixupKindInfo(MCFixupKind Kind) const override;
+
   std::unique_ptr<MCObjectTargetWriter>
   createObjectTargetWriter() const override;
 

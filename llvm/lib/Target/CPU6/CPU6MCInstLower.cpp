@@ -34,8 +34,8 @@ void CPU6MCInstLower::lowerInstruction(const MachineInstr *MI,
       } else if (MO.isImm()) {
         OutMI.addOperand(MCOperand::createImm(MO.getImm()));
       } else if (MO.isGlobal()) {
-        // JSR (foo). The address word is a relocation once the assembler
-        // grows a fixup; the text printer emits the symbol either way.
+        // JSR (foo). The address word is fixup_cpu6_abs_16. The text
+        // printer emits the symbol either way.
         const MCExpr *Expr =
             MCSymbolRefExpr::create(Printer.getSymbol(MO.getGlobal()), Ctx);
         if (MO.getOffset())

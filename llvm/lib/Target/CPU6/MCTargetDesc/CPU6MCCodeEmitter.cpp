@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "CPU6FixupKinds.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -62,6 +63,17 @@ public:
     unsigned getImmOpValue(const MCInst &MI, unsigned OpNo,
                            SmallVectorImpl<MCFixup> &Fixups,
                            const MCSubtargetInfo &STI) const;
+
+    uint64_t getPCRel8OpValue(const MCInst &MI, unsigned OpNo,
+                              SmallVectorImpl<MCFixup> &Fixups,
+                              const MCSubtargetInfo &STI) const;
+
+    uint64_t getAbs16OpValue(const MCInst &MI, unsigned OpNo,
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
+
+    void addSymbolFixup(const MCInst &MI, const MCExpr *Expr, bool PCRel,
+                        SmallVectorImpl<MCFixup> &Fixups) const;
 
 };    
 } // end anonymous namespace
@@ -154,8 +166,51 @@ CPU6MCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
 
-  llvm_unreachable("Unhandled expression! (getMachineOpValue)");
+  // Branches, direct addresses, and (PC)+b go through getPCRel8OpValue or
+  // getAbs16OpValue. A symbol that reached here is in a field that is not
+  // one of those.
+  Ctx.reportError(MI.getLoc(), "this operand does not take a symbol");
   return 0;
+}
+
+void CPU6MCCodeEmitter::addSymbolFixup(const MCInst &MI, const MCExpr *Expr,
+                                       bool PCRel,
+                                       SmallVectorImpl<MCFixup> &Fixups) const {
+  unsigned Size = MCII.get(MI.getOpcode()).getSize();
+  // Both fields sit at the end of the instruction: the displacement is the
+  // last byte, the address word the last two. applyFixup uses that.
+  unsigned Offset = PCRel ? Size - 1 : Size - 2;
+  MCFixupKind Kind = PCRel ? MCFixupKind(CPU6::fixup_cpu6_pcrel_8)
+                           : MCFixupKind(CPU6::fixup_cpu6_abs_16);
+  Fixups.push_back(MCFixup::create(Offset, Expr, Kind, PCRel));
+}
+
+uint64_t
+CPU6MCCodeEmitter::getPCRel8OpValue(const MCInst &MI, unsigned OpNo,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return static_cast<uint64_t>(MO.getImm());
+  if (MO.isExpr()) {
+    addSymbolFixup(MI, MO.getExpr(), /*PCRel=*/true, Fixups);
+    return 0;
+  }
+  llvm_unreachable("Unhandled operand in getPCRel8OpValue");
+}
+
+uint64_t
+CPU6MCCodeEmitter::getAbs16OpValue(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  if (MO.isImm())
+    return static_cast<uint64_t>(MO.getImm());
+  if (MO.isExpr()) {
+    addSymbolFixup(MI, MO.getExpr(), /*PCRel=*/false, Fixups);
+    return 0;
+  }
+  llvm_unreachable("Unhandled operand in getAbs16OpValue");
 }
 
 unsigned
@@ -169,7 +224,7 @@ CPU6MCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
     if (MO.isImm()) {
         return MO.getImm();
     }
-    llvm_unreachable("Unhandled expression! (getImmOpValue)");
+    Ctx.reportError(MI.getLoc(), "this operand does not take a symbol");
     return 0;
 }
 

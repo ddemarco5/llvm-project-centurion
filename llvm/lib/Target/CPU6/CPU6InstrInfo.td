@@ -45,6 +45,44 @@ def simm16 : Operand<i16> {
     let DecoderMethod = "decodeSImmOperand<16>";
 }
 
+// A branch target or other PC-relative byte. A symbol is fixup_cpu6_pcrel_8:
+// the displacement is from the next instruction. The field is the last byte
+// of the instruction, which is true of every 2-byte branch and (PC)+b form.
+def BRTargetAsmOperand : AsmOperandClass {
+    let Name = "BRTarget";
+    let RenderMethod = "addImmOperands";
+    let DiagnosticType = "InvalidBRTarget";
+}
+def brtarget : Operand<i8> {
+    let ParserMatchClass = BRTargetAsmOperand;
+    let EncoderMethod = "getPCRel8OpValue";
+    let DecoderMethod = "decodeSImmOperand<8>";
+}
+// (PC)+b accepts the same signed range and also the unsigned byte the
+// numeric tests already use (LDA (PC),205 is the bit pattern of -51).
+def PCOff8AsmOperand : AsmOperandClass {
+    let Name = "PCOff8";
+    let RenderMethod = "addImmOperands";
+    let DiagnosticType = "InvalidPCOff8";
+}
+def pcoff8 : Operand<i8> {
+    let ParserMatchClass = PCOff8AsmOperand;
+    let EncoderMethod = "getPCRel8OpValue";
+    let DecoderMethod = "decodeUImmOperand<8>";
+}
+// Trailing big-endian address or address immediate. A symbol is
+// fixup_cpu6_abs_16. The encoder places that fixup at Size-2, so this
+// operand is only for instructions whose imm16 is the last two bytes.
+def Abs16AsmOperand : AsmOperandClass {
+    let Name = "Abs16";
+    let RenderMethod = "addImmOperands";
+    let DiagnosticType = "InvalidAbs16";
+}
+def abs16 : Operand<i16> {
+    let ParserMatchClass = Abs16AsmOperand;
+    let EncoderMethod = "getAbs16OpValue";
+}
+
 // a parse method for (PC)+${arg}
 // def PCOffsetOperand : AsmOperandClass {
 //     let Name = "PCOffsetOperand";
@@ -109,7 +147,7 @@ def RSV: Control<0x0F, "RSV">;    // Return from JSYS using stack
 // displacement = 8 bits
 //------------------------------------//
 class Branch<bits<8> opcode, string opstr>
-      : SingleArg16<opcode, (outs), (ins simm8: $argbyte), opstr, "$argbyte"> { }
+      : SingleArg16<opcode, (outs), (ins brtarget:$argbyte), opstr, "$argbyte"> { }
 
 def BL : Branch<0x10, "BL">;    // Branch if Link Set
 def BNL: Branch<0x11, "BNL">;   // Branch if Link Not Set
@@ -1646,7 +1684,7 @@ class STRReg16
 }
 
 class STRLit32
-      : CenturionInst32<(outs), (ins GPR:$dst, i16imm:$imm),
+      : CenturionInst32<(outs), (ins GPR:$dst, abs16:$imm),
         "STR", "$dst,$imm"> {
   bits<4> dst;
   bits<16> imm;
@@ -2268,7 +2306,7 @@ def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
 // encodings do not alias. Condition codes change and are not modeled yet.
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
 class DoubleRegImm32<bits<8> opcode, string opstr>
-      : CenturionInst32<(outs GPR:$dst), (ins GPR:$src, i16imm:$imm),
+      : CenturionInst32<(outs GPR:$dst), (ins GPR:$src, abs16:$imm),
                         opstr, "$src,$dst,$imm"> {
   bits<4> src;
   bits<4> dst;
@@ -2299,7 +2337,7 @@ def OREimm : DoubleRegImm32<0x54, "ORE">;
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isMoveImm = 1,
     isAsCheapAsAMove = 1, isReMaterializable = 1 in
 class XFRImm32
-      : CenturionInst32<(outs GPR:$dst), (ins i16imm:$imm),
+      : CenturionInst32<(outs GPR:$dst), (ins abs16:$imm),
                         "XFR", "$dst,$imm"> {
   bits<4> dst;
   bits<16> imm;
@@ -2639,14 +2677,14 @@ foreach OP = [
   let Defs = DataDefs, Uses = DataUses, hasSideEffects = 0 in {
     let mayLoad = 0, mayStore = IsStore in {
       if OP.IsWord then
-        def OP.Name#_0 : MemRef24<OP.Opcode, 0x0, i16imm, OP.Name>;                  //literal
+        def OP.Name#_0 : MemRef24<OP.Opcode, 0x0, abs16, OP.Name>;                   //literal
       else
         def OP.Name#_0 : MemRef16<OP.Opcode, 0x0, i8imm, OP.Name>;                   //literal
     }
 
     let mayLoad = OP.IsLoad, mayStore = IsStore in {
-      def OP.Name#_1 : MemRef24<OP.Opcode, 0x1, i16imm, OP.Name, "(${arg})">;        //(ptr)
-      def OP.Name#_3 : MemRef16<OP.Opcode, 0x3, i8imm, OP.Name, "(PC),$arg">;        //(offset)
+      def OP.Name#_1 : MemRef24<OP.Opcode, 0x1, abs16, OP.Name, "(${arg})">;         //(ptr)
+      def OP.Name#_3 : MemRef16<OP.Opcode, 0x3, pcoff8, OP.Name, "(PC),$arg">;       //(offset)
       def OP.Name#_5_0: MemRef16Index<OP.Opcode, 0x0, GPR, OP.Name, "(${arg})">;     //(r)
       def OP.Name#_5_1: MemRef16IndexWB<OP.Opcode, 0x1, OP.Name#"_I", "(${arg})">;   //I (r)
       def OP.Name#_5_2: MemRef16IndexWB<OP.Opcode, 0x2, OP.Name#"_D", "(${arg})">;   //D (r)
@@ -2656,8 +2694,8 @@ foreach OP = [
     }
 
     let mayLoad = 1, mayStore = IsStore in {
-      def OP.Name#_2 : MemRef24<OP.Opcode, 0x2, i16imm, OP.Name, "((${arg}))">;      //((ptr))
-      def OP.Name#_4 : MemRef16<OP.Opcode, 0x4, i8imm, OP.Name, "((PC),${arg})">;    //((offset))
+      def OP.Name#_2 : MemRef24<OP.Opcode, 0x2, abs16, OP.Name, "((${arg}))">;       //((ptr))
+      def OP.Name#_4 : MemRef16<OP.Opcode, 0x4, pcoff8, OP.Name, "((PC),${arg})">;   //((offset))
       def OP.Name#_5_4: MemRef16Index<OP.Opcode, 0x4, GPR, OP.Name, "((${arg}))">;   //((r))
       def OP.Name#_5_5: MemRef16IndexWB<OP.Opcode, 0x5, OP.Name#"_I", "((${arg}))">; //I ((r))
       def OP.Name#_5_6: MemRef16IndexWB<OP.Opcode, 0x6, OP.Name#"_D", "((${arg}))">; //D ((r))
@@ -2696,10 +2734,10 @@ foreach OP = [
   let Defs = !if(OP.IsLoad, [OP.Reg], []<Register>),
       Uses = !if(OP.IsLoad, []<Register>, [OP.Reg]), hasSideEffects = 0 in {
     let mayLoad = 0, mayStore = IsStore in
-    def OP.Name#_0 : MemRef24Strange<OP.Opcode, 0b000, i16imm, OP.Name>;
+    def OP.Name#_0 : MemRef24Strange<OP.Opcode, 0b000, abs16, OP.Name>;
     let mayLoad = OP.IsLoad, mayStore = IsStore in {
-      def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
-      def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name, "(PC),$arg">;
+      def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, abs16, OP.Name, "(${arg})">;
+      def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, pcoff8, OP.Name, "(PC),$arg">;
       def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name, "(${arg})">;
       def OP.Name#_5_1: MemRef16IndexStrangeWB<OP.Opcode, 0x1, OP.Name#"_I", "(${arg})">;
       def OP.Name#_5_2: MemRef16IndexStrangeWB<OP.Opcode, 0x2, OP.Name#"_D", "(${arg})">;
@@ -2708,8 +2746,8 @@ foreach OP = [
       def OP.Name#_5_A: MemRef24IndexStrangeWB<OP.Opcode, 0xA, OP.Name#"_D", "(${r}),$arg">;
     }
     let mayLoad = 1, mayStore = IsStore in {
-      def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
-      def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name, "((PC),${arg})">;
+      def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, abs16, OP.Name, "((${arg}))">;
+      def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, pcoff8, OP.Name, "((PC),${arg})">;
       def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name, "((${arg}))">;
       def OP.Name#_5_5: MemRef16IndexStrangeWB<OP.Opcode, 0x5, OP.Name#"_I", "((${arg}))">;
       def OP.Name#_5_6: MemRef16IndexStrangeWB<OP.Opcode, 0x6, OP.Name#"_D", "((${arg}))">;
@@ -2729,10 +2767,10 @@ foreach OP = [
 // because the push reads it. The call's register mask says which other
 // registers the callee gives back.
 multiclass DirJump<bits<5> opcode> {
-  def _1 : MemRef24Strange<opcode, 0b001, i16imm, NAME, "(${arg})">;
-  def _2 : MemRef24Strange<opcode, 0b010, i16imm, NAME, "((${arg}))">;
-  def _3 : MemRef16Strange<opcode, 0b011, i8imm, NAME, "(PC),$arg">;
-  def _4 : MemRef16Strange<opcode, 0b100, i8imm, NAME, "((PC),${arg})">;
+  def _1 : MemRef24Strange<opcode, 0b001, abs16, NAME, "(${arg})">;
+  def _2 : MemRef24Strange<opcode, 0b010, abs16, NAME, "((${arg}))">;
+  def _3 : MemRef16Strange<opcode, 0b011, pcoff8, NAME, "(PC),$arg">;
+  def _4 : MemRef16Strange<opcode, 0b100, pcoff8, NAME, "((PC),${arg})">;
   def _5_0: MemRef16IndexStrange<opcode, 0x0, GPR, NAME, "(${arg})">;
   def _5_1: MemRef16IndexStrange<opcode, 0x1, GPR, NAME#"_I", "(${arg})">;
   def _5_2: MemRef16IndexStrange<opcode, 0x2, GPR, NAME#"_D", "(${arg})">;

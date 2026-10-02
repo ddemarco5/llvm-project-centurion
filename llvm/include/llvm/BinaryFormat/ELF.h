@@ -1104,6 +1104,11 @@ enum {
 #include "ELFRelocs/Xtensa.def"
 };
 
+// ELF Relocation types for Centurion CPU6
+enum {
+#include "ELFRelocs/CPU6.def"
+};
+
 #undef ELF_RELOC
 
 // Section header.

@@ -1,3 +1,15 @@
 #ifndef ELF_RELOC
 #error "ELF_RELOC must be defined"
 #endif
+
+// R_CPU6_16 is a big-endian absolute address (S + A).
+// R_CPU6_8_PCREL is a signed 8-bit displacement from the instruction after
+// the field: S + A - (P + 1), where P is the address of the displacement
+// byte. CPU6 PC-relative fields are the last byte of a 2-byte instruction,
+// so P + 1 is the PC the hardware adds the displacement to.
+ELF_RELOC(R_CPU6_NONE,    0)
+ELF_RELOC(R_CPU6_16,      1)
+ELF_RELOC(R_CPU6_8_PCREL, 2)
+// Little-endian 32-bit absolute. Generic data (.eh_frame and FK_Data_4),
+// not an instruction field.
+ELF_RELOC(R_CPU6_32,      3)
