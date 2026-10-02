@@ -539,14 +539,16 @@ class MVFR24
 }
 def MVFR : MVFR24;
 
-// D6. load7's direct and indexed bytes settle the register byte.
-// High nibble is the value being stored. Low nibble is the address side.
-// `d6 89 92 b7` is st Z, [0x92b7]: both nibbles are Z, and the low
-// nibble's low bit is set. `d6 35 00 05` is st B, [X+5]: high is B
-// with the low bit set, low is X with the low bit set, then a
-// big-endian displacement.
+// D6. The wiki (OpC_D0-DF) and webCenREE rrsrfetchw agree: the low nibble
+// is the value being stored, and the high nibble's low bit picks the mode.
+// High even, low odd: store low to a direct address. `d6 89 92 b7` is
+// st Z, [0x92b7]. Both odd: store low to (high + big-endian imm16), the
+// inverse of the 5x XFR indexed load. `d6 35 00 05` stores X to [B+5]:
+// webCenREE writes get_rw(low) to imm + get_rw(high), and its disassembler
+// prints the base first. load7's text for that byte reads the nibbles the
+// other way round.
 // Both-even and left-odd/right-even are the webCenREE rrsrfetchw modes
-// added below. Direct and indexed stay the load7 forms.
+// added below.
 class STRMem32
       : CenturionInst32<(outs), (ins GPR:$src, i16imm:$addr),
                         "STR", "$src,(${addr})"> {
@@ -564,6 +566,9 @@ class STRMem32
   let Inst{15-0} = addr;
 }
 def STRmem : STRMem32;
+// storeRegToStackSlot emits this with S as the base and a frame index as
+// the displacement.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
 class STRIdx32
       : CenturionInst32<(outs), (ins GPR:$src, GPR:$base, i16imm:$disp),
                         "STR", "$src,(${base}),$disp"> {
@@ -571,13 +576,13 @@ class STRIdx32
   bits<4> base;
   bits<16> disp;
   let Inst{31-24} = 0xD6;
-  let Inst{23} = src{3};
-  let Inst{22} = src{2};
-  let Inst{21} = src{1};
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
   let Inst{20} = 1;
-  let Inst{19} = base{3};
-  let Inst{18} = base{2};
-  let Inst{17} = base{1};
+  let Inst{19} = src{3};
+  let Inst{18} = src{2};
+  let Inst{17} = src{1};
   let Inst{16} = 1;
   let Inst{15-0} = disp;
 }
@@ -2230,6 +2235,30 @@ class XFRImm32
   let Inst{15-0} = imm;
 }
 def XFRimm : XFRImm32;
+
+// Mode 3, both nibbles odd: dst <- word at (base + big-endian imm16).
+// webCenREE rrfetchw adds get_rw(high) to the literal and loads low from
+// there. The inverse of STRidx, and loadRegFromStackSlot's reload with S
+// as the base and a frame index as the displacement.
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+class XFRIdx32
+      : CenturionInst32<(outs GPR:$dst), (ins GPR:$base, i16imm:$disp),
+                        "XFR", "(${base}),$dst,$disp"> {
+  bits<4> dst;
+  bits<4> base;
+  bits<16> disp;
+  let Inst{31-24} = 0x55;
+  let Inst{23} = base{3};
+  let Inst{22} = base{2};
+  let Inst{21} = base{1};
+  let Inst{20} = 1;
+  let Inst{19} = dst{3};
+  let Inst{18} = dst{2};
+  let Inst{17} = dst{1};
+  let Inst{16} = 1;
+  let Inst{15-0} = disp;
+}
+def XFRidx : XFRIdx32;
 def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
 def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
 def MULimm : DoubleRegImm32<0x77, "MUL">;

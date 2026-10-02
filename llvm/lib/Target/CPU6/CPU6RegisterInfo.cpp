@@ -65,10 +65,10 @@ BitVector CPU6RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                                            int SPAdj, unsigned FIOperandNum,
                                            RegScavenger *RS) const {
-  // LDAfi and STAfi already name S as the base. This replaces the frame
-  // index in the displacement. The default getFrameIndexReference returns
-  // the object offset plus the frame size: the distance from S once the
-  // prologue has reserved the frame. Debug info asks the same hook.
+  // Every frame-slot access already names S as the base. This replaces the
+  // frame index in the displacement. The default getFrameIndexReference
+  // returns the object offset plus the frame size: the distance from S once
+  // the prologue has reserved the frame. Debug info asks the same hook.
   (void)RS;
   assert(SPAdj == 0 && "mid-function S adjustment is not handled");
   MachineFunction &MF = *MI->getParent()->getParent();
@@ -78,9 +78,13 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                        .getFrameLowering()
                        ->getFrameIndexReference(MF, FrameIndex, FrameReg)
                        .getFixed();
-  assert(FrameReg == CPU6::rS && "LDAfi/STAfi address from S");
-  if (!isInt<8>(Offset))
-    report_fatal_error("CPU6 frame offset does not fit in a displacement byte");
+  assert(FrameReg == CPU6::rS && "frame slots are addressed from S");
+  // LDAfi/STAfi carry a displacement byte. The STR/XFR spill forms carry
+  // a word.
+  bool WideDisp =
+      MI->getOpcode() == CPU6::STRidx || MI->getOpcode() == CPU6::XFRidx;
+  if (WideDisp ? !isInt<16>(Offset) : !isInt<8>(Offset))
+    report_fatal_error("CPU6 frame offset does not fit in the displacement");
   MI->getOperand(FIOperandNum).ChangeToImmediate(Offset);
   return false;
 }

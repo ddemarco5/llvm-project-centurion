@@ -9,7 +9,10 @@
 #include "CPU6InstrInfo.h"
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "CPU6GenInstrInfo.inc"
@@ -47,32 +50,84 @@ void CPU6InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                         const TargetRegisterClass *RC,
                                         Register VReg,
                                         MachineInstr::MIFlag Flags) const {
-  // TODO(cpu6): emit a store of SrcReg to FrameIndex. Nothing in the first
-  // tests spills, so this stays unreachable until the allocator runs out of
-  // registers or a callee-saved register has to be saved.
-  (void)MBB;
-  (void)MI;
-  (void)SrcReg;
-  (void)IsKill;
-  (void)FrameIndex;
-  (void)RC;
+  // The register allocator calls this for a spill. The store names the slot
+  // by frame index; the prologue inserter lays spill slots out with the
+  // locals, and eliminateFrameIndex swaps the index for its distance from S.
+  //
+  // STR (S),disp stores any word register without going through A. It does
+  // not move S, so offsets stay valid, unlike STK.
   (void)VReg;
-  (void)Flags;
-  llvm_unreachable("TODO(cpu6): CPU6InstrInfo::storeRegToStackSlot");
+  if (!CPU6::GPRRegClass.hasSubClassEq(RC))
+    report_fatal_error("CPU6 can only spill 16-bit registers");
+
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FrameIndex),
+      MachineMemOperand::MOStore, MFI.getObjectSize(FrameIndex),
+      MFI.getObjectAlign(FrameIndex));
+
+  BuildMI(MBB, MI, DebugLoc(), get(CPU6::STRidx))
+      .addReg(SrcReg, getKillRegState(IsKill))
+      .addReg(CPU6::rS)
+      .addFrameIndex(FrameIndex)
+      .addMemOperand(MMO)
+      .setMIFlags(Flags);
 }
 
 void CPU6InstrInfo::loadRegFromStackSlot(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register DestReg,
     int FrameIndex, const TargetRegisterClass *RC, Register VReg,
     unsigned SubReg, MachineInstr::MIFlag Flags) const {
-  // TODO(cpu6): the reload paired with storeRegToStackSlot.
-  (void)MBB;
-  (void)MI;
-  (void)DestReg;
-  (void)FrameIndex;
-  (void)RC;
+  // The reload: XFR (S),disp is the indexed load into any word register.
   (void)VReg;
   (void)SubReg;
-  (void)Flags;
-  llvm_unreachable("TODO(cpu6): CPU6InstrInfo::loadRegFromStackSlot");
+  if (!CPU6::GPRRegClass.hasSubClassEq(RC))
+    report_fatal_error("CPU6 can only reload 16-bit registers");
+
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FrameIndex),
+      MachineMemOperand::MOLoad, MFI.getObjectSize(FrameIndex),
+      MFI.getObjectAlign(FrameIndex));
+
+  BuildMI(MBB, MI, DebugLoc(), get(CPU6::XFRidx), DestReg)
+      .addReg(CPU6::rS)
+      .addFrameIndex(FrameIndex)
+      .addMemOperand(MMO)
+      .setMIFlags(Flags);
+}
+
+// Every frame-slot access has the same operands: the data register, the base
+// S, and the frame index as displacement.
+static Register frameSlotAccess(const MachineInstr &MI, int &FrameIndex) {
+  if (MI.getOperand(1).isReg() && MI.getOperand(1).getReg() == CPU6::rS &&
+      MI.getOperand(2).isFI()) {
+    FrameIndex = MI.getOperand(2).getIndex();
+    return MI.getOperand(0).getReg();
+  }
+  return Register();
+}
+
+Register CPU6InstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
+                                            int &FrameIndex) const {
+  switch (MI.getOpcode()) {
+  case CPU6::XFRidx:
+  case CPU6::LDAfi:
+    return frameSlotAccess(MI, FrameIndex);
+  default:
+    return Register();
+  }
+}
+
+Register CPU6InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
+                                           int &FrameIndex) const {
+  switch (MI.getOpcode()) {
+  case CPU6::STRidx:
+  case CPU6::STAfi:
+    return frameSlotAccess(MI, FrameIndex);
+  default:
+    return Register();
+  }
 }

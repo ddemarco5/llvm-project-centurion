@@ -1447,6 +1447,12 @@ ADD B,X,400
 # CHECK-ASM-AND-OBJ: XFR Z,61952
 # CHECK-ASM: encoding: [0x55,0x98,0xf2,0x00]
 XFR Z,61952
+# CHECK-ASM-AND-OBJ: XFR (B),X,5
+# CHECK-ASM: encoding: [0x55,0x35,0x00,0x05]
+XFR (B),X,5
+# CHECK-ASM-AND-OBJ: XFR (S),Z,4
+# CHECK-ASM: encoding: [0x55,0xb9,0x00,0x04]
+XFR (S),Z,4
 # CHECK-ASM-AND-OBJ: STK X,5
 # CHECK-ASM: encoding: [0x7e,0x45]
 STK X,5
@@ -1562,11 +1568,14 @@ STR Z,(37559)
 # CHECK-ASM: encoding: [0xd6,0x67,0x01,0x3f]
 STR Y,(319)
 # CHECK-ASM-AND-OBJ: STR B,(X),5
-# CHECK-ASM: encoding: [0xd6,0x35,0x00,0x05]
+# CHECK-ASM: encoding: [0xd6,0x53,0x00,0x05]
 STR B,(X),5
 # CHECK-ASM-AND-OBJ: STR A,(Z),0
-# CHECK-ASM: encoding: [0xd6,0x19,0x00,0x00]
+# CHECK-ASM: encoding: [0xd6,0x91,0x00,0x00]
 STR A,(Z),0
+# CHECK-ASM-AND-OBJ: STR Z,(S),4
+# CHECK-ASM: encoding: [0xd6,0xb9,0x00,0x04]
+STR Z,(S),4
 # CHECK-ASM-AND-OBJ: DIV (Z),B,28
 # CHECK-ASM: encoding: [0x78,0x93,0x00,0x1c]
 DIV (Z),B,28
