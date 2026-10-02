@@ -86,8 +86,8 @@ void CPU6InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 
   BuildMI(MBB, MI, DebugLoc(), get(Opc))
       .addReg(SrcReg, getKillRegState(IsKill))
-      .addReg(CPU6::rS)
       .addFrameIndex(FrameIndex)
+      .addImm(0)
       .addMemOperand(MMO)
       .setMIFlags(Flags);
 }
@@ -116,18 +116,18 @@ void CPU6InstrInfo::loadRegFromStackSlot(
       MFI.getObjectAlign(FrameIndex));
 
   BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg)
-      .addReg(CPU6::rS)
       .addFrameIndex(FrameIndex)
+      .addImm(0)
       .addMemOperand(MMO)
       .setMIFlags(Flags);
 }
 
-// Every frame-slot access has the same operands: the data register, the base
-// S, and the frame index as displacement.
+// Every frame-slot access is the data register, the frame index as base, and
+// a displacement. Only a zero displacement is the slot itself.
 static Register frameSlotAccess(const MachineInstr &MI, int &FrameIndex) {
-  if (MI.getOperand(1).isReg() && MI.getOperand(1).getReg() == CPU6::rS &&
-      MI.getOperand(2).isFI()) {
-    FrameIndex = MI.getOperand(2).getIndex();
+  if (MI.getOperand(1).isFI() && MI.getOperand(2).isImm() &&
+      MI.getOperand(2).getImm() == 0) {
+    FrameIndex = MI.getOperand(1).getIndex();
     return MI.getOperand(0).getReg();
   }
   return Register();

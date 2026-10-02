@@ -17,7 +17,7 @@
 //
 // Patterns are grouped by the DAG node they match: target nodes, then the
 // predicates those patterns share, then control, constants, extensions,
-// word arithmetic, byte arithmetic, frame memory, and calls.
+// word arithmetic, byte arithmetic, addresses, and calls.
 //
 //===----------------------------------------------------------------------===//
 
@@ -50,12 +50,6 @@ def CPU6callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_CPU6CallSeqEnd,
 //===----------------------------------------------------------------------===//
 // Predicates and transforms
 //===----------------------------------------------------------------------===//
-
-// Frame index -> target frame index, so a displacement operand can hold the
-// slot until eliminateFrameIndex writes the offset from S.
-def to_tframeindex : SDNodeXForm<frameindex, [{
-  return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0));
-}]>;
 
 def imm16_0to15 : ImmLeaf<i16, [{ return Imm >= 0 && Imm <= 15; }]>;
 def shamt16_1to15 : ImmLeaf<i16, [{ return Imm >= 1 && Imm <= 15; }]>;
@@ -227,53 +221,70 @@ def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
 }
 
 //===----------------------------------------------------------------------===//
-// Frame memory
+// Addresses
 //===----------------------------------------------------------------------===//
 
-// `LDA (S),disp` / `STA (S),disp`. M = 5, M' = 8: base plus a displacement
-// byte, direct. The assembler records (LDA_5_8, STA_5_8) have no result
-// operand, because the mnemonic already means A. These are that encoding
-// with A named, so a load or store of a frame slot can select them.
-// isCodeGenOnly: the assembler keeps parsing `LDA (X),21`.
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0,
-    Defs = [rM, rV] in
-def LDAfi : Memory24Index<0x9, 0x8, (outs Acc:$dst), (ins GPR:$r, i16imm:$arg),
-                          "LDA", "(${r}),$arg">;
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1,
-    Defs = [rM, rV] in
-def STAfi : Memory24Index<0xB, 0x8, (outs), (ins Acc:$src, GPR:$r, i16imm:$arg),
-                          "STA", "(${r}),$arg">;
+// A load or store address is one of two modes (CPU6ISelDAGToDAG.cpp):
+//   addr     `(r),disp`, M = 5, M' = 8. A register or a frame index plus a
+//            signed byte. eliminateFrameIndex replaces a frame index with S
+//            and adds the slot's distance from S to the byte.
+//   absaddr  `(addr)`, M = 1. A global, an external symbol, or a number.
+// absaddr is tried first. Otherwise addr would take a global as its base and
+// load through a register holding the global's address.
+def addr : ComplexPattern<i16, 2, "SelectAddr">;
+def absaddr : ComplexPattern<i16, 1, "SelectAbsAddr", [globaladdr, externalsym],
+                             [], 10>;
+// The address itself, S plus a word. Also tried before the add patterns, so
+// a slot plus a constant is one ADD.
+def frameaddr : ComplexPattern<i16, 2, "SelectFrameAddr", [frameindex, add, or],
+                               [], 10>;
 
-// The address of an alloca is a FrameIndex. S is the base; the displacement
-// is filled in after the frame layout is known.
-def : Pat<(i16 (load (frameindex:$fi))),
-          (LDAfi (i16 rS), (to_tframeindex $fi))>;
-def : Pat<(store Acc:$src, (frameindex:$fi)),
-          (STAfi Acc:$src, (i16 rS), (to_tframeindex $fi))>;
+// The accumulator loads and stores: LDA/STA move A, LDAB/STAB move AL. The
+// assembler records (LDA_5_8, LDA_1, ...) have no result operand, because
+// the mnemonic already means A. These are the same encodings with the
+// register named, so selection can use them. isCodeGenOnly: the assembler
+// keeps parsing `LDA (X),21`.
+multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC,
+                     ValueType VT> {
+  let isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV] in {
+    let mayLoad = 1, mayStore = 0 in {
+      def "LD"#NAME#"fi" : Memory24Index<ldOpc, 0x8, (outs RC:$dst),
+                               (ins GPR:$r, i16imm:$arg), "LD"#NAME, "(${r}),$arg">;
+      def "LD"#NAME#"abs" : Memory24<ldOpc, 0x1, (outs RC:$dst), (ins abs16:$arg),
+                                     "LD"#NAME, "(${arg})">;
+    }
+    let mayLoad = 0, mayStore = 1 in {
+      def "ST"#NAME#"fi" : Memory24Index<stOpc, 0x8, (outs),
+                               (ins RC:$src, GPR:$r, i16imm:$arg), "ST"#NAME, "(${r}),$arg">;
+      def "ST"#NAME#"abs" : Memory24<stOpc, 0x1, (outs), (ins RC:$src, abs16:$arg),
+                                     "ST"#NAME, "(${arg})">;
+    }
+  }
+  // Naming both results of addr fills both operands. `addr:$a` would be one.
+  def : Pat<(VT (load (addr GPR:$r, i16imm:$d))),
+            (!cast<Instruction>("LD"#NAME#"fi") GPR:$r, i16imm:$d)>;
+  def : Pat<(store RC:$src, (addr GPR:$r, i16imm:$d)),
+            (!cast<Instruction>("ST"#NAME#"fi") RC:$src, GPR:$r, i16imm:$d)>;
+  def : Pat<(VT (load (absaddr abs16:$a))),
+            (!cast<Instruction>("LD"#NAME#"abs") abs16:$a)>;
+  def : Pat<(store RC:$src, (absaddr abs16:$a)),
+            (!cast<Instruction>("ST"#NAME#"abs") RC:$src, abs16:$a)>;
+}
+// LDAfi, STAfi, LDAabs, STAabs: opcode rows 0x9 and 0xB.
+defm A : AccMemory<0x9, 0xB, Acc, i16>;
+// LDABfi, STABfi, LDABabs, STABabs: opcode rows 0x8 and 0xA.
+defm AB : AccMemory<0x8, 0xA, AccB, i8>;
 
-// `LDAB (S),disp` / `STAB (S),disp`: the byte twins of LDAfi/STAfi, opcode
-// rows 0x8 and 0xA with the same M = 5, M' = 8 index byte. The base is still
-// a word register; only the data is a byte, and it is always AL.
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 1, mayStore = 0,
-    Defs = [rM, rV] in
-def LDABfi : Memory24Index<0x8, 0x8, (outs AccB:$dst), (ins GPR:$r, i16imm:$arg),
-                           "LDAB", "(${r}),$arg">;
-let isCodeGenOnly = 1, hasSideEffects = 0, mayLoad = 0, mayStore = 1,
-    Defs = [rM, rV] in
-def STABfi : Memory24Index<0xA, 0x8, (outs), (ins AccB:$src, GPR:$r, i16imm:$arg),
-                           "STAB", "(${r}),$arg">;
-
-def : Pat<(i8 (load (frameindex:$fi))),
-          (LDABfi (i16 rS), (to_tframeindex $fi))>;
-def : Pat<(store AccB:$src, (frameindex:$fi)),
-          (STABfi AccB:$src, (i16 rS), (to_tframeindex $fi))>;
+def : Pat<(frameaddr GPR:$r, i16imm:$d), (ADDimm GPR:$r, i16imm:$d)>;
+// XFRimm's immediate is abs16, so a symbol is fixup_cpu6_abs_16.
+def : Pat<(absaddr abs16:$a), (XFRimm abs16:$a)>;
 
 // Byte spill and reload. The register allocator can spill any byte register,
 // but only AL and BL have byte load/store forms. expandPostRAPseudo turns
 // these into LDAB/STAB, moving the byte through AL and keeping AL intact if
-// it is live. Operands match LDABfi/STABfi so eliminateFrameIndex treats them
-// alike. They are not selected; storeRegToStackSlot and loadRegFromStackSlot
-// emit them.
+// it is live. Operands match LDABfi/STABfi, so eliminateFrameIndex treats
+// them alike. They are not selected; storeRegToStackSlot and
+// loadRegFromStackSlot emit them.
 // The expanded LDAB/STAB set Minus and Value, so the pseudo does too.
 let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV] in {
 let mayLoad = 0, mayStore = 1 in

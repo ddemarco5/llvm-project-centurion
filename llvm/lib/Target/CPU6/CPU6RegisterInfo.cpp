@@ -13,6 +13,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -72,34 +73,42 @@ BitVector CPU6RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                                            int SPAdj, unsigned FIOperandNum,
                                            RegScavenger *RS) const {
-  // Every frame-slot access already names S as the base. This replaces the
-  // frame index in the displacement. The default getFrameIndexReference
-  // returns the object offset plus the frame size: the distance from S once
-  // the prologue has reserved the frame. Debug info asks the same hook.
+  // Every frame access is (frame index, displacement), the frame index in the
+  // base operand. The default getFrameIndexReference returns the object
+  // offset plus the frame size: the distance from S once the prologue has
+  // reserved the frame. An incoming stack argument in a realigned function
+  // is addressed from X instead. Debug info asks the same hook.
   (void)RS;
   assert(SPAdj == 0 && "mid-function S adjustment is not handled");
   MachineFunction &MF = *MI->getParent()->getParent();
-  int FrameIndex = MI->getOperand(FIOperandNum).getIndex();
+  MachineOperand &Disp = MI->getOperand(FIOperandNum + 1);
   Register FrameReg;
   int64_t Offset = MF.getSubtarget()
                        .getFrameLowering()
-                       ->getFrameIndexReference(MF, FrameIndex, FrameReg)
-                       .getFixed();
-  // Locals and spills are addressed from S. An incoming stack argument in a
-  // realigned function is addressed from X, which still holds the S JSR left.
-  MachineOperand &Base = MI->getOperand(FIOperandNum - 1);
-  assert(Base.isReg() && "frame access base is not a register");
-  if (Base.getReg() != FrameReg) {
-    Base.setReg(FrameReg);
-    Base.setIsKill(false);
+                       ->getFrameIndexReference(
+                           MF, MI->getOperand(FIOperandNum).getIndex(), FrameReg)
+                       .getFixed() +
+                   Disp.getImm();
+
+  // XFR, STR, and ADD take a word. The others take a signed byte. A word
+  // LDA/STA out of that range is the XFR/STR indexed form instead: same
+  // operands and flags, one byte longer, any register.
+  unsigned Opc = MI->getOpcode();
+  bool WordDisp =
+      Opc == CPU6::XFRidx || Opc == CPU6::STRidx || Opc == CPU6::ADDimm;
+  if (!WordDisp && !isInt<8>(Offset)) {
+    const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+    if (Opc == CPU6::LDAfi)
+      MI->setDesc(TII.get(CPU6::XFRidx));
+    else if (Opc == CPU6::STAfi)
+      MI->setDesc(TII.get(CPU6::STRidx));
+    else
+      report_fatal_error("CPU6 byte frame access is out of displacement range");
   }
-  // LDAfi/STAfi carry a displacement byte. The STR/XFR spill forms carry
-  // a word.
-  bool WideDisp =
-      MI->getOpcode() == CPU6::STRidx || MI->getOpcode() == CPU6::XFRidx;
-  if (WideDisp ? !isInt<16>(Offset) : !isInt<8>(Offset))
+  if (!isInt<16>(Offset))
     report_fatal_error("CPU6 frame offset does not fit in the displacement");
-  MI->getOperand(FIOperandNum).ChangeToImmediate(Offset);
+  MI->getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
+  Disp.setImm(Offset);
   return false;
 }
 

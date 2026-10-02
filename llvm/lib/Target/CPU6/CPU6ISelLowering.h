@@ -59,6 +59,13 @@ public:
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 
+  // There is no GOT and no position-independent code, so every global is at
+  // an absolute address and `g + 4` is one relocation with an addend. The
+  // default only folds globals marked dso_local.
+  bool isOffsetFoldingLegal(const GlobalAddressSDNode *) const override {
+    return true;
+  }
+
 private:
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,

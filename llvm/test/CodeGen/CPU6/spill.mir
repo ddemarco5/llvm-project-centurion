@@ -49,7 +49,7 @@ stack:
 body: |
   bb.0:
     liveins: $rb
-    STRidx killed $rb, $rs, %stack.0, implicit-def $rm, implicit-def $rv
-    $ra = XFRidx $rs, %stack.0, implicit-def $rm, implicit-def $rv
+    STRidx killed $rb, %stack.0, 0, implicit-def $rm, implicit-def $rv
+    $ra = XFRidx %stack.0, 0, implicit-def $rm, implicit-def $rv
     RSR implicit killed $ra
 ...

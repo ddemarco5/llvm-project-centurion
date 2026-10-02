@@ -48,11 +48,12 @@ define i16 @do_shl(i16 %a) nounwind {
 }
 
 ; 7 fits in CLR's nibble, and CLR writes all four flags. The store and the
-; reload write Minus and Value only.
+; reload write Minus and Value only. The frame index is the base and the
+; extra displacement is 0; the prologue inserter adds the slot offset to it.
 ; ISEL-LABEL: name: load_slot
 ; ISEL: CLR 7, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
-; ISEL: STAfi killed {{%[0-9]+}}, $rs, %stack.0.p, implicit-def dead $rm, implicit-def dead $rv ::
-; ISEL: LDAfi $rs, %stack.0.p, implicit-def dead $rm, implicit-def dead $rv ::
+; ISEL: STAfi killed {{%[0-9]+}}, %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
+; ISEL: LDAfi %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
 define i16 @load_slot() nounwind {
   %p = alloca i16, align 1
   store i16 7, ptr %p, align 1
