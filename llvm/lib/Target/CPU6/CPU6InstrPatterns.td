@@ -200,6 +200,37 @@ def : Pat<(xor GPRB:$a, GPRB:$b), (OREB GPRB:$a, GPRB:$b)>;
 // SUBB is dst = src - dst, so a - b keeps b in the destination.
 def : Pat<(sub GPRB:$a, GPRB:$b), (SUBB GPRB:$a, GPRB:$b)>;
 
+//===----------------------------------------------------------------------===//
+// Calls
+//===----------------------------------------------------------------------===//
+
+// LowerCall builds CPU6ISD::CALL. The callee is an absolute address (JSR
+// direct, 0x79 plus a big-endian word) or a register (JSR (r), 0x7D).
+def SDT_CPU6Call : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
+def SDT_CPU6CallSeqStart : SDCallSeqStart<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>;
+def SDT_CPU6CallSeqEnd : SDCallSeqEnd<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>;
+
+def CPU6call : SDNode<"CPU6ISD::CALL", SDT_CPU6Call,
+                      [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
+def CPU6callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_CPU6CallSeqStart,
+                               [SDNPHasChain, SDNPOutGlue]>;
+def CPU6callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_CPU6CallSeqEnd,
+                             [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+
+def : Pat<(CPU6callseq_start timm:$amt1, timm:$amt2),
+          (ADJCALLSTACKDOWN timm:$amt1, timm:$amt2)>;
+def : Pat<(CPU6callseq_end timm:$amt1, timm:$amt2),
+          (ADJCALLSTACKUP timm:$amt1, timm:$amt2)>;
+
+// Direct JSR. A named function is a target global or an external symbol.
+// A numeric address is the same encoding with an immediate.
+def : Pat<(CPU6call (i16 tglobaladdr:$dst)), (JSR_1 tglobaladdr:$dst)>;
+def : Pat<(CPU6call (i16 texternalsym:$dst)), (JSR_1 texternalsym:$dst)>;
+def : Pat<(CPU6call (i16 imm:$dst)), (JSR_1 imm:$dst)>;
+// Indirect. webCenREE's indexed form with M' = 0 reads the word register
+// and does not modify it. `JSR (X)` encodes as 7D 40.
+def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
+
 // Extension. No instruction does it, so zext clears the upper half with AND,
 // and sext rebuilds bit 7 across the word: ((x & 0xff) ^ 0x80) - 0x80.
 def : Pat<(i16 (zext GPRB:$src)), (ANDimm ByteInWord, 255)>;

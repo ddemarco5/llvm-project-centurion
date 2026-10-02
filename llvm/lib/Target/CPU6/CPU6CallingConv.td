@@ -18,17 +18,19 @@
 // LowerReturn calls AnalyzeReturn.
 
 // Incoming arguments. Word values are i16 because GPR holds 16 bits.
-// Uncomment and pick the registers you want the first arguments to land in.
-// Anything that does not match has to go to a stack slot, and we have no
-// frame store yet, so leave that for later.
-
 // A byte argument travels in the word register, extended per its signext or
 // zeroext attribute, so the list stays one register per argument. Passing it
 // in AL/BL/YL/ZL instead loses what signext/zeroext promise about the upper
 // half, and makes the byte a live-in of the AL-only byte load/store class.
+//
+// The fifth word spills to the stack, one word per slot, aligned to a byte:
+// a word store has no alignment requirement. These offsets are where the
+// caller writes, relative to S just before JSR. JSR then pushes X, so the
+// callee sees the same word at incoming S + offset + 2.
 def CC_CPU6 : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i16>>,
   CCIfType<[i16], CCAssignToReg<[rA, rB, rY, rZ]>>,
+  CCIfType<[i16], CCAssignToStack<2, 1>>,
 ]>;
 
 // Where `ret i16 %v` places %v. One register is enough for the first tests.

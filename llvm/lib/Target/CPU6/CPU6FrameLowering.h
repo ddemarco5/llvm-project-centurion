@@ -42,6 +42,19 @@ public:
       MutableArrayRef<CalleeSavedInfo> CSI,
       const TargetRegisterInfo *TRI) const override;
 
+  // The outgoing argument area is part of the frame, including when X is the
+  // frame pointer. ADJCALLSTACKDOWN/UP therefore collapse to nothing.
+  bool hasReservedCallFrame(const MachineFunction &MF) const override;
+
+  MachineBasicBlock::iterator
+  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MI) const override;
+
+  // Incoming stack arguments sit above the S that JSR left behind. In a
+  // realigned function that S is in X; every other slot stays relative to S.
+  StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
+                                     Register &FrameReg) const override;
+
 protected:
   bool hasFPImpl(const MachineFunction &MF) const override;
 };

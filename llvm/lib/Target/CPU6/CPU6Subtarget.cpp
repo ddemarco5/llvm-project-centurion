@@ -41,10 +41,13 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
   // them. Until this switch has a case, custom nodes show up as
   // "<<Unknown Target Node #N>>".
   //
-  // switch (Opcode) {
-  // default: break;
-  // case CPU6ISD::RET_GLUE: return "CPU6ISD::RET_GLUE";
-  // }
-  (void)Opcode;
+  switch (Opcode) {
+  case CPU6ISD::RET_GLUE:
+    return "CPU6ISD::RET_GLUE";
+  case CPU6ISD::NOP:
+    return "CPU6ISD::NOP";
+  case CPU6ISD::CALL:
+    return "CPU6ISD::CALL";
+  }
   return nullptr;
 }

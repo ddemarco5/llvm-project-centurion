@@ -2676,11 +2676,6 @@ foreach OP = [
     def OP.Name#_#R.Sfx : MemRef8<OP.Opcode, R.M, OP.Name#"_"#R.Sfx>;
 }
 
-class Memopstrange<string name, bits<5> opc> {
-    string Name = name;
-    int Opcode = opc;
-}
-
 // LDX 0x6x and STX 0x6x+8 move X (webCenREE dr/sr: REG.X) with the same
 // modes and operand rules as LDA/STA, minus register-direct: 0x66 is SVC and
 // 0x67 is the MEM. group.
@@ -2725,30 +2720,47 @@ foreach OP = [
   }
 }
 
-// JMP and JSR have no literal form.
-foreach OP = [
-            Memopstrange<"JMP", 0b01110>,
-            Memopstrange<"JSR", 0b01111>
-        ] in {
-    def OP.Name#_1 : MemRef24Strange<OP.Opcode, 0b001, i16imm, OP.Name, "(${arg})">;
-    def OP.Name#_2 : MemRef24Strange<OP.Opcode, 0b010, i16imm, OP.Name, "((${arg}))">;
-    def OP.Name#_3 : MemRef16Strange<OP.Opcode, 0b011, i8imm, OP.Name, "(PC),$arg">;
-    def OP.Name#_4 : MemRef16Strange<OP.Opcode, 0b100, i8imm, OP.Name, "((PC),${arg})">;
-    def OP.Name#_5_0: MemRef16IndexStrange<OP.Opcode, 0x0, GPR, OP.Name, "(${arg})">;
-    def OP.Name#_5_1: MemRef16IndexStrange<OP.Opcode, 0x1, GPR, OP.Name#"_I", "(${arg})">;
-    def OP.Name#_5_2: MemRef16IndexStrange<OP.Opcode, 0x2, GPR, OP.Name#"_D", "(${arg})">;
-    // 3 is not used
-    def OP.Name#_5_4: MemRef16IndexStrange<OP.Opcode, 0x4, GPR, OP.Name, "((${arg}))">;
-    def OP.Name#_5_5: MemRef16IndexStrange<OP.Opcode, 0x5, GPR, OP.Name#"_I", "((${arg}))">;
-    def OP.Name#_5_6: MemRef16IndexStrange<OP.Opcode, 0x6, GPR, OP.Name#"_D", "((${arg}))">;
-    // 7 is not used
-    def OP.Name#_5_8: MemRef24IndexStrange<OP.Opcode, 0x8, GPR, OP.Name, "(${r}),$arg">;
-    def OP.Name#_5_9: MemRef24IndexStrange<OP.Opcode, 0x9, GPR, OP.Name#"_I", "(${r}),$arg">;
-    def OP.Name#_5_A: MemRef24IndexStrange<OP.Opcode, 0xA, GPR, OP.Name#"_D", "(${r}),$arg">;
-    // B is not used
-    def OP.Name#_5_C: MemRef24IndexStrange<OP.Opcode, 0xC, GPR, OP.Name#"_?", "(${r}),${arg}">;
-    def OP.Name#_5_D: MemRef24IndexStrange<OP.Opcode, 0xD, GPR, OP.Name#"_I", "((${r})),$arg">;
-    def OP.Name#_5_E: MemRef24IndexStrange<OP.Opcode, 0xE, GPR, OP.Name#"_D", "((${r})),$arg">;
+// JMP and JSR have no literal form. Direct is opcode 0x79/0x71 plus a
+// big-endian address: webCenREE lea_dir reads it with pcfetchw, then f_jsr
+// pushes X and sets X to the PC it just advanced past that word. RSR copies
+// X into the PC and pops the saved X, so from the caller X is unchanged.
+// X is callee-saved, which is that fact: listing it as a use here would
+// demand a defined X even in a function that never touches it. S is a use
+// because the push reads it. The call's register mask says which other
+// registers the callee gives back.
+multiclass DirJump<bits<5> opcode> {
+  def _1 : MemRef24Strange<opcode, 0b001, i16imm, NAME, "(${arg})">;
+  def _2 : MemRef24Strange<opcode, 0b010, i16imm, NAME, "((${arg}))">;
+  def _3 : MemRef16Strange<opcode, 0b011, i8imm, NAME, "(PC),$arg">;
+  def _4 : MemRef16Strange<opcode, 0b100, i8imm, NAME, "((PC),${arg})">;
+  def _5_0: MemRef16IndexStrange<opcode, 0x0, GPR, NAME, "(${arg})">;
+  def _5_1: MemRef16IndexStrange<opcode, 0x1, GPR, NAME#"_I", "(${arg})">;
+  def _5_2: MemRef16IndexStrange<opcode, 0x2, GPR, NAME#"_D", "(${arg})">;
+  // 3 is not used
+  def _5_4: MemRef16IndexStrange<opcode, 0x4, GPR, NAME, "((${arg}))">;
+  def _5_5: MemRef16IndexStrange<opcode, 0x5, GPR, NAME#"_I", "((${arg}))">;
+  def _5_6: MemRef16IndexStrange<opcode, 0x6, GPR, NAME#"_D", "((${arg}))">;
+  // 7 is not used
+  def _5_8: MemRef24IndexStrange<opcode, 0x8, GPR, NAME, "(${r}),$arg">;
+  def _5_9: MemRef24IndexStrange<opcode, 0x9, GPR, NAME#"_I", "(${r}),$arg">;
+  def _5_A: MemRef24IndexStrange<opcode, 0xA, GPR, NAME#"_D", "(${r}),$arg">;
+  // B is not used
+  def _5_C: MemRef24IndexStrange<opcode, 0xC, GPR, NAME#"_?", "(${r}),${arg}">;
+  def _5_D: MemRef24IndexStrange<opcode, 0xD, GPR, NAME#"_I", "((${r})),$arg">;
+  def _5_E: MemRef24IndexStrange<opcode, 0xE, GPR, NAME#"_D", "((${r})),$arg">;
+}
+defm JMP : DirJump<0b01110>;
+let isCall = 1, hasSideEffects = 1, Uses = [rS] in
+defm JSR : DirJump<0b01111>;
+
+// CALLSEQ_START/END. The outgoing area is reserved in the prologue, so
+// CPU6FrameLowering::eliminateCallFramePseudoInstr deletes these.
+let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 1, Uses = [rS],
+    Defs = [rS] in {
+def ADJCALLSTACKDOWN : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
+                                    "#ADJCALLSTACKDOWN", "$amt1, $amt2">;
+def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
+                                    "#ADJCALLSTACKUP", "$amt1, $amt2">;
 }
 
 class TwoArg24<bits<8> opcode, string opstr, string argstr="$arg1,$arg2">

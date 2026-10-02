@@ -29,6 +29,9 @@ enum NodeType : unsigned {
   RET_GLUE,
   // Selects the NOP instruction. See CPU6noop in CPU6InstrPatterns.td.
   NOP,
+  // Direct or indirect JSR. Glue keeps the argument copies on the call.
+  // See CPU6call in CPU6InstrPatterns.td.
+  CALL,
 };
 } // namespace CPU6ISD
 
@@ -55,6 +58,12 @@ public:
 
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
+
+private:
+  SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
+                          bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,
+                          const SDLoc &DL, SelectionDAG &DAG,
+                          SmallVectorImpl<SDValue> &InVals) const;
 };
 
 } // namespace llvm

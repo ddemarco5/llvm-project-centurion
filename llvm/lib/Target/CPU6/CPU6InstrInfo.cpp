@@ -21,7 +21,8 @@
 using namespace llvm;
 
 CPU6InstrInfo::CPU6InstrInfo(const CPU6Subtarget &STI)
-    : CPU6GenInstrInfo(STI, RI), RI() {}
+    : CPU6GenInstrInfo(STI, RI, CPU6::ADJCALLSTACKDOWN, CPU6::ADJCALLSTACKUP),
+      RI() {}
 
 void CPU6InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator MI,

@@ -17,18 +17,25 @@
 
 using namespace llvm;
 
-// Bytes of the frame that STK and POP already move. The rest is locals, which
-// the prologue subtracts from S and the epilogue adds back. Together they
-// equal getStackSize(), which is what eliminateFrameIndex adds to a slot's
-// offset.
-static uint64_t localFrameBytes(const MachineFunction &MF) {
+// Bytes STK and POP already move. The prologue copy into X happens after
+// those pushes, so X holds incoming S minus this many bytes.
+static uint64_t calleeSavedBytes(const MachineFunction &MF) {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   uint64_t CalleeSaved = 0;
   for (const CalleeSavedInfo &CS : MFI.getCalleeSavedInfo()) {
     if (!CS.isSpilledToReg())
       CalleeSaved += static_cast<uint64_t>(MFI.getObjectSize(CS.getFrameIdx()));
   }
-  uint64_t StackSize = MFI.getStackSize();
+  return CalleeSaved;
+}
+
+// Bytes of the frame that STK and POP already move. The rest is locals plus
+// the reserved outgoing-argument area. The prologue subtracts it from S and
+// the epilogue adds it back. Together with the callee-saved area it equals
+// getStackSize(), which is what eliminateFrameIndex adds to a slot's offset.
+static uint64_t localFrameBytes(const MachineFunction &MF) {
+  uint64_t CalleeSaved = calleeSavedBytes(MF);
+  uint64_t StackSize = MF.getFrameInfo().getStackSize();
   if (CalleeSaved > StackSize)
     report_fatal_error("CPU6 callee-saved area is larger than the frame");
   return StackSize - CalleeSaved;
@@ -120,6 +127,42 @@ void CPU6FrameLowering::emitEpilogue(MachineFunction &MF,
   if (int64_t Locals = static_cast<int64_t>(localFrameBytes(MF)))
     buildStackPointerOp(MBB, Insert, CPU6::ADDimm, Locals,
                         MachineInstr::FrameDestroy);
+}
+
+bool CPU6FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
+  // Outgoing stack arguments are stored at the live S. Reserving the area in
+  // the prologue keeps locals above those stores, and ADJCALLSTACKDOWN/UP
+  // delete instead of moving S, so a frame index never sees a non-zero SPAdj.
+  // A variable-sized alloca would move S after the prologue; nothing selects
+  // that yet.
+  if (MF.getFrameInfo().hasVarSizedObjects())
+    report_fatal_error("CPU6 variable-sized stack objects are not supported");
+  return true;
+}
+
+MachineBasicBlock::iterator CPU6FrameLowering::eliminateCallFramePseudoInstr(
+    MachineFunction &MF, MachineBasicBlock &MBB,
+    MachineBasicBlock::iterator MI) const {
+  // JSR pushes the caller's X on its own and RSR pops it. The argument words
+  // above that push are the reserved area, so the pseudos have nothing to do.
+  (void)MF;
+  return MBB.erase(MI);
+}
+
+StackOffset
+CPU6FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
+                                          Register &FrameReg) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  // JSR leaves S pointing at the saved X. An incoming argument is a positive
+  // offset from that S. After a realignment the epilogue's X is the only
+  // register that still holds it: X was copied just after the pushes, and the
+  // AND may have lowered S by a runtime amount.
+  if (hasFP(MF) && MFI.isFixedObjectIndex(FI) && MFI.getObjectOffset(FI) >= 0) {
+    FrameReg = CPU6::rX;
+    return StackOffset::getFixed(MFI.getObjectOffset(FI) +
+                                 static_cast<int64_t>(calleeSavedBytes(MF)));
+  }
+  return TargetFrameLowering::getFrameIndexReference(MF, FI, FrameReg);
 }
 
 // A register the function already reads (an argument in Y or Z) must stay

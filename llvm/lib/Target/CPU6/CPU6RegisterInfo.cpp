@@ -79,7 +79,14 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                        .getFrameLowering()
                        ->getFrameIndexReference(MF, FrameIndex, FrameReg)
                        .getFixed();
-  assert(FrameReg == CPU6::rS && "frame slots are addressed from S");
+  // Locals and spills are addressed from S. An incoming stack argument in a
+  // realigned function is addressed from X, which still holds the S JSR left.
+  MachineOperand &Base = MI->getOperand(FIOperandNum - 1);
+  assert(Base.isReg() && "frame access base is not a register");
+  if (Base.getReg() != FrameReg) {
+    Base.setReg(FrameReg);
+    Base.setIsKill(false);
+  }
   // LDAfi/STAfi carry a displacement byte. The STR/XFR spill forms carry
   // a word.
   bool WideDisp =

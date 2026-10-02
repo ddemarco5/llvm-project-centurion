@@ -11,6 +11,7 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 
 using namespace llvm;
@@ -25,12 +26,28 @@ void CPU6MCInstLower::lowerInstruction(const MachineInstr *MI,
     OutMI.setOpcode(MI->getOpcode());
     for (const MachineOperand &MO : MI->operands()) {
       if (MO.isReg()) {
-        // Implicit operands (clobbers, dead defs) are not encoded.
+        // Implicit operands (argument registers, the call's regmask uses)
+        // are not encoded. The regmask itself is not a register.
         if (MO.isImplicit())
           continue;
         OutMI.addOperand(MCOperand::createReg(MO.getReg()));
       } else if (MO.isImm()) {
         OutMI.addOperand(MCOperand::createImm(MO.getImm()));
+      } else if (MO.isGlobal()) {
+        // JSR (foo). The address word is a relocation once the assembler
+        // grows a fixup; the text printer emits the symbol either way.
+        const MCExpr *Expr =
+            MCSymbolRefExpr::create(Printer.getSymbol(MO.getGlobal()), Ctx);
+        if (MO.getOffset())
+          Expr = MCBinaryExpr::createAdd(
+              Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
+        OutMI.addOperand(MCOperand::createExpr(Expr));
+      } else if (MO.isSymbol()) {
+        OutMI.addOperand(MCOperand::createExpr(
+            MCSymbolRefExpr::create(Ctx.getOrCreateSymbol(MO.getSymbolName()),
+                                    Ctx)));
+      } else if (MO.isRegMask()) {
+        continue;
       } else {
         llvm_unreachable("unhandled MachineOperand");
       }
