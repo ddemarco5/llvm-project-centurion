@@ -16,8 +16,8 @@
 // form the assembler must not parse.
 //
 // Patterns are grouped by the DAG node they match: target nodes, then the
-// predicates those patterns share, then control, constants, extensions,
-// word arithmetic, byte arithmetic, addresses, and calls.
+// predicates those patterns share, then control, branches, constants,
+// extensions, word arithmetic, byte arithmetic, addresses, and calls.
 //
 //===----------------------------------------------------------------------===//
 
@@ -46,6 +46,27 @@ def CPU6callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_CPU6CallSeqStart,
                                [SDNPHasChain, SDNPOutGlue]>;
 def CPU6callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_CPU6CallSeqEnd,
                              [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+
+// Flags from a compare, glued to the one node that reads them. CMP a,b
+// sets them from a - b and also yields that difference; TST sets Minus and
+// Value from its operand.
+def CPU6cmp : SDNode<"CPU6ISD::CMP",
+                     SDTypeProfile<1, 2, [SDTCisInt<0>, SDTCisSameAs<0, 1>,
+                                          SDTCisSameAs<0, 2>]>,
+                     [SDNPOutGlue]>;
+def CPU6tst : SDNode<"CPU6ISD::TST", SDTypeProfile<0, 1, [SDTCisInt<0>]>,
+                     [SDNPOutGlue]>;
+// The condition operand is the opcode of the branch that tests it.
+// CPU6DAGToDAGISel::Select turns BR_CC into that branch.
+def CPU6brcc : SDNode<"CPU6ISD::BR_CC",
+                      SDTypeProfile<0, 2, [SDTCisVT<0, OtherVT>,
+                                           SDTCisVT<1, i16>]>,
+                      [SDNPHasChain, SDNPInGlue]>;
+def CPU6selectcc : SDNode<"CPU6ISD::SELECT_CC",
+                          SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>,
+                                               SDTCisSameAs<0, 2>,
+                                               SDTCisVT<3, i16>]>,
+                          [SDNPInGlue]>;
 
 //===----------------------------------------------------------------------===//
 // Predicates and transforms
@@ -108,6 +129,61 @@ def : Pat<(CPU6retglue), (RSR)>;
 // CPU6FrameLowering::spillCalleeSavedRegisters, which emits one STK per
 // contiguous stretch of X, Y, Z and a matching POP in front of RSR. Same
 // split as MSP430 PUSH/POP.
+
+//===----------------------------------------------------------------------===//
+// Branches and compares
+//===----------------------------------------------------------------------===//
+
+// Every CPU6 move, load, store, and spill writes Minus and Value, so nothing
+// may come between a compare and the branch that reads it. These compares
+// are terminators: copies, spills, and PHI moves all go in front of the first
+// terminator. They are the assembler's SUB, SUBB, SUB literal, and XFR r,r.
+// CPU6InstrInfo::analyzeBranch leaves them in place when it rewrites the
+// branches after them.
+class Test16<bits<8> op, RegisterClass RC, string opstr>
+    : CenturionInst16<(outs), (ins RC:$r), opstr, "$r,$r"> {
+  bits<4> r;
+  let Inst{15-8} = op;
+  let Inst{7-4} = r;
+  let Inst{3-0} = r;
+}
+let isCodeGenOnly = 1, isTerminator = 1, isCompare = 1 in {
+let Defs = [rF, rL, rM, rV] in {
+def CMP : DoubleReg16RMW<0x51, "SUB">;
+def CMPB : DoubleReg16_BRMW<0x41, "SUBB">;
+}
+def CMPimm : DoubleRegImm32<0x51, "SUB">;
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Defs = [rM, rV] in {
+def TST : Test16<0x55, GPR, "XFR">;
+def TSTB : Test16<0x45, GPRB, "XFRB">;
+}
+}
+
+// SUB src,dst sets the flags of src - dst. The literal form is imm - src.
+def : Pat<(CPU6cmp GPR:$a, GPR:$b), (CMP GPR:$a, GPR:$b)>;
+def : Pat<(CPU6cmp (i16 imm:$c), GPR:$x), (CMPimm GPR:$x, imm:$c)>;
+def : Pat<(CPU6cmp GPRB:$a, GPRB:$b), (CMPB GPRB:$a, GPRB:$b)>;
+def : Pat<(CPU6tst GPR:$r), (TST GPR:$r)>;
+def : Pat<(CPU6tst GPRB:$r), (TSTB GPRB:$r)>;
+
+def : Pat<(br bb:$dst), (JMP_3 bb:$dst)>;
+def : Pat<(brind GPR:$r), (JMP_5_0 GPR:$r)>;
+
+// A select becomes a branch around nothing and a PHI
+// (CPU6TargetLowering::EmitInstrWithCustomInserter). $cc is the branch
+// opcode, taken to keep $t.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Uses = [rF, rL, rM, rV] in {
+def SELECT : CenturionInst<(outs GPR:$dst), (ins GPR:$t, GPR:$f, i16imm:$cc),
+                           "#SELECT", "$dst,$t,$f,$cc">;
+def SELECTB : CenturionInst<(outs GPRB:$dst),
+                            (ins GPRB:$t, GPRB:$f, i16imm:$cc),
+                            "#SELECTB", "$dst,$t,$f,$cc">;
+}
+def : Pat<(CPU6selectcc GPR:$t, GPR:$f, timm:$cc),
+          (SELECT GPR:$t, GPR:$f, timm:$cc)>;
+def : Pat<(CPU6selectcc GPRB:$t, GPRB:$f, timm:$cc),
+          (SELECTB GPRB:$t, GPRB:$f, timm:$cc)>;
 
 //===----------------------------------------------------------------------===//
 // Constants
@@ -228,12 +304,13 @@ def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
 //   addr     `(r),disp`, M = 5, M' = 8. A register or a frame index plus a
 //            signed byte. eliminateFrameIndex replaces a frame index with S
 //            and adds the slot's distance from S to the byte.
-//   absaddr  `(addr)`, M = 1. A global, an external symbol, or a number.
+//   absaddr  `(addr)`, M = 1. A global, an external symbol, a block
+//            address, or a number.
 // absaddr is tried first. Otherwise addr would take a global as its base and
 // load through a register holding the global's address.
 def addr : ComplexPattern<i16, 2, "SelectAddr">;
-def absaddr : ComplexPattern<i16, 1, "SelectAbsAddr", [globaladdr, externalsym],
-                             [], 10>;
+def absaddr : ComplexPattern<i16, 1, "SelectAbsAddr",
+                             [globaladdr, externalsym, blockaddress], [], 10>;
 // The address itself, S plus a word. Also tried before the add patterns, so
 // a slot plus a constant is one ADD.
 def frameaddr : ComplexPattern<i16, 2, "SelectFrameAddr", [frameindex, add, or],

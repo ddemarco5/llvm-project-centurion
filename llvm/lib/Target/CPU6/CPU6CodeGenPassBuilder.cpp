@@ -8,12 +8,13 @@
 //
 // llc compiles through TargetMachine::buildCodeGenPipeline. The base builder
 // runs IR legalization, register allocation, and prologue insertion. This
-// file adds the two target passes those steps call into: instruction
-// selection, and the assembly printer.
+// file adds the target passes those steps call into: instruction selection,
+// branch relaxation, and the assembly printer.
 
 #include "CPU6.h"
 #include "CPU6AsmPrinter.h"
 #include "CPU6TargetMachine.h"
+#include "llvm/CodeGen/BranchRelaxation.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Passes/CodeGenPassBuilder.h"
 #include "llvm/Passes/PassBuilder.h"
@@ -32,6 +33,7 @@ public:
       : CodeGenPassBuilder(TM, Opts, PIC) {}
 
   Error addInstSelector(PassManagerWrapper &PMW) const;
+  void addPreEmitPass(PassManagerWrapper &PMW) const;
   void addAsmPrinterBegin(PassManagerWrapper &PMW) const;
   void addAsmPrinter(PassManagerWrapper &PMW) const;
   void addAsmPrinterEnd(PassManagerWrapper &PMW) const;
@@ -40,6 +42,12 @@ public:
 Error CPU6CodeGenPassBuilder::addInstSelector(PassManagerWrapper &PMW) const {
   addMachineFunctionPass(CPU6ISelDAGToDAGPass(TM, getOptLevel()), PMW);
   return Error::success();
+}
+
+// A short branch or JMP (PC),b that cannot reach its block is rewritten here,
+// once block sizes are final.
+void CPU6CodeGenPassBuilder::addPreEmitPass(PassManagerWrapper &PMW) const {
+  addMachineFunctionPass(BranchRelaxationPass(), PMW);
 }
 
 void CPU6CodeGenPassBuilder::addAsmPrinterBegin(PassManagerWrapper &PMW) const {

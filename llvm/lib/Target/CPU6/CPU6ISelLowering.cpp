@@ -12,6 +12,7 @@
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 
 using namespace llvm;
@@ -73,6 +74,15 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
                    MVT::i8, Expand);
   setTruncStoreAction(MVT::i16, MVT::i8, Expand);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
+  // A condition only exists in the flags, as a compare glued to the branch or
+  // select that reads it. setcc and select become select_cc, brcond br_cc.
+  for (MVT VT : {MVT::i8, MVT::i16}) {
+    setOperationAction({ISD::BR_CC, ISD::SELECT_CC}, VT, Custom);
+    setOperationAction({ISD::SETCC, ISD::SELECT}, VT, Expand);
+  }
+  setOperationAction(ISD::BRCOND, MVT::Other, Expand);
+  // Nothing selects a jump table, so a switch is a tree of compares.
+  setMinimumJumpTableEntries(UINT_MAX);
   // S is the stack pointer the prologue adjusts. Callee-saved spills go
   // through it via STK and POP.
   setStackPointerRegisterToSaveRestore(CPU6::rS);
@@ -290,4 +300,159 @@ CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
   Glue = Chain.getValue(1);
   return LowerCallResult(Chain, Glue, CLI.CallConv, CLI.IsVarArg, CLI.Ins, DL,
                          DAG, InVals);
+}
+
+// Emits the compare for LHS CC RHS and returns its glue. Opc is the branch
+// taken exactly when the condition holds, so every condition is one branch.
+// After SUB a,b (flags_a16vmfl(a, b, 1)) Value is a == b and Link is
+// a >= b unsigned: no borrow. Minus is the sign of a - b, which is a < b only
+// without overflow, so BM, BP, BGZ, and BLE only test a value against zero.
+// Any other signed compare flips both sign bits and compares unsigned.
+static SDValue emitCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
+                       unsigned &Opc, const SDLoc &DL, SelectionDAG &DAG) {
+  EVT VT = LHS.getValueType();
+  if (auto *C = dyn_cast<ConstantSDNode>(RHS)) {
+    if ((CC == ISD::SETLT && C->isOne()) ||
+        (CC == ISD::SETGT && C->isAllOnes())) {
+      CC = CC == ISD::SETLT ? ISD::SETLE : ISD::SETGE;
+      RHS = DAG.getConstant(0, DL, VT);
+    }
+  }
+  if (isNullConstant(RHS)) {
+    switch (CC) {
+    case ISD::SETEQ:
+    case ISD::SETULE:
+      Opc = CPU6::BZ;
+      break;
+    case ISD::SETNE:
+    case ISD::SETUGT:
+      Opc = CPU6::BNZ;
+      break;
+    case ISD::SETLT:
+      Opc = CPU6::BM;
+      break;
+    case ISD::SETGE:
+      Opc = CPU6::BP;
+      break;
+    case ISD::SETGT:
+      Opc = CPU6::BGZ;
+      break;
+    case ISD::SETLE:
+      Opc = CPU6::BLE;
+      break;
+    default:
+      Opc = 0;
+      break;
+    }
+    if (Opc)
+      return DAG.getNode(CPU6ISD::TST, DL, MVT::Glue, LHS);
+  }
+  if (ISD::isSignedIntSetCC(CC)) {
+    SDValue Bias =
+        DAG.getConstant(APInt::getSignMask(VT.getSizeInBits()), DL, VT);
+    LHS = DAG.getNode(ISD::XOR, DL, VT, LHS, Bias);
+    RHS = DAG.getNode(ISD::XOR, DL, VT, RHS, Bias);
+    CC = CC == ISD::SETLT   ? ISD::SETULT
+         : CC == ISD::SETLE ? ISD::SETULE
+         : CC == ISD::SETGT ? ISD::SETUGT
+                            : ISD::SETUGE;
+  }
+  // Link answers a >= b and a < b; a <= b and a > b swap the operands. A word
+  // constant goes first, into the SUB literal form (imm - r). A byte constant
+  // stays second, in the register CMPB overwrites. Moving the constant by one
+  // gives a condition that keeps it there.
+  if (auto *C = dyn_cast<ConstantSDNode>(RHS)) {
+    const APInt &V = C->getAPIntValue();
+    if (VT == MVT::i16) {
+      if ((CC == ISD::SETUGE || CC == ISD::SETULT) && !V.isZero()) {
+        CC = CC == ISD::SETUGE ? ISD::SETUGT : ISD::SETULE;
+        RHS = DAG.getConstant(V - 1, DL, VT);
+      }
+      if (CC != ISD::SETUGE && CC != ISD::SETULT) {
+        std::swap(LHS, RHS);
+        CC = ISD::getSetCCSwappedOperands(CC);
+      }
+    } else if ((CC == ISD::SETULE || CC == ISD::SETUGT) && !V.isMaxValue()) {
+      CC = CC == ISD::SETULE ? ISD::SETULT : ISD::SETUGE;
+      RHS = DAG.getConstant(V + 1, DL, VT);
+    }
+  }
+  if (CC == ISD::SETULE || CC == ISD::SETUGT) {
+    std::swap(LHS, RHS);
+    CC = ISD::getSetCCSwappedOperands(CC);
+  }
+  switch (CC) {
+  case ISD::SETEQ:
+    Opc = CPU6::BZ;
+    break;
+  case ISD::SETNE:
+    Opc = CPU6::BNZ;
+    break;
+  case ISD::SETUGE:
+    Opc = CPU6::BL;
+    break;
+  case ISD::SETULT:
+    Opc = CPU6::BNL;
+    break;
+  default:
+    llvm_unreachable("not an integer condition");
+  }
+  return DAG.getNode(CPU6ISD::CMP, DL, DAG.getVTList(VT, MVT::Glue), LHS, RHS)
+      .getValue(1);
+}
+
+SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  unsigned Opc;
+  switch (Op.getOpcode()) {
+  case ISD::BR_CC: {
+    SDValue Glue =
+        emitCmp(Op.getOperand(2), Op.getOperand(3),
+                cast<CondCodeSDNode>(Op.getOperand(1))->get(), Opc, DL, DAG);
+    return DAG.getNode(CPU6ISD::BR_CC, DL, MVT::Other, Op.getOperand(0),
+                       Op.getOperand(4), DAG.getTargetConstant(Opc, DL, MVT::i16),
+                       Glue);
+  }
+  case ISD::SELECT_CC: {
+    SDValue Glue =
+        emitCmp(Op.getOperand(0), Op.getOperand(1),
+                cast<CondCodeSDNode>(Op.getOperand(4))->get(), Opc, DL, DAG);
+    return DAG.getNode(CPU6ISD::SELECT_CC, DL, Op.getValueType(),
+                       Op.getOperand(2), Op.getOperand(3),
+                       DAG.getTargetConstant(Opc, DL, MVT::i16), Glue);
+  }
+  }
+  llvm_unreachable("unexpected custom lowering");
+}
+
+// SELECT and SELECTB. The compare glued to the pseudo is right before it, so
+// once the rest of the block moves to Join it ends the block, followed by
+// the branch to Join. False is empty and falls through to Join.
+MachineBasicBlock *
+CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
+                                                MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  MachineBasicBlock *False = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Join = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, False);
+  MF->insert(It, Join);
+  Join->splice(Join->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Join->transferSuccessorsAndUpdatePHIs(BB);
+  BB->addSuccessor(False);
+  BB->addSuccessor(Join);
+  False->addSuccessor(Join);
+
+  BuildMI(BB, DL, TII.get(MI.getOperand(3).getImm())).addMBB(Join);
+  BuildMI(*Join, Join->begin(), DL, TII.get(TargetOpcode::PHI),
+          MI.getOperand(0).getReg())
+      .addReg(MI.getOperand(1).getReg())
+      .addMBB(BB)
+      .addReg(MI.getOperand(2).getReg())
+      .addMBB(False);
+  MI.eraseFromParent();
+  return Join;
 }

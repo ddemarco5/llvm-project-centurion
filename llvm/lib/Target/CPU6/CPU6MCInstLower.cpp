@@ -8,6 +8,7 @@
 
 #include "CPU6MCInstLower.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/MC/MCContext.h"
@@ -46,6 +47,16 @@ void CPU6MCInstLower::lowerInstruction(const MachineInstr *MI,
         OutMI.addOperand(MCOperand::createExpr(
             MCSymbolRefExpr::create(Ctx.getOrCreateSymbol(MO.getSymbolName()),
                                     Ctx)));
+      } else if (MO.isMBB()) {
+        OutMI.addOperand(MCOperand::createExpr(
+            MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), Ctx)));
+      } else if (MO.isBlockAddress()) {
+        const MCExpr *Expr = MCSymbolRefExpr::create(
+            Printer.GetBlockAddressSymbol(MO.getBlockAddress()), Ctx);
+        if (MO.getOffset())
+          Expr = MCBinaryExpr::createAdd(
+              Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
+        OutMI.addOperand(MCOperand::createExpr(Expr));
       } else if (MO.isRegMask()) {
         continue;
       } else {

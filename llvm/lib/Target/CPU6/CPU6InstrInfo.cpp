@@ -14,6 +14,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetMachine.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "CPU6GenInstrInfo.inc"
@@ -241,4 +242,169 @@ bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   }
   MI.eraseFromParent();
   return true;
+}
+
+unsigned CPU6InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  if (MI.isInlineAsm())
+    return getInlineAsmLength(MI.getOperand(0).getSymbolName(),
+                              MI.getMF()->getTarget().getMCAsmInfo());
+  return MI.getDesc().getSize();
+}
+
+// The flag test taken exactly when Opc is not taken, or 0 if Opc is not one.
+static unsigned getOppositeBranch(unsigned Opc) {
+  switch (Opc) {
+  case CPU6::BL:
+    return CPU6::BNL;
+  case CPU6::BNL:
+    return CPU6::BL;
+  case CPU6::BF:
+    return CPU6::BNF;
+  case CPU6::BNF:
+    return CPU6::BF;
+  case CPU6::BZ:
+    return CPU6::BNZ;
+  case CPU6::BNZ:
+    return CPU6::BZ;
+  case CPU6::BM:
+    return CPU6::BP;
+  case CPU6::BP:
+    return CPU6::BM;
+  case CPU6::BGZ:
+    return CPU6::BLE;
+  case CPU6::BLE:
+    return CPU6::BGZ;
+  default:
+    return 0;
+  }
+}
+
+// Cond is the flag test's opcode. The compare before it is a terminator (see
+// CPU6InstrPatterns.td) that removeBranch keeps and insertBranch builds
+// after, so it stays the flags' last writer.
+bool CPU6InstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+                                  MachineBasicBlock *&TBB,
+                                  MachineBasicBlock *&FBB,
+                                  SmallVectorImpl<MachineOperand> &Cond,
+                                  bool AllowModify) const {
+  TBB = FBB = nullptr;
+  Cond.clear();
+  MachineBasicBlock::iterator I = MBB.end();
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugInstr())
+      continue;
+    if (!I->isTerminator())
+      break;
+    // A compare with no branch after it may still set flags a successor
+    // reads; tail merging can split the branch into its own block.
+    if (I->isCompare())
+      return Cond.empty();
+    if (!I->isBranch() || !I->getOperand(0).isMBB())
+      return true;
+    unsigned Opc = I->getOpcode();
+    if (Opc == CPU6::JMP_3 || Opc == CPU6::JMP_1) {
+      // Anything after an unconditional jump is dead.
+      if (AllowModify)
+        MBB.erase(std::next(I), MBB.end());
+      Cond.clear();
+      FBB = nullptr;
+      // A jump to the next block is a fallthrough. Drop it so later passes
+      // can merge the blocks; same as MSP430.
+      if (AllowModify && MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
+        TBB = nullptr;
+        I->eraseFromParent();
+        I = MBB.end();
+        continue;
+      }
+      TBB = I->getOperand(0).getMBB();
+      continue;
+    }
+    if (!getOppositeBranch(Opc) || !Cond.empty())
+      return true;
+    FBB = TBB;
+    TBB = I->getOperand(0).getMBB();
+    Cond.push_back(MachineOperand::CreateImm(Opc));
+  }
+  return false;
+}
+
+unsigned CPU6InstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                     int *BytesRemoved) const {
+  unsigned Count = 0;
+  int Bytes = 0;
+  MachineBasicBlock::iterator I = MBB.end();
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugInstr())
+      continue;
+    if (!I->isBranch() || I->isIndirectBranch())
+      break;
+    Bytes += getInstSizeInBytes(*I);
+    I->eraseFromParent();
+    I = MBB.end();
+    ++Count;
+  }
+  if (BytesRemoved)
+    *BytesRemoved = Bytes;
+  return Count;
+}
+
+// Both are two bytes; branch relaxation lengthens a jump that does not reach.
+unsigned CPU6InstrInfo::insertBranch(MachineBasicBlock &MBB,
+                                     MachineBasicBlock *TBB,
+                                     MachineBasicBlock *FBB,
+                                     ArrayRef<MachineOperand> Cond,
+                                     const DebugLoc &DL,
+                                     int *BytesAdded) const {
+  assert(TBB && "insertBranch must not be told to insert a fallthrough");
+  assert(Cond.size() <= 1 && "CPU6 branch conditions are one opcode");
+  if (Cond.empty()) {
+    assert(!FBB && "unconditional branch with two destinations");
+    BuildMI(&MBB, DL, get(CPU6::JMP_3)).addMBB(TBB);
+    if (BytesAdded)
+      *BytesAdded = 2;
+    return 1;
+  }
+  BuildMI(&MBB, DL, get(Cond[0].getImm())).addMBB(TBB);
+  unsigned Count = 1;
+  if (FBB) {
+    BuildMI(&MBB, DL, get(CPU6::JMP_3)).addMBB(FBB);
+    ++Count;
+  }
+  if (BytesAdded)
+    *BytesAdded = 2 * Count;
+  return Count;
+}
+
+bool CPU6InstrInfo::reverseBranchCondition(
+    SmallVectorImpl<MachineOperand> &Cond) const {
+  unsigned Opp = getOppositeBranch(Cond[0].getImm());
+  assert(Opp && "not a reversible CPU6 branch");
+  Cond[0].setImm(Opp);
+  return false;
+}
+
+MachineBasicBlock *
+CPU6InstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+  return MI.getOperand(0).getMBB();
+}
+
+// BrOffset is from the branch's first byte. The displacement byte counts from
+// the next instruction, two bytes on.
+bool CPU6InstrInfo::isBranchOffsetInRange(unsigned BranchOpc,
+                                          int64_t BrOffset) const {
+  return BranchOpc == CPU6::JMP_1 || isInt<8>(BrOffset - 2);
+}
+
+// JMP (addr) reaches the whole address space and needs no register.
+void CPU6InstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
+                                         MachineBasicBlock &NewDestBB,
+                                         MachineBasicBlock &RestoreBB,
+                                         const DebugLoc &DL, int64_t BrOffset,
+                                         RegScavenger *RS) const {
+  (void)RestoreBB;
+  (void)BrOffset;
+  (void)RS;
+  BuildMI(&MBB, DL, get(CPU6::JMP_1)).addMBB(&NewDestBB);
 }

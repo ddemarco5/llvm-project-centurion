@@ -32,6 +32,12 @@ enum NodeType : unsigned {
   // Direct or indirect JSR. Glue keeps the argument copies on the call.
   // See CPU6call in CPU6InstrPatterns.td.
   CALL,
+  // Flag-setting compares and their two readers. See CPU6cmp, CPU6tst,
+  // CPU6brcc, and CPU6selectcc in CPU6InstrPatterns.td.
+  CMP,
+  TST,
+  BR_CC,
+  SELECT_CC,
 };
 } // namespace CPU6ISD
 
@@ -65,6 +71,12 @@ public:
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *) const override {
     return true;
   }
+
+  SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
+  MachineBasicBlock *
+  EmitInstrWithCustomInserter(MachineInstr &MI,
+                              MachineBasicBlock *BB) const override;
 
 private:
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,

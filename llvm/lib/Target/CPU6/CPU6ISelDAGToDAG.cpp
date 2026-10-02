@@ -76,6 +76,14 @@ void CPU6DAGToDAGISel::Select(SDNode *Node) {
 
   // A node TableGen patterns cannot express goes in a switch on getOpcode()
   // before this call.
+  switch (Node->getOpcode()) {
+  case CPU6ISD::BR_CC:
+    // (chain, block, branch opcode, glue) becomes that branch.
+    CurDAG->SelectNodeTo(Node, Node->getConstantOperandVal(2), MVT::Other,
+                         {Node->getOperand(1), Node->getOperand(0),
+                          Node->getOperand(3)});
+    return;
+  }
   SelectCode(Node);
 }
 
@@ -121,6 +129,9 @@ bool CPU6DAGToDAGISel::SelectAbsAddr(SDValue N, SDValue &Addr) {
                                           G->getOffset());
   else if (auto *E = dyn_cast<ExternalSymbolSDNode>(N))
     Addr = CurDAG->getTargetExternalSymbol(E->getSymbol(), MVT::i16);
+  else if (auto *B = dyn_cast<BlockAddressSDNode>(N))
+    Addr = CurDAG->getTargetBlockAddress(B->getBlockAddress(), MVT::i16,
+                                         B->getOffset());
   else if (auto *C = dyn_cast<ConstantSDNode>(N))
     Addr = CurDAG->getTargetConstant(C->getZExtValue(), SDLoc(N), MVT::i16);
   else

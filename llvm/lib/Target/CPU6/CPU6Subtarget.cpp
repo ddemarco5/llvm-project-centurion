@@ -48,6 +48,14 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::NOP";
   case CPU6ISD::CALL:
     return "CPU6ISD::CALL";
+  case CPU6ISD::CMP:
+    return "CPU6ISD::CMP";
+  case CPU6ISD::TST:
+    return "CPU6ISD::TST";
+  case CPU6ISD::BR_CC:
+    return "CPU6ISD::BR_CC";
+  case CPU6ISD::SELECT_CC:
+    return "CPU6ISD::SELECT_CC";
   }
   return nullptr;
 }

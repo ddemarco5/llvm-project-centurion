@@ -60,6 +60,7 @@ public:
   }
 
   bool addInstSelector() override;
+  void addPreEmitPass() override { addPass(&BranchRelaxationPassID); }
 };
 
 } // namespace

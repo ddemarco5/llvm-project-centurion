@@ -58,24 +58,26 @@ def simm16 : Operand<i16> {
 // A branch target or other PC-relative byte. A symbol is fixup_cpu6_pcrel_8:
 // the displacement is from the next instruction. The field is the last byte
 // of the instruction, which is true of every 2-byte branch and (PC)+b form.
+// OtherVT lets selection put a basic block here.
 def BRTargetAsmOperand : AsmOperandClass {
     let Name = "BRTarget";
     let RenderMethod = "addImmOperands";
     let DiagnosticType = "InvalidBRTarget";
 }
-def brtarget : Operand<i8> {
+def brtarget : Operand<OtherVT> {
     let ParserMatchClass = BRTargetAsmOperand;
     let EncoderMethod = "getPCRel8OpValue";
     let DecoderMethod = "decodeSImmOperand<8>";
 }
 // (PC)+b accepts the same signed range and also the unsigned byte the
 // numeric tests already use (LDA (PC),205 is the bit pattern of -51).
+// OtherVT for the same reason as brtarget: JMP (PC),b is the short jump.
 def PCOff8AsmOperand : AsmOperandClass {
     let Name = "PCOff8";
     let RenderMethod = "addImmOperands";
     let DiagnosticType = "InvalidPCOff8";
 }
-def pcoff8 : Operand<i8> {
+def pcoff8 : Operand<OtherVT> {
     let ParserMatchClass = PCOff8AsmOperand;
     let EncoderMethod = "getPCRel8OpValue";
     let DecoderMethod = "decodeUImmOperand<8>";
@@ -168,6 +170,7 @@ class Branch<bits<8> opcode, string opstr>
 
 // webCenREE f_branch tests one bit, or Minus|Value for BGZ and BLE.
 // BGZ is taken when neither bit is set. BLE is taken when either is.
+let isBranch = 1, isTerminator = 1 in {
 let Uses = [rL] in {
 def BL : Branch<0x10, "BL">;    // Branch if Link Set
 def BNL: Branch<0x11, "BNL">;   // Branch if Link Not Set
@@ -194,6 +197,7 @@ def BS3: Branch<0x1C, "BS3">;   // Branch if Sense Switch 3 Set
 def BS4: Branch<0x1D, "BS4">;   // Branch if Sense Switch 4 Set
 def BI: Branch<0x1E, "BI">;   // Branch on interrupts enabled
 def BCK: Branch<0x1F, "BCK">;   // Branch on AH at interrupt level 1 bit 0 set (probably)
+}
 def SVC: Branch<0x66, "SVC">; // System call
 
 //===----------------------------------------------------------------------===//
@@ -1025,10 +1029,12 @@ def STRLit : STRLit32;
 // demand a defined X even in a function that never touches it. S is a use
 // because the push reads it. The call's register mask says which other
 // registers the callee gives back.
-multiclass DirJump<bits<5> opcode> {
+// Ind marks the forms whose target is read from a register or memory.
+multiclass DirJump<bits<5> opcode, bit Ind = 0> {
   def _1 : MemRef24Strange<opcode, 0b001, abs16, NAME, "(${arg})">;
-  def _2 : MemRef24Strange<opcode, 0b010, abs16, NAME, "((${arg}))">;
   def _3 : MemRef16Strange<opcode, 0b011, pcoff8, NAME, "(PC),$arg">;
+  let isIndirectBranch = Ind in {
+  def _2 : MemRef24Strange<opcode, 0b010, abs16, NAME, "((${arg}))">;
   def _4 : MemRef16Strange<opcode, 0b100, pcoff8, NAME, "((PC),${arg})">;
   def _5_0: MemRef16IndexStrange<opcode, 0x0, GPR, NAME, "(${arg})">;
   def _5_1: MemRef16IndexStrange<opcode, 0x1, GPR, NAME#"_I", "(${arg})">;
@@ -1045,8 +1051,12 @@ multiclass DirJump<bits<5> opcode> {
   def _5_C: MemRef24IndexStrange<opcode, 0xC, GPR, NAME#"_?", "(${r}),${arg}">;
   def _5_D: MemRef24IndexStrange<opcode, 0xD, GPR, NAME#"_I", "((${r})),$arg">;
   def _5_E: MemRef24IndexStrange<opcode, 0xE, GPR, NAME#"_D", "((${r})),$arg">;
+  }
 }
-defm JMP : DirJump<0b01110>;
+// JMP (PC),b is the selected jump; JMP (addr) is its long form after branch
+// relaxation.
+let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+defm JMP : DirJump<0b01110, 1>;
 let isCall = 1, hasSideEffects = 1, Uses = [rS] in
 defm JSR : DirJump<0b01111>;
 

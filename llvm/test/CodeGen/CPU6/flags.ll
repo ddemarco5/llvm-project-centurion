@@ -1,6 +1,7 @@
 ; The assembler text does not print condition flags. They show up as implicit
-; operands on the machine instruction. Nothing reads them yet (a compare is
-; not selected), so the defs are dead.
+; operands on the machine instruction. A compare that a branch reads keeps
+; those defs live; the arithmetic below does not feed a branch, so they are
+; dead.
 ;
 ; ADD, AND, XOR and a shift replace Fault, Link, Minus and Value. NOT and a
 ; load or store write Minus and Value and leave the other two. A copy is
