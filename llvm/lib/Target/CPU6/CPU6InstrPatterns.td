@@ -301,11 +301,13 @@ def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
 //===----------------------------------------------------------------------===//
 
 // A load or store address is one of two modes (CPU6ISelDAGToDAG.cpp):
-//   addr     `(r),disp`, M = 5, M' = 8. A register or a frame index plus a
+//   addr     `(r),disp`. A register or a frame index plus a displacement.
+//            A word uses XFR/STR, which name the data register and take a
+//            word displacement. A byte uses LDA/STA, whose displacement is a
 //            signed byte. eliminateFrameIndex replaces a frame index with S
-//            and adds the slot's distance from S to the byte.
+//            and adds the slot's distance from S.
 //   absaddr  `(addr)`, M = 1. A global, an external symbol, a block
-//            address, or a number.
+//            address, or a number. The accumulator load and store.
 // absaddr is tried first. Otherwise addr would take a global as its base and
 // load through a register holding the global's address.
 def addr : ComplexPattern<i16, 2, "SelectAddr">;
@@ -337,11 +339,10 @@ multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC,
                                      "ST"#NAME, "(${arg})">;
     }
   }
-  // Naming both results of addr fills both operands. `addr:$a` would be one.
-  def : Pat<(VT (load (addr GPR:$r, i16imm:$d))),
-            (!cast<Instruction>("LD"#NAME#"fi") GPR:$r, i16imm:$d)>;
-  def : Pat<(store RC:$src, (addr GPR:$r, i16imm:$d)),
-            (!cast<Instruction>("ST"#NAME#"fi") RC:$src, GPR:$r, i16imm:$d)>;
+  // Absolute addressing still uses the accumulator forms. An indexed word
+  // access does not: those patterns are below, on XFR and STR, so the value
+  // is a general register. LDA/STA only name A, and a two-address ALU needs
+  // two of them live at once.
   def : Pat<(VT (load (absaddr abs16:$a))),
             (!cast<Instruction>("LD"#NAME#"abs") abs16:$a)>;
   def : Pat<(store RC:$src, (absaddr abs16:$a)),
@@ -351,6 +352,18 @@ multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC,
 defm A : AccMemory<0x9, 0xB, Acc, i16>;
 // LDABfi, STABfi, LDABabs, STABabs: opcode rows 0x8 and 0xA.
 defm AB : AccMemory<0x8, 0xA, AccB, i8>;
+
+// Word indexed load/store. XFR and STR name the data register, so two loaded
+// values can be live together. The byte forms stay on LDAB/STAB: only AL has
+// a byte load and store.
+def : Pat<(i16 (load (addr GPR:$r, i16imm:$d))),
+          (XFRidx GPR:$r, i16imm:$d)>;
+def : Pat<(store GPR:$src, (addr GPR:$r, i16imm:$d)),
+          (STRidx GPR:$src, GPR:$r, i16imm:$d)>;
+def : Pat<(i8 (load (addr GPR:$r, i16imm:$d))),
+          (LDABfi GPR:$r, i16imm:$d)>;
+def : Pat<(store AccB:$src, (addr GPR:$r, i16imm:$d)),
+          (STABfi AccB:$src, GPR:$r, i16imm:$d)>;
 
 def : Pat<(frameaddr GPR:$r, i16imm:$d), (ADDimm GPR:$r, i16imm:$d)>;
 // XFRimm's immediate is abs16, so a symbol is fixup_cpu6_abs_16.

@@ -53,8 +53,8 @@ define i16 @do_shl(i16 %a) nounwind {
 ; extra displacement is 0; the prologue inserter adds the slot offset to it.
 ; ISEL-LABEL: name: load_slot
 ; ISEL: CLR 7, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
-; ISEL: STAfi killed {{%[0-9]+}}, %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
-; ISEL: LDAfi %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
+; ISEL: STRidx killed {{%[0-9]+}}, %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
+; ISEL: XFRidx %stack.0.p, 0, implicit-def dead $rm, implicit-def dead $rv ::
 define i16 @load_slot() nounwind {
   %p = alloca i16, align 1
   store i16 7, ptr %p, align 1

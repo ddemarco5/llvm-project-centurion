@@ -24,8 +24,8 @@ define i16 @none(i16 %a) nounwind {
 ; CHECK-LABEL: noalign:
 ; CHECK-NOT: STK
 ; CHECK: DCR S,1
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @noalign(i16 %a) nounwind {
@@ -39,8 +39,8 @@ define i16 @noalign(i16 %a) nounwind {
 ; CHECK-LABEL: align1:
 ; CHECK-NOT: STK
 ; CHECK: DCR S,1
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @align1(i16 %a) nounwind {
@@ -57,8 +57,8 @@ define i16 @align1(i16 %a) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,1
 ; CHECK-NEXT: AND S,S,-2
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR
@@ -75,8 +75,8 @@ define i16 @align2(i16 %a) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,1
 ; CHECK-NEXT: AND S,S,-4
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR
@@ -93,8 +93,8 @@ define i16 @align4(i16 %a) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,5
 ; CHECK-NEXT: AND S,S,-8
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR
@@ -123,8 +123,8 @@ define i16 @knownbits() nounwind {
 ; CHECK-LABEL: six:
 ; CHECK-NOT: STK
 ; CHECK: DCR S,5
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: INR S,5
 ; CHECK-NEXT: RSR
 define i16 @six(i16 %a) nounwind {
@@ -141,8 +141,8 @@ define i16 @six(i16 %a) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,15
 ; CHECK-NEXT: AND S,S,-2
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR
@@ -158,10 +158,10 @@ define i16 @wide(i16 %a) nounwind {
 ; is nearer the incoming S (displacement 2). The second is at the final S.
 ; CHECK-LABEL: two:
 ; CHECK: DCR S,3
-; CHECK-NEXT: STA (S),2
+; CHECK-NEXT: STR A,(S),2
 ; CHECK-NEXT: CLR A,7
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),2
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,2
 ; CHECK-NEXT: INR S,3
 ; CHECK-NEXT: RSR
 define i16 @two(i16 %a) nounwind {
@@ -181,10 +181,10 @@ define i16 @two(i16 %a) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,5
 ; CHECK-NEXT: AND S,S,-4
-; CHECK-NEXT: STA (S),4
+; CHECK-NEXT: STR A,(S),4
 ; CHECK-NEXT: CLR A,7
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: LDA (S),4
+; CHECK-NEXT: STR A,(S),2
+; CHECK-NEXT: XFR (S),A,4
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR

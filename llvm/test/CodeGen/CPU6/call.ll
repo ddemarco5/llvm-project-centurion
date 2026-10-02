@@ -45,7 +45,7 @@ define i16 @swap(i16 %a, i16 %b) nounwind {
 ; No frame of our own, so incoming S + 2 is (S),2.
 ; CHECK-LABEL: fifth:
 ; CHECK-NEXT: # %bb.0:
-; CHECK-NEXT: LDA (S),2
+; CHECK-NEXT: XFR (S),A,2
 ; CHECK-NEXT: RSR
 define i16 @fifth(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e) nounwind {
   ret i16 %e
@@ -54,7 +54,7 @@ define i16 @fifth(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e) nounwind {
 ; The sixth word is one slot higher: incoming S + 4.
 ; CHECK-LABEL: sixth:
 ; CHECK-NEXT: # %bb.0:
-; CHECK-NEXT: LDA (S),4
+; CHECK-NEXT: XFR (S),A,4
 ; CHECK-NEXT: RSR
 define i16 @sixth(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e, i16 %f) nounwind {
   ret i16 %f
@@ -68,9 +68,9 @@ define i16 @sixth(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e, i16 %f) nounwind {
 ; CHECK-NEXT: XFR S,X
 ; CHECK-NEXT: DCR S,1
 ; CHECK-NEXT: AND S,S,-4
-; CHECK-NEXT: LDA (X),4
-; CHECK-NEXT: STA (S),0
-; CHECK-NEXT: LDA (S),0
+; CHECK-NEXT: XFR (X),A,4
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,0
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1
 ; CHECK-NEXT: RSR
@@ -162,18 +162,17 @@ define i8 @bytecall(i8 %a) nounwind {
   ret i8 %r
 }
 
-; The incoming fifth word is at incoming S + 2. This frame is 4 bytes (the
-; outgoing word and a spill of A), so that address is (S),6. The outgoing
-; copy is (S),0, which the callee of take5 reads as its own (S),2.
+; The incoming fifth word is at incoming S + 2. The frame is that outgoing
+; word only: XFR can load it into C, so A does not have to be spilled. After
+; DCR S,1 the incoming word is (S),4, and the outgoing copy is (S),0, which
+; the callee of take5 reads as its own (S),2.
 ; CHECK-LABEL: forward:
 ; CHECK-NEXT: # %bb.0:
-; CHECK-NEXT: DCR S,3
-; CHECK-NEXT: STR A,(S),2
-; CHECK-NEXT: LDA (S),6
-; CHECK-NEXT: STR A,(S),0
-; CHECK-NEXT: XFR (S),A,2
+; CHECK-NEXT: DCR S,1
+; CHECK-NEXT: XFR (S),C,4
+; CHECK-NEXT: STR C,(S),0
 ; CHECK-NEXT: JSR (take5)
-; CHECK-NEXT: INR S,3
+; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @forward(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e) nounwind {
   %r = call i16 @take5(i16 %a, i16 %b, i16 %c, i16 %d, i16 %e)
@@ -215,22 +214,20 @@ define i16 @twice() nounwind {
 
 ; Realigning and calling. X is copied after STK, so the incoming fifth word
 ; is (X),4. The outgoing fifth word is still (S),0, below the aligned local
-; at (S),8. JSR pushes that X and RSR pops it, so the epilogue's XFR X,S
+; at (S),4. JSR pushes that X and RSR pops it, so the epilogue's XFR X,S
 ; still restores the pre-call frame.
 ; CHECK-LABEL: realign_caller:
 ; CHECK-NEXT: # %bb.0:
 ; CHECK-NEXT: STK X,1
 ; CHECK-NEXT: XFR S,X
-; CHECK-NEXT: DCR S,9
+; CHECK-NEXT: DCR S,5
 ; CHECK-NEXT: AND S,S,-4
-; CHECK-NEXT: STR A,(S),6
-; CHECK-NEXT: LDA (X),4
-; CHECK-NEXT: STR A,(S),4
+; CHECK-NEXT: STR A,(S),2
+; CHECK-NEXT: XFR (X),C,4
 ; CHECK-NEXT: CLR A,1
-; CHECK-NEXT: STA (S),8
-; CHECK-NEXT: XFR (S),A,4
-; CHECK-NEXT: STR A,(S),0
-; CHECK-NEXT: XFR (S),A,6
+; CHECK-NEXT: STR A,(S),4
+; CHECK-NEXT: XFR (S),A,2
+; CHECK-NEXT: STR C,(S),0
 ; CHECK-NEXT: JSR (take5)
 ; CHECK-NEXT: XFR X,S
 ; CHECK-NEXT: POP X,1

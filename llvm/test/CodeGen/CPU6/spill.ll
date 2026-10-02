@@ -1,22 +1,20 @@
 ; RUN: llc -mtriple=cpu6 -O0 -verify-machineinstrs < %s | FileCheck %s
 
-; Every store goes through A, and %a is still needed for the return. The
-; allocator spills %a with STR, rebuilds each sum in A, and reloads %a with
-; XFR. The spill slot is at S+0 and the alloca at S+2.
+; STR names the register being stored, so each sum is written from the
+; register that computed it. %a stays in A for the return, and the only
+; stack slot is the alloca.
 
 ; CHECK-LABEL: four:
-; CHECK:      DCR S,3
-; CHECK-NEXT: STR A,(S),0 {{.*}}Spill
-; CHECK-NEXT: INA
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: ADD B,A,2
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: ADD Y,A,3
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: ADD Z,A,4
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: XFR (S),A,0 {{.*}}Reload
-; CHECK-NEXT: INR S,3
+; CHECK:      DCR S,1
+; CHECK-NEXT: ADD A,C,1
+; CHECK-NEXT: STR C,(S),0
+; CHECK-NEXT: INR B,1
+; CHECK-NEXT: STR B,(S),0
+; CHECK-NEXT: ADD Y,B,3
+; CHECK-NEXT: STR B,(S),0
+; CHECK-NEXT: ADD Z,B,4
+; CHECK-NEXT: STR B,(S),0
+; CHECK-NEXT: INR S,1
 ; CHECK-NEXT: RSR
 define i16 @four(i16 %a, i16 %b, i16 %c, i16 %d) {
   %slot = alloca i16
@@ -31,17 +29,15 @@ define i16 @four(i16 %a, i16 %b, i16 %c, i16 %d) {
   ret i16 %a
 }
 
-; %a has two uses. The -O0 fast allocator spills it on entry and reloads it
-; into A for the second store.
+; %a is stored twice and then loaded back. Both stores name A, so it does
+; not have to be spilled first.
 
 ; CHECK-LABEL: two:
-; CHECK:      DCR S,5
-; CHECK-NEXT: STR A,(S),0 {{.*}}Spill
-; CHECK-NEXT: STA (S),4
-; CHECK-NEXT: XFR (S),A,0 {{.*}}Reload
-; CHECK-NEXT: STA (S),2
-; CHECK-NEXT: LDA (S),4
-; CHECK-NEXT: INR S,5
+; CHECK:      DCR S,3
+; CHECK-NEXT: STR A,(S),2
+; CHECK-NEXT: STR A,(S),0
+; CHECK-NEXT: XFR (S),A,2
+; CHECK-NEXT: INR S,3
 ; CHECK-NEXT: RSR
 define i16 @two(i16 %a) {
   %p = alloca i16
