@@ -1057,6 +1057,17 @@ multiclass DirJump<bits<5> opcode, bit Ind = 0> {
 // relaxation.
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
 defm JMP : DirJump<0b01110, 1>;
+
+// Tail call. Same transfer as JMP (addr): X is left holding this function's
+// return address, and the callee's RSR returns to our caller. isReturn puts
+// the epilogue in front of it. It is not a branch, because branch relaxation
+// treats every unconditional branch as a jump to a block. The encoding is
+// JMP_1's; CPU6MCInstLower swaps the opcode at emit so the disassembler,
+// which already knows JMP (addr), does not grow a second copy of those bits.
+// Size is 3 so a short branch that jumps over this call measures it.
+let isReturn = 1, isTerminator = 1, isBarrier = 1, isCodeGenOnly = 1,
+    isPseudo = 1, hasSideEffects = 1, Size = 3 in
+def TAILJMP : CenturionInst<(outs), (ins abs16:$dst), "JMP", "(${dst})">;
 let isCall = 1, hasSideEffects = 1, Uses = [rS] in
 defm JSR : DirJump<0b01111>;
 

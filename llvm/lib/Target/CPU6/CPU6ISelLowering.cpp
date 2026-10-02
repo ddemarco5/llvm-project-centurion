@@ -14,6 +14,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/IR/Function.h"
 
 using namespace llvm;
 
@@ -220,6 +221,39 @@ SDValue CPU6TargetLowering::LowerCallResult(
   return Chain;
 }
 
+// A direct call whose arguments fit in A, B, Y, and Z. JMP leaves X holding
+// the return address JSR put there on entry, so the callee's RSR returns to
+// our caller. Y and Z are callee-saved, and the epilogue POP is inserted in
+// front of the jump, so an argument in either register has to be the value
+// that POP reloads: the incoming one. A stack argument would have to be
+// written at incoming S, on top of this function's own stack arguments.
+static bool isEligibleForTailCall(const CPU6TargetLowering &TLI,
+                                  const TargetLowering::CallLoweringInfo &CLI,
+                                  CCState &CCInfo,
+                                  const SmallVectorImpl<CCValAssign> &ArgLocs) {
+  if (!CLI.IsTailCall)
+    return false;
+  if (auto *G = dyn_cast<GlobalAddressSDNode>(CLI.Callee)) {
+    if (G->getOffset() != 0)
+      return false;
+    if (const auto *Callee = dyn_cast<Function>(G->getGlobal())) {
+      if (Callee->getCallingConv() != CLI.CallConv)
+        return false;
+    }
+  } else if (!isa<ExternalSymbolSDNode>(CLI.Callee)) {
+    return false;
+  }
+  if (CCInfo.getStackSize() != 0)
+    return false;
+  for (const CCValAssign &VA : ArgLocs)
+    if (!VA.isRegLoc())
+      return false;
+  const MachineFunction &MF = CLI.DAG.getMachineFunction();
+  const uint32_t *Mask = MF.getSubtarget().getRegisterInfo()->getCallPreservedMask(
+      MF, CLI.CallConv);
+  return TLI.parametersInCSRMatch(MF.getRegInfo(), Mask, ArgLocs, CLI.OutVals);
+}
+
 SDValue
 CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
                               SmallVectorImpl<SDValue> &InVals) const {
@@ -232,10 +266,19 @@ CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
     report_fatal_error("CPU6 varargs are not supported");
   CCInfo.AnalyzeCallOperands(CLI.Outs, CC_CPU6);
 
+  bool Tail = isEligibleForTailCall(*this, CLI, CCInfo, ArgLocs);
+  if (CLI.CB && CLI.CB->isMustTailCall() && !Tail)
+    report_fatal_error("CPU6 cannot guarantee this tail call");
+  CLI.IsTailCall = Tail;
+
   // Bytes the caller writes above S. JSR's push of X is not part of this:
   // RSR pops it, and the callee finds the first word at incoming S + 2.
+  // A tail call has no stack arguments and does not return, so it has no
+  // call frame.
   unsigned NumBytes = CCInfo.getStackSize();
-  SDValue Chain = DAG.getCALLSEQ_START(CLI.Chain, NumBytes, 0, DL);
+  SDValue Chain = CLI.Chain;
+  if (!Tail)
+    Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 4> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;
@@ -282,18 +325,26 @@ CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
   else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee))
     Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i16);
 
-  SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
   SmallVector<SDValue, 8> Ops;
   Ops.push_back(Chain);
   Ops.push_back(Callee);
   for (const auto &[Reg, Val] : RegsToPass)
     Ops.push_back(DAG.getRegister(Reg, Val.getValueType()));
+  if (Tail) {
+    // No register mask. The jump does not return, and the epilogue has
+    // already handed Y and Z back. The physreg operands keep the arguments
+    // live into the jump.
+    if (Glue)
+      Ops.push_back(Glue);
+    return DAG.getNode(CPU6ISD::TC_RETURN, DL, MVT::Other, Ops);
+  }
   const TargetRegisterInfo *TRI = DAG.getSubtarget().getRegisterInfo();
   Ops.push_back(DAG.getRegisterMask(
       TRI->getCallPreservedMask(DAG.getMachineFunction(), CLI.CallConv)));
   if (Glue)
     Ops.push_back(Glue);
 
+  SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
   Chain = DAG.getNode(CPU6ISD::CALL, DL, NodeTys, Ops);
   Glue = Chain.getValue(1);
   Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);

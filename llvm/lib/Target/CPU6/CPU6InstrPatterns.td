@@ -42,6 +42,9 @@ def SDT_CPU6CallSeqEnd : SDCallSeqEnd<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>;
 
 def CPU6call : SDNode<"CPU6ISD::CALL", SDT_CPU6Call,
                       [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
+// Tail call. No output glue: the jump does not return into this function.
+def CPU6tcret : SDNode<"CPU6ISD::TC_RETURN", SDT_CPU6Call,
+                       [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 def CPU6callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_CPU6CallSeqStart,
                                [SDNPHasChain, SDNPOutGlue]>;
 def CPU6callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_CPU6CallSeqEnd,
@@ -399,6 +402,11 @@ def : Pat<(CPU6callseq_end timm:$amt1, timm:$amt2),
 def : Pat<(CPU6call (i16 tglobaladdr:$dst)), (JSR_1 tglobaladdr:$dst)>;
 def : Pat<(CPU6call (i16 texternalsym:$dst)), (JSR_1 texternalsym:$dst)>;
 def : Pat<(CPU6call (i16 imm:$dst)), (JSR_1 imm:$dst)>;
+// Direct tail call. Indirect stays a JSR: the address register would be
+// the one a callee-saved POP in front of the jump reloads.
+def : Pat<(CPU6tcret (i16 tglobaladdr:$dst)), (TAILJMP tglobaladdr:$dst)>;
+def : Pat<(CPU6tcret (i16 texternalsym:$dst)), (TAILJMP texternalsym:$dst)>;
+def : Pat<(CPU6tcret (i16 imm:$dst)), (TAILJMP imm:$dst)>;
 // Indirect. webCenREE's indexed form with M' = 0 reads the word register
 // and does not modify it. `JSR (X)` encodes as 7D 40.
 def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CPU6MCInstLower.h"
+#include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -19,7 +20,12 @@ using namespace llvm;
 
 void CPU6MCInstLower::lowerInstruction(const MachineInstr *MI,
                                        MCInst &OutMI) const {
-  OutMI.setOpcode(MI->getOpcode());
+  // TAILJMP is JMP (addr). The pseudo exists so the jump is a return during
+  // prologue insertion and not a block branch during relaxation.
+  unsigned Opc = MI->getOpcode();
+  if (Opc == CPU6::TAILJMP)
+    Opc = CPU6::JMP_1;
+  OutMI.setOpcode(Opc);
   for (const MachineOperand &MO : MI->operands()) {
     if (MO.isReg()) {
       // Implicit operands (argument registers, the call's regmask uses)

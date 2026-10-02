@@ -32,6 +32,9 @@ enum NodeType : unsigned {
   // Direct or indirect JSR. Glue keeps the argument copies on the call.
   // See CPU6call in CPU6InstrPatterns.td.
   CALL,
+  // Direct JMP in return position. The epilogue restores S and X first, so
+  // the callee's RSR returns to this function's caller. See CPU6tcret.
+  TC_RETURN,
   // Flag-setting compares and their two readers. See CPU6cmp, CPU6tst,
   // CPU6brcc, and CPU6selectcc in CPU6InstrPatterns.td.
   CMP,
