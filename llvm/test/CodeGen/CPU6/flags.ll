@@ -73,7 +73,7 @@ define i16 @load_slot() nounwind {
 ; MUL and DIV read the destination as well as the source, and replace all
 ; four flags. The tied use is the destination's incoming value.
 ; ISEL-LABEL: name: do_mul
-; ISEL: MUL {{%[0-9]+}}, {{%[0-9]+}}, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+; ISEL: MULlo {{%[0-9]+}}, {{%[0-9]+}}, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
 define i16 @do_mul(i16 %a, i16 %b) nounwind {
   %v = mul i16 %a, %b
   ret i16 %v

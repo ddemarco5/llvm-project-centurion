@@ -247,9 +247,11 @@ define i16 @keep(i16 %a) {
   ret i16 %c
 }
 
-; MUL src,dst is dst = dst * src and is commutable, so the product stays in A.
+; The low half is written to B or Y. %b arrives in B, so the product stays
+; there and is copied back to A for the return.
 ; CHECK-LABEL: mulrr:
-; CHECK:      MUL B,A
+; CHECK:      MUL A,B
+; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i16 @mulrr(i16 %a, i16 %b) {
   %v = mul i16 %a, %b
@@ -265,12 +267,25 @@ define i16 @divrr(i16 %a, i16 %b) {
   ret i16 %v
 }
 
-; The literal form is three-address, dst = src op imm, like ADD.
+; Literal MUL with destination B: A is unchanged, and B holds the low half.
 ; CHECK-LABEL: mul10:
-; CHECK:      MUL A,A,10
+; CHECK:      MUL A,B,10
+; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i16 @mul10(i16 %a) {
   %v = mul i16 %a, 10
+  ret i16 %v
+}
+
+; A square is copied into B and multiplied there. MUL A,A would return the
+; high half of the product.
+; CHECK-LABEL: sq:
+; CHECK:      XAB
+; CHECK-NEXT: MUL B,B
+; CHECK-NEXT: XFR B,A
+; CHECK-NEXT: RSR
+define i16 @sq(i16 %a) {
+  %v = mul i16 %a, %a
   ret i16 %v
 }
 

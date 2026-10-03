@@ -600,17 +600,49 @@ def XFRabs : XFRAbs32;
 
 // Register form is the two-address word ALU: both nibbles even, the
 // destination is read and written, and all four flags are replaced
-// (ArithFLMV). MUL src,dst writes the low 16 bits of dst * src and is
-// commutable. DIV src,dst writes the unsigned quotient dst / src, so the
-// dividend stays in the destination. That is not SUB's src - dst order.
-// The result is the one destination register. The literal forms below are
-// three-address, like ADDimm: dst = src * imm and dst = src / imm.
+// (ArithFLMV). MUL src,dst is an unsigned 32-bit product of dst * src.
+// webCenREE prints a pair when the destination nibble has bit 1 clear:
+//   A:B, X:Y, Z:S, C:P — high 16 in the named register, low 16 in the next.
+// B, Y, S, and P are written alone, and that register is the low 16.
+// Z would clobber S and C would clobber P. The assembler still accepts
+// every word register. An i16 product is the low half, so codegen uses
+// MULlo / MULimmLo and only allocates B or Y as the destination.
+// DIV src,dst writes the unsigned quotient dst / src, so the dividend stays
+// in the destination. That is not SUB's src - dst order. The literal forms
+// below are three-address, like ADDimm: dst = src * imm and dst = src / imm.
 let Defs = [rF, rL, rM, rV], isCommutable = 1 in
 def MUL: DoubleReg16RMW<0x77, "MUL">;
 let Defs = [rF, rL, rM, rV] in
 def DIV: DoubleReg16RMW<0x78, "DIV">;
 def MULimm : DoubleRegImm32<0x77, "MUL">;
 def DIVimm : DoubleRegImm32<0x78, "DIV">;
+// Same encoding as MUL. The tied destination is MulLo, so the register that
+// holds the i16 result is the one the hardware fills with the low half.
+let Constraints = "$arglnibble = $base", hasSideEffects = 0,
+    mayLoad = 0, mayStore = 0 in
+class DoubleReg16RMWLo<bits<8> opcode, string opstr>
+      : SingleArg16HL<opcode, (outs MulLo:$arglnibble),
+                      (ins GPR:$arghnibble, MulLo:$base),
+                      opstr, "$arghnibble,$arglnibble"> { }
+let Defs = [rF, rL, rM, rV], isCodeGenOnly = 1 in
+def MULlo : DoubleReg16RMWLo<0x77, "MUL">;
+// Literal MUL, destination restricted the same way. dst = src * imm, and
+// only B or Y are selected, so the written register is the low half.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1,
+    Defs = [rF, rL, rM, rV] in
+def MULimmLo : CenturionInst32<(outs MulLo:$dst), (ins GPR:$src, abs16:$imm),
+                               "MUL", "$src,$dst,$imm"> {
+  bits<4> src;
+  bits<4> dst;
+  bits<16> imm;
+  let Inst{31-24} = 0x77;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = dst;
+  let Inst{15-0} = imm;
+}
 // Odd/odd is indexed, not another imm16. load7 `78 93 00 1c` is
 // div B, [Z+0x001c], B. Wiki: dest <- dest / index(src). High nibble
 // is the index with its low bit set. Low nibble is the destination

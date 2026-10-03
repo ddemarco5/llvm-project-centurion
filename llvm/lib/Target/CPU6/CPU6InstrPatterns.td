@@ -244,9 +244,12 @@ def : Pat<(and GPR:$a, GPR:$b), (AND GPR:$a, GPR:$b)>;
 def : Pat<(or GPR:$a, GPR:$b), (ORI GPR:$a, GPR:$b)>;
 def : Pat<(xor GPR:$a, GPR:$b), (ORE GPR:$a, GPR:$b)>;
 def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
-// MUL is the same operand order as ADD: the product can stay in either
-// register. DIV keeps the dividend in the destination, so a / b is DIV b, a.
-def : Pat<(mul GPR:$a, GPR:$b), (MUL GPR:$a, GPR:$b)>;
+// The i16 product is the low half of the 32-bit unsigned MUL. One operand is
+// copied into B or Y, and that register is the destination the hardware
+// writes the low half into. DIV keeps the dividend in the destination, so
+// a / b is DIV b, a.
+def : Pat<(mul GPR:$a, GPR:$b),
+          (MULlo GPR:$a, (COPY_TO_REGCLASS GPR:$b, MulLo))>;
 def : Pat<(udiv GPR:$a, GPR:$b), (DIV GPR:$b, GPR:$a)>;
 
 // Word ALU with a literal. Mode 2 writes dst = src op imm, except SUB, which
@@ -259,7 +262,7 @@ def : Pat<(sub (i16 imm:$imm), GPR:$src), (SUBimm GPR:$src, imm:$imm)>;
 def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
 def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
-def : Pat<(mul GPR:$src, (i16 imm:$imm)), (MULimm GPR:$src, imm:$imm)>;
+def : Pat<(mul GPR:$src, (i16 imm:$imm)), (MULimmLo GPR:$src, imm:$imm)>;
 def : Pat<(udiv GPR:$src, (i16 imm:$imm)), (DIVimm GPR:$src, imm:$imm)>;
 
 // IVR ignores its count nibble. SLR r,n shifts left by n + 1, and SRR r,n

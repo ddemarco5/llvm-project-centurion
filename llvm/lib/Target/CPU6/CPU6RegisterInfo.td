@@ -72,6 +72,12 @@ let SubRegIndices = [sub_hi, sub_lo] in {
 
 def GPR : RegisterClass<"CPU6", [i16], 8, (add rA, rB, rX, rY, rZ, rS, rC, rP)>;
 
+// Unsigned MUL's low 16 bits. A destination of A, X, Z, or C receives the
+// high half and writes the low half into the next register (B, Y, S, P).
+// B and Y receive only the low half. Z would clobber S and C would clobber
+// P, so an i16 product is placed in one of these two.
+def MulLo : RegisterClass<"CPU6", [i16], 8, (add rB, rY)>;
+
 // LDA and STA always touch A. A result or stored value has to land there.
 def Acc : RegisterClass<"CPU6", [i16], 8, (add rA)>;
 
