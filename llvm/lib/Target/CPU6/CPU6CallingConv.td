@@ -35,8 +35,8 @@ def CC_CPU6 : CallingConv<[
 
 // Where `ret` places its value. A returned byte is promoted to a word.
 // An i16 uses A. An i32 is split into two i16 parts before this list is
-// consulted: the low half goes in A and the high half in B, which is the
-// little-endian order of the data layout.
+// consulted: the high half goes in A and the low half in B, which is the
+// big-endian order of the data layout.
 
 def RetCC_CPU6 : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i16>>,

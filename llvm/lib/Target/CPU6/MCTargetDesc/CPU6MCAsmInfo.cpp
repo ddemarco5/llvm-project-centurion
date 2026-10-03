@@ -16,6 +16,9 @@ void CPU6MCAsmInfo::anchor() {}
 
 CPU6MCAsmInfo::CPU6MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
     : MCAsmInfoELF(Options) {
+  // Integer data is big-endian, matching the data layout. The ELF container
+  // stays little-endian; that is the AsmBackend endian llvm-cpu6-ld reads.
+  IsLittleEndian = false;
   CodePointerSize = CalleeSaveStackSlotSize = TT.isArch64Bit() ? 8 : 4;
   CommentString = "#";
   AlignmentIsInBytes = false;

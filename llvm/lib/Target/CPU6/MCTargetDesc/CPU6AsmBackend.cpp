@@ -68,9 +68,9 @@ void CPU6AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
     break;
   }
   default: {
-    // FK_Data_* and the other generic kinds. The bytes are little-endian,
-    // matching this backend's endianness. CPU6 instruction fixups are the
-    // two cases above and are big-endian.
+    // FK_Data_* and the other generic kinds. Integer data is big-endian.
+    // Instruction fixups are the two cases above. The AsmBackend endian
+    // stays little so the ELF container does too.
     MCFixupKindInfo Info = getFixupKindInfo(Fixup.getKind());
     if (!Value)
       return;
@@ -78,8 +78,10 @@ void CPU6AsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
     unsigned NumBytes = alignTo(Info.TargetSize + Info.TargetOffset, 8) / 8;
     assert(Fixup.getOffset() + NumBytes <= F.getSize() &&
            "Invalid fixup offset");
-    for (unsigned I = 0; I != NumBytes; ++I)
-      Data[I] |= static_cast<uint8_t>((Value >> (I * 8)) & 0xff);
+    for (unsigned I = 0; I != NumBytes; ++I) {
+      unsigned Shift = (NumBytes - 1 - I) * 8;
+      Data[I] |= static_cast<uint8_t>((Value >> Shift) & 0xff);
+    }
     break;
   }
   }

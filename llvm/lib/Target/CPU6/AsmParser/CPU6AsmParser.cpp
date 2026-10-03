@@ -706,9 +706,8 @@ bool CPU6AsmParser::parseInstruction(ParseInstructionInfo &Info,
     return false; 
 }
 
-// CPU6 words in memory are 16-bit and big-endian. The generic .2byte / .short
-// directives follow the little-endian data layout, so they do not match a
-// dumped word. .word is not a generic directive. Emit it big-endian here.
+// CPU6 words in memory are 16-bit and big-endian, and so is the data layout.
+// .word is not a generic directive. Emit it big-endian here.
 // Any other directive is left for the generic parser.
 bool CPU6AsmParser::ParseDirective(AsmToken DirectiveID) {
   if (DirectiveID.getString().lower() != ".word")

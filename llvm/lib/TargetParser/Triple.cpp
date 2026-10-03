@@ -2211,6 +2211,7 @@ Triple Triple::getLittleEndianArchVariant() const {
   case Triple::sparcv9:
   case Triple::systemz:
   case Triple::m68k:
+  case Triple::cpu6:
 
   // ARM is intentionally unsupported here, changing the architecture would
   // drop any arch suffixes.
@@ -2302,7 +2303,6 @@ bool Triple::isLittleEndian() const {
   case Triple::x86_64:
   case Triple::xcore:
   case Triple::xtensa:
-  case Triple::cpu6:
     return true;
   default:
     return false;

@@ -569,9 +569,10 @@ std::string Triple::computeDataLayout(StringRef ABIName) const {
   case Triple::avr:
     return "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8:16-a:8";
   case Triple::cpu6:
-    // One-byte alignment for every type. n8 is a hint; CPU6 codegen legality
-    // comes from the register classes, which make i16 legal.
-    return "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8";
+    // Words are stored high byte first. One-byte alignment for every type.
+    // n8 is a hint; CPU6 codegen legality comes from the register classes,
+    // which make i16 legal.
+    return "E-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8";
   case Triple::bpfel:
   case Triple::bpfeb:
     return computeBPFDataLayout(*this);
