@@ -79,7 +79,7 @@ def imm16_0to15 : ImmLeaf<i16, [{ return Imm >= 0 && Imm <= 15; }]>;
 def shamt16_1to15 : ImmLeaf<i16, [{ return Imm >= 1 && Imm <= 15; }]>;
 
 // The register/count family is two bytes. The count nibble n means n + 1
-// for INR, DCR, SLR and their byte twins, and n itself for CLR and CLRB.
+// for INR, DCR, SLR, SRR and their byte twins, and n itself for CLR and CLRB.
 def count_minus1 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(N->getSExtValue() - 1, SDLoc(N), MVT::i8);
 }]>;
@@ -246,18 +246,15 @@ def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
 def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
 
-// IVR ignores its count nibble. SLR r,n shifts left by n + 1.
-// The rotates, MUL, and DIV have no patterns. RRR, RLR, RRRB, and RLRB have
-// no working handler in webCenREE, and MUL and DIV are decoded as OPM.RRX,
-// which throws before any result is computed.
+// IVR ignores its count nibble. SLR r,n shifts left by n + 1, and SRR r,n
+// shifts right arithmetically by n + 1. The rotates, MUL, and DIV have no
+// patterns. RRR, RLR, RRRB, and RLRB have no working handler in webCenREE,
+// and MUL and DIV are decoded as OPM.RRX, which throws before any result is
+// computed.
 let AddedComplexity = 1 in {
 def : Pat<(not GPR:$r), (IVR GPR:$r, 0)>;
 def : Pat<(shl GPR:$r, shamt16_1to15:$n), (SLR GPR:$r, (count_minus1 $n))>;
-// TODO: confirm whether SRR shifting left is an emulator bug or a microcode
-// bug. webCenREE's opf returns src << count, the same direction as SLR, while
-// SRA (the one-byte form) is an arithmetic shift right by 1. Same count bias
-// as SLR: the nibble n means a shift of n + 1.
-//def : Pat<(sra GPR:$r, shamt16_1to15:$n), (SRR GPR:$r, (count_minus1 $n))>;
+def : Pat<(sra GPR:$r, shamt16_1to15:$n), (SRR GPR:$r, (count_minus1 $n))>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -283,20 +280,17 @@ def : ByteImmPat<xor, OREimm>;
 def : Pat<(sub (i8 imm:$imm), GPRB:$src),
           (EXTRACT_SUBREG (SUBimm ByteInWord, (imm8_as_16 imm:$imm)), sub_lo)>;
 
-// INRB/DCRB/IVRB/SLRB are two bytes and beat the four-byte word literal
+// INRB/DCRB/IVRB/SLRB/SRRB are two bytes and beat the four-byte word literal
 // forms. INRB and DCRB add or subtract n + 1. IVRB has no count. SLRB r,n
-// shifts left by n + 1.
+// shifts left by n + 1, and SRRB r,n shifts right arithmetically by n + 1.
+// Amounts of 8 and up are poison for i8.
 let AddedComplexity = 1 in {
 def : Pat<(add GPRB:$r, imm8_1to16:$n), (INRB GPRB:$r, (count_minus1 $n))>;
 def : Pat<(add GPRB:$r, imm8_m16tom1:$n),
           (DCRB GPRB:$r, (neg_count_minus1 $n))>;
 def : Pat<(not GPRB:$r), (IVRB GPRB:$r)>;
 def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
-// TODO: confirm whether SRRB shifting left is an emulator bug or a microcode
-// bug. webCenREE's opf returns src << count, the same direction as SLRB,
-// while SRAB (the one-byte form) is an arithmetic shift right by 1. The
-// nibble n means a shift of n + 1. Amounts of 8 and up are poison for i8.
-//def : Pat<(sra GPRB:$r, shamt8_1to7:$n), (SRRB GPRB:$r, (count_minus1 $n))>;
+def : Pat<(sra GPRB:$r, shamt8_1to7:$n), (SRRB GPRB:$r, (count_minus1 $n))>;
 }
 
 //===----------------------------------------------------------------------===//

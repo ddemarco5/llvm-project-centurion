@@ -87,6 +87,15 @@ define i8 @shl3(i8 %a) {
   ret i8 %v
 }
 
+; SRRB r,n is an arithmetic shift right by n + 1.
+; CHECK-LABEL: ashr3:
+; CHECK:      SRRB AL,2
+; CHECK-NEXT: RSR
+define i8 @ashr3(i8 %a) {
+  %v = ashr i8 %a, 3
+  ret i8 %v
+}
+
 ; CLRB r,n writes n (0-15); a byte store goes through AL with STAB.
 ; CHECK-LABEL: store5:
 ; CHECK:      DCR S,0

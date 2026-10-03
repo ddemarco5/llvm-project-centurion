@@ -48,6 +48,14 @@ define i16 @do_shl(i16 %a) nounwind {
   ret i16 %v
 }
 
+; Arithmetic shift right is SRR, and it writes the same four flags.
+; ISEL-LABEL: name: do_ashr
+; ISEL: SRR {{%[0-9]+}}, 0, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+define i16 @do_ashr(i16 %a) nounwind {
+  %v = ashr i16 %a, 1
+  ret i16 %v
+}
+
 ; 7 fits in CLR's nibble, and CLR writes all four flags. The store and the
 ; reload write Minus and Value only. The frame index is the base and the
 ; extra displacement is 0; the prologue inserter adds the slot offset to it.

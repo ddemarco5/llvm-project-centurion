@@ -95,6 +95,24 @@ define i16 @shl4(i16 %a) {
   ret i16 %v
 }
 
+; SRR r,n is an arithmetic shift right by n + 1.
+; CHECK-LABEL: ashr4:
+; CHECK:      SRR A,3
+; CHECK-NEXT: RSR
+define i16 @ashr4(i16 %a) {
+  %v = ashr i16 %a, 4
+  ret i16 %v
+}
+
+; A shift of 1 encodes a count nibble of 0.
+; CHECK-LABEL: ashr1:
+; CHECK:      SRR A,0
+; CHECK-NEXT: RSR
+define i16 @ashr1(i16 %a) {
+  %v = ashr i16 %a, 1
+  ret i16 %v
+}
+
 ; Register/register ALU is two-address: OP src,dst is dst = dst op src.
 ; ADD, AND, ORI and ORE are commutable, so the result is built in A.
 ; CHECK-LABEL: addrr:

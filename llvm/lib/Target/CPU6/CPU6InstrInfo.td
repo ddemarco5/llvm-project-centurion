@@ -284,10 +284,8 @@ def IVR : SingleReg16<0x33, "IVR">;      // Invert Register
 def IVRB: SingleReg16H_B<0x23, "IVRB">;  // Invert Register (Byte mode)
 }
 // Shifts compute a new Fault and Link from the data and write all four bits.
-// They do not read the old flags. webCenREE's SRRB/SRR opf shifts left
-// (src << count), same as SLRB/SLR. The sra patterns in CPU6InstrPatterns.td
-// are commented out until that is confirmed as an emulator bug or a
-// microcode bug.
+// They do not read the old flags. SLR shifts left and SRR shifts right
+// arithmetically; the count nibble n means a shift of n + 1.
 let Defs = [rF, rL, rM, rV] in {
 def SRR : SingleReg16<0x34, "SRR">;      // Shift Register Right
 def SRRB: SingleReg16_B<0x24, "SRRB">;   // Shift Register Right (Byte mode)
