@@ -81,6 +81,10 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // product, and EtchedPixels implements it as mul16. An i8 multiply is the
   // low byte of the i16 MUL.
   setOperationAction(ISD::MUL, MVT::i8, Promote);
+  // i8 mulhu is bits [15:8] of that same product, not an i16 mulhu. Promoting
+  // it would take bits [31:16], which are 0 once the bytes have been
+  // zero-extended. MULHUb expands to the zero-extend, word MUL, and shift.
+  setOperationAction(ISD::MULHU, MVT::i8, Legal);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   // A condition only exists in the flags, as a compare glued to the branch or
   // select that reads it. setcc and select become select_cc, brcond br_cc.
@@ -559,9 +563,57 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case CPU6::SELECT:
   case CPU6::SELECTB:
     return EmitSelect(MI, BB);
+  case CPU6::MULHUb:
+    return EmitMulhu(MI, BB);
   default:
     return EmitShift(MI, BB);
   }
+}
+
+// i8 mulhu. Both bytes are zero-extended, so the 16-bit product fits in the
+// low half of the word MUL. SRR's count nibble is the distance minus one, so
+// 7 shifts by 8 and the low byte is bits [15:8]. The sign bits SRR writes
+// above that are discarded with the byte extract.
+MachineBasicBlock *
+CPU6TargetLowering::EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+
+  // SUBREG_TO_REG only asserts that the high byte is already zero. Clear it.
+  auto ZExt = [&](Register Byte) {
+    Register Undef = MRI.createVirtualRegister(&CPU6::GPRBRegClass);
+    Register Word = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+    Register Cleared = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+    BuildMI(*BB, MI, DL, TII.get(TargetOpcode::IMPLICIT_DEF), Undef);
+    BuildMI(*BB, MI, DL, TII.get(TargetOpcode::REG_SEQUENCE), Word)
+        .addReg(Byte)
+        .addImm(CPU6::sub_lo)
+        .addReg(Undef)
+        .addImm(CPU6::sub_hi);
+    BuildMI(*BB, MI, DL, TII.get(CPU6::ANDimm), Cleared).addReg(Word).addImm(255);
+    return Cleared;
+  };
+
+  Register L = ZExt(MI.getOperand(1).getReg());
+  Register RWide = ZExt(MI.getOperand(2).getReg());
+  Register R = MRI.createVirtualRegister(&CPU6::MulLoRegClass);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), R).addReg(RWide);
+
+  Register Prod = MRI.createVirtualRegister(&CPU6::MulLoRegClass);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::MULlo), Prod).addReg(L).addReg(R);
+
+  Register Wide = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Wide).addReg(Prod);
+  Register Shifted = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::SRR), Shifted).addReg(Wide).addImm(7);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Dst)
+      .addReg(Shifted, RegState::NoFlags, CPU6::sub_lo);
+
+  MI.eraseFromParent();
+  return BB;
 }
 
 // A variable shift. The count is a nibble in the instruction, so SLR, SRR,

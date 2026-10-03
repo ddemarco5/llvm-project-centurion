@@ -253,6 +253,14 @@ def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
 // a / b is DIV b, a.
 def : Pat<(mul GPR:$a, GPR:$b),
           (MULlo GPR:$a, (COPY_TO_REGCLASS GPR:$b, MulLo))>;
+// Bits [15:8] of an unsigned 8x8 product. EmitMulhu zero-extends both bytes
+// and shifts the word MUL. An i16 mulhu would be bits [31:16] of a 32-bit
+// product, and those are zero for a pair of zero-extended bytes.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0 in
+def MULHUb : CenturionInst<(outs GPRB:$dst), (ins GPRB:$a, GPRB:$b),
+                           "#MULHUb", "$dst,$a,$b">;
+def : Pat<(mulhu GPRB:$a, GPRB:$b), (MULHUb GPRB:$a, GPRB:$b)>;
 def : Pat<(udiv GPR:$a, GPR:$b), (DIV GPR:$b, GPR:$a)>;
 
 // Word ALU with a literal. Mode 2 writes dst = src op imm, except SUB, which

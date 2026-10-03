@@ -97,6 +97,7 @@ private:
 
   MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,
