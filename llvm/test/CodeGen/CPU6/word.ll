@@ -246,3 +246,38 @@ define i16 @keep(i16 %a) {
   %c = xor i16 %b, %a
   ret i16 %c
 }
+
+; MUL src,dst is dst = dst * src and is commutable, so the product stays in A.
+; CHECK-LABEL: mulrr:
+; CHECK:      MUL B,A
+; CHECK-NEXT: RSR
+define i16 @mulrr(i16 %a, i16 %b) {
+  %v = mul i16 %a, %b
+  ret i16 %v
+}
+
+; DIV src,dst is dst = dst / src. The dividend stays in A.
+; CHECK-LABEL: divrr:
+; CHECK:      DIV B,A
+; CHECK-NEXT: RSR
+define i16 @divrr(i16 %a, i16 %b) {
+  %v = udiv i16 %a, %b
+  ret i16 %v
+}
+
+; The literal form is three-address, dst = src op imm, like ADD.
+; CHECK-LABEL: mul10:
+; CHECK:      MUL A,A,10
+; CHECK-NEXT: RSR
+define i16 @mul10(i16 %a) {
+  %v = mul i16 %a, 10
+  ret i16 %v
+}
+
+; CHECK-LABEL: div10:
+; CHECK:      DIV A,A,10
+; CHECK-NEXT: RSR
+define i16 @div10(i16 %a) {
+  %v = udiv i16 %a, 10
+  ret i16 %v
+}

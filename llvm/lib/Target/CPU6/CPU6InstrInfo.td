@@ -572,14 +572,17 @@ def XFRidx : XFRIdx32;
 // Multiply and divide
 //===----------------------------------------------------------------------===//
 
-// webCenREE decodes MUL and DIV as OPM.RRX, which throws, so which registers
-// they read and write (a remainder or a 32-bit product) is not settled. The
-// operand lists stay as the assembler needs them and nothing selects them.
-// The fl label is ArithFLMV, so they replace all four flags.
-let Defs = [rF, rL, rM, rV] in {
-def MUL: DoubleReg16<0x77, "MUL">;    // Unsigned multiply
-def DIV: DoubleReg16<0x78, "DIV">;    // Unsigned divide
-}
+// Register form is the two-address word ALU: both nibbles even, the
+// destination is read and written, and all four flags are replaced
+// (ArithFLMV). MUL src,dst writes the low 16 bits of dst * src and is
+// commutable. DIV src,dst writes the unsigned quotient dst / src, so the
+// dividend stays in the destination. That is not SUB's src - dst order.
+// The result is the one destination register. The literal forms below are
+// three-address, like ADDimm: dst = src * imm and dst = src / imm.
+let Defs = [rF, rL, rM, rV], isCommutable = 1 in
+def MUL: DoubleReg16RMW<0x77, "MUL">;
+let Defs = [rF, rL, rM, rV] in
+def DIV: DoubleReg16RMW<0x78, "DIV">;
 def MULimm : DoubleRegImm32<0x77, "MUL">;
 def DIVimm : DoubleRegImm32<0x78, "DIV">;
 // Odd/odd is indexed, not another imm16. load7 `78 93 00 1c` is

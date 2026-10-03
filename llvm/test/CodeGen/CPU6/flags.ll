@@ -3,7 +3,7 @@
 ; those defs live; the arithmetic below does not feed a branch, so they are
 ; dead.
 ;
-; ADD, AND, XOR and a shift replace Fault, Link, Minus and Value. NOT and a
+; ADD, AND, XOR, MUL, DIV and a shift replace Fault, Link, Minus and Value. NOT and a
 ; load or store write Minus and Value and leave the other two. A copy is
 ; XFR, which is the same Minus/Value update.
 ;
@@ -67,6 +67,22 @@ define i16 @load_slot() nounwind {
   %p = alloca i16, align 1
   store i16 7, ptr %p, align 1
   %v = load i16, ptr %p, align 1
+  ret i16 %v
+}
+
+; MUL and DIV read the destination as well as the source, and replace all
+; four flags. The tied use is the destination's incoming value.
+; ISEL-LABEL: name: do_mul
+; ISEL: MUL {{%[0-9]+}}, {{%[0-9]+}}, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+define i16 @do_mul(i16 %a, i16 %b) nounwind {
+  %v = mul i16 %a, %b
+  ret i16 %v
+}
+
+; ISEL-LABEL: name: do_div
+; ISEL: DIV {{%[0-9]+}}, {{%[0-9]+}}, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+define i16 @do_div(i16 %a, i16 %b) nounwind {
+  %v = udiv i16 %a, %b
   ret i16 %v
 }
 

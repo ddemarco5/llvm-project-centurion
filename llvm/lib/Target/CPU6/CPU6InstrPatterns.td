@@ -244,6 +244,10 @@ def : Pat<(and GPR:$a, GPR:$b), (AND GPR:$a, GPR:$b)>;
 def : Pat<(or GPR:$a, GPR:$b), (ORI GPR:$a, GPR:$b)>;
 def : Pat<(xor GPR:$a, GPR:$b), (ORE GPR:$a, GPR:$b)>;
 def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
+// MUL is the same operand order as ADD: the product can stay in either
+// register. DIV keeps the dividend in the destination, so a / b is DIV b, a.
+def : Pat<(mul GPR:$a, GPR:$b), (MUL GPR:$a, GPR:$b)>;
+def : Pat<(udiv GPR:$a, GPR:$b), (DIV GPR:$b, GPR:$a)>;
 
 // Word ALU with a literal. Mode 2 writes dst = src op imm, except SUB, which
 // is dst = imm - src. A register minus a constant is an add of the negated
@@ -255,6 +259,8 @@ def : Pat<(sub (i16 imm:$imm), GPR:$src), (SUBimm GPR:$src, imm:$imm)>;
 def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
 def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
+def : Pat<(mul GPR:$src, (i16 imm:$imm)), (MULimm GPR:$src, imm:$imm)>;
+def : Pat<(udiv GPR:$src, (i16 imm:$imm)), (DIVimm GPR:$src, imm:$imm)>;
 
 // IVR ignores its count nibble. SLR r,n shifts left by n + 1, and SRR r,n
 // shifts right arithmetically by n + 1. There is no logical right shift.
@@ -262,8 +268,7 @@ def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
 // whole distance, then the sign bits it filled are cleared. A variable one
 // cannot use a longer RRR, because that rotates the shifted-out bits back
 // through Link; the loop clears Link and rotates by one. RLR is the matching
-// left rotate. MUL and DIV have no patterns: they are decoded as OPM.RRX,
-// which throws before any result is computed.
+// left rotate.
 let AddedComplexity = 1 in {
 def : Pat<(not GPR:$r), (IVR GPR:$r, 0)>;
 def : Pat<(shl GPR:$r, shamt16_1to15:$n), (SLR GPR:$r, (count_minus1 $n))>;

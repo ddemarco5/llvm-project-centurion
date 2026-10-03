@@ -75,6 +75,11 @@ public:
     return true;
   }
 
+  // DIV is one instruction, so a constant divisor stays DIVimm.
+  bool isIntDivCheap(EVT VT, AttributeList) const override {
+    return VT == MVT::i16;
+  }
+
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   MachineBasicBlock *
