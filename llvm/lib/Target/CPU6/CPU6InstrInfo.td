@@ -1103,6 +1103,11 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 // MVFR is selector 4, mode nibble 0xA, then source and destination
 // registers. The length is AL and is not in the instruction.
 // WIPL `67 4a 86` is MVFR -Z,-Y. load7 `67 4a 64` is memcpy AL, [Y], [X].
+//
+// TODO(cpu6): nothing selects these. MVF copies a run of bytes and FIL fills
+// one. A 0x47 length is the immediate count-1, so at most 256 bytes. MVFR and
+// FILR are the 0x67 forms and take that length in AL. memcpy and memset can
+// emit them from CPU6SelectionDAGInfo.
 class BlockLit48<bits<4> sel, string name>
       : CenturionInst48<(outs),
           (ins uimm8:$count, i8imm:$byte, i16imm:$addr),

@@ -47,6 +47,10 @@ enum NodeType : unsigned {
 class CPU6SelectionDAGInfo : public SelectionDAGTargetInfo {
 public:
   const char *getTargetNodeName(unsigned Opcode) const override;
+
+  // TODO(cpu6): EmitTargetCodeForMemcpy and EmitTargetCodeForMemset. The
+  // 0x47 block moves (MVF, FIL, MVFR, FILR) are the copy and the fill. See
+  // the Block move section of CPU6InstrInfo.td.
 };
 
 class CPU6TargetLowering : public TargetLowering {
