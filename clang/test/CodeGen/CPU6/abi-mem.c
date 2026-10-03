@@ -32,12 +32,12 @@ int glob;
 
 // CHECK-LABEL: {{^}}loadg:
 // CHECK-NEXT:  # %bb.0:
-// CHECK-NEXT:  LDA (glob)
+// CHECK-NEXT:  XFR (glob),A
 // CHECK-NEXT:  RSR
 int loadg(void) { return glob; }
 
 // CHECK-LABEL: {{^}}storeg:
-// CHECK:       STA (glob)
+// CHECK:       STR A,(glob)
 // CHECK:       RSR
 void storeg(int v) { glob = v; }
 

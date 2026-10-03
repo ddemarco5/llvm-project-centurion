@@ -363,7 +363,8 @@ def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 //            signed byte. eliminateFrameIndex replaces a frame index with S
 //            and adds the slot's distance from S.
 //   absaddr  `(addr)`, M = 1. A global, an external symbol, a block
-//            address, or a number. The accumulator load and store.
+//            address, or a number. A word is XFRabs/STRmem, any register.
+//            A byte is LDAB/STAB, which name AL.
 // absaddr is tried first. Otherwise addr would take a global as its base and
 // load through a register holding the global's address.
 def addr : ComplexPattern<i16, 2, "SelectAddr">;
@@ -379,8 +380,7 @@ def frameaddr : ComplexPattern<i16, 2, "SelectFrameAddr", [frameindex, add, or],
 // the mnemonic already means A. These are the same encodings with the
 // register named, so selection can use them. isCodeGenOnly: the assembler
 // keeps parsing `LDA (X),21`.
-multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC,
-                     ValueType VT> {
+multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC> {
   let isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV] in {
     let mayLoad = 1, mayStore = 0 in {
       def "LD"#NAME#"fi" : Memory24Index<ldOpc, 0x8, (outs RC:$dst),
@@ -395,19 +395,20 @@ multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC,
                                      "ST"#NAME, "(${arg})">;
     }
   }
-  // Absolute addressing still uses the accumulator forms. An indexed word
-  // access does not: those patterns are below, on XFR and STR, so the value
-  // is a general register. LDA/STA only name A, and a two-address ALU needs
-  // two of them live at once.
-  def : Pat<(VT (load (absaddr abs16:$a))),
-            (!cast<Instruction>("LD"#NAME#"abs") abs16:$a)>;
-  def : Pat<(store RC:$src, (absaddr abs16:$a)),
-            (!cast<Instruction>("ST"#NAME#"abs") RC:$src, abs16:$a)>;
 }
-// LDAfi, STAfi, LDAabs, STAabs: opcode rows 0x9 and 0xB.
-defm A : AccMemory<0x9, 0xB, Acc, i16>;
+// LDAfi, STAfi, LDAabs, STAabs: opcode rows 0x9 and 0xB. The absolute word
+// patterns are not these. LDA writes only A, so two absolute loads cannot
+// both be live. XFRabs is rrfetchw mode 1 and writes any word register.
+// STRmem is the matching store. A byte still has to go through AL.
+defm A : AccMemory<0x9, 0xB, Acc>;
 // LDABfi, STABfi, LDABabs, STABabs: opcode rows 0x8 and 0xA.
-defm AB : AccMemory<0x8, 0xA, AccB, i8>;
+defm AB : AccMemory<0x8, 0xA, AccB>;
+def : Pat<(i16 (load (absaddr abs16:$a))), (XFRabs abs16:$a)>;
+def : Pat<(store GPR:$src, (absaddr abs16:$a)),
+          (STRmem GPR:$src, abs16:$a)>;
+def : Pat<(i8 (load (absaddr abs16:$a))), (LDABabs abs16:$a)>;
+def : Pat<(store AccB:$src, (absaddr abs16:$a)),
+          (STABabs AccB:$src, abs16:$a)>;
 
 // Word indexed load/store. XFR and STR name the data register, so two loaded
 // values can be live together. The byte forms stay on LDAB/STAB: only AL has

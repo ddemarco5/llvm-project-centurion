@@ -1453,6 +1453,15 @@ XFR (B),X,5
 # CHECK-ASM-AND-OBJ: XFR (S),Z,4
 # CHECK-ASM: encoding: [0x55,0xb9,0x00,0x04]
 XFR (S),Z,4
+# rrfetchw mode 1. High nibble even, low nibble odd, then the address.
+# 0x89 names Z in both nibbles; the low bit is the mode. This is the load
+# that pairs with STR Z,(37559).
+# CHECK-ASM-AND-OBJ: XFR (37559),Z
+# CHECK-ASM: encoding: [0x55,0x89,0x92,0xb7]
+XFR (37559),Z
+# CHECK-ASM-AND-OBJ: XFR (256),A
+# CHECK-ASM: encoding: [0x55,0x01,0x01,0x00]
+XFR (256),A
 # CHECK-ASM-AND-OBJ: STK X,5
 # CHECK-ASM: encoding: [0x7e,0x45]
 STK X,5

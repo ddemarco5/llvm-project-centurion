@@ -43,6 +43,12 @@
 # ASM: JMP (missing)
 # ASM: encoding: [0x71,A,A]
 # ASM: fixup A - offset: 1, value: missing, kind: fixup_cpu6_abs_16
+# ASM: XFR (abs),Z
+# ASM: encoding: [0x55,0x89,A,A]
+# ASM: fixup A - offset: 2, value: abs, kind: fixup_cpu6_abs_16
+# ASM: STR Z,(abs)
+# ASM: encoding: [0xd6,0x89,A,A]
+# ASM: fixup A - offset: 2, value: abs, kind: fixup_cpu6_abs_16
 
 # loop is the BZ itself, so the displacement is 1 - 3 = -2.
 # fwd is the instruction after the following NOP: 6 - 5 = 1.
@@ -78,3 +84,5 @@ pct2:
 	JMP (missing)
 abs:
 	NOP
+	XFR (abs), Z
+	STR Z, (abs)

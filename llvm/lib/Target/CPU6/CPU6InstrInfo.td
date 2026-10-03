@@ -568,6 +568,32 @@ class XFRIdx32
 }
 def XFRidx : XFRIdx32;
 
+// Mode 1 of rrfetchw: high nibble even, low nibble odd, then a big-endian
+// address. The low bit of each nibble is the mode. rrfetchw fetches the
+// address word, loads the word at that address, and set_rw writes it to
+// the low nibble (bit 0 ignored). XFR replaces that with the loaded word,
+// so the high nibble is not a second operand. Both nibbles name the
+// destination, matching STRmem (`d6 89 92 b7` stores Z; `55 89 92 b7`
+// loads Z). The result is any word register, not only A.
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0, Defs = [rM, rV] in
+class XFRAbs32
+      : CenturionInst32<(outs GPR:$dst), (ins abs16:$addr),
+                        "XFR", "(${addr}),$dst"> {
+  bits<4> dst;
+  bits<16> addr;
+  let Inst{31-24} = 0x55;
+  let Inst{23} = dst{3};
+  let Inst{22} = dst{2};
+  let Inst{21} = dst{1};
+  let Inst{20} = 0;
+  let Inst{19} = dst{3};
+  let Inst{18} = dst{2};
+  let Inst{17} = dst{1};
+  let Inst{16} = 1;
+  let Inst{15-0} = addr;
+}
+def XFRabs : XFRAbs32;
+
 //===----------------------------------------------------------------------===//
 // Multiply and divide
 //===----------------------------------------------------------------------===//
@@ -961,7 +987,7 @@ foreach OP = [
 // STR is AOP.XFR, so it sets Minus and Value from the stored word.
 let Defs = [rM, rV] in
 class STRMem32
-      : CenturionInst32<(outs), (ins GPR:$src, i16imm:$addr),
+      : CenturionInst32<(outs), (ins GPR:$src, abs16:$addr),
                         "STR", "$src,(${addr})"> {
   bits<4> src;
   bits<16> addr;

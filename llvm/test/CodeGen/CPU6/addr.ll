@@ -1,13 +1,15 @@
 ; Address selection. An indexed word is `XFR (r),dst,disp` or
 ; `STR src,(r),disp`: the data register is named, and the displacement is a
-; word. A symbol, or a symbol plus a constant, is the direct accumulator
-; form (`LDA (g)`). A constant that does not fit in a byte displacement is
-; added first when the access is a byte; a word displacement holds it. The
-; address of a slot is S plus the slot's distance from S.
+; word. A symbol, or a symbol plus a constant, is the direct word form
+; (`XFR (g),dst` / `STR src,(g)`), so two of them can be live. A constant
+; that does not fit in a byte displacement is added first when the access
+; is a byte; a word displacement holds it. The address of a slot is S plus
+; the slot's distance from S.
 ;
 ; RUN: llc -mtriple=cpu6 -O0 -verify-machineinstrs < %s | FileCheck %s
 
 @g = global i16 0
+@g2 = global i16 0
 @b = global i8 0
 
 ; The pointer arrives in A.
@@ -41,7 +43,7 @@ define i16 @far(ptr %p) nounwind {
 }
 
 ; CHECK-LABEL: loadg:
-; CHECK:       LDA (g)
+; CHECK:       XFR (g),A
 ; CHECK-NEXT:  RSR
 define i16 @loadg() nounwind {
   %v = load i16, ptr @g
@@ -50,7 +52,7 @@ define i16 @loadg() nounwind {
 
 ; The +4 is the relocation addend, not a separate add.
 ; CHECK-LABEL: loadg4:
-; CHECK:       LDA (g+4)
+; CHECK:       XFR (g+4),A
 ; CHECK-NEXT:  RSR
 define i16 @loadg4() nounwind {
   %q = getelementptr i8, ptr @g, i16 4
@@ -59,7 +61,7 @@ define i16 @loadg4() nounwind {
 }
 
 ; CHECK-LABEL: storeg:
-; CHECK:       STA (g)
+; CHECK:       STR A,(g)
 ; CHECK-NEXT:  RSR
 define void @storeg(i16 %a) nounwind {
   store i16 %a, ptr @g
@@ -109,7 +111,7 @@ define i8 @bytep(ptr %p) nounwind {
 }
 
 ; CHECK-LABEL: imm:
-; CHECK:       LDA (256)
+; CHECK:       XFR (256),A
 ; CHECK-NEXT:  RSR
 define i16 @imm() nounwind {
   %p = inttoptr i16 256 to ptr
@@ -196,4 +198,32 @@ define void @pass() nounwind {
   %p = alloca i16, align 1
   call void @use(ptr %p)
   ret void
+}
+
+declare i16 @ext(i16, i16)
+
+; Both loads used to be LDA, which can only write A. The subtract needs
+; both values live, so each load has to name its own register.
+; CHECK-LABEL: twog:
+; CHECK:       XFR (g),
+; CHECK:       XFR (g2),
+; CHECK:       SUB
+; CHECK:       RSR
+define i16 @twog() nounwind {
+  %a = load volatile i16, ptr @g
+  %b = load volatile i16, ptr @g2
+  %s = sub i16 %a, %b
+  ret i16 %s
+}
+
+; CHECK-LABEL: callg:
+; CHECK:       XFR (g),
+; CHECK:       XFR (g2),
+; CHECK:       JSR (ext)
+; CHECK:       RSR
+define i16 @callg() nounwind {
+  %a = load volatile i16, ptr @g
+  %b = load volatile i16, ptr @g2
+  %s = call i16 @ext(i16 %a, i16 %b)
+  ret i16 %s
 }
