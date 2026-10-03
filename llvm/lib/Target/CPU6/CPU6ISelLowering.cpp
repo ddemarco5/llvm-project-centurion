@@ -74,6 +74,13 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   setLoadExtAction({ISD::EXTLOAD, ISD::ZEXTLOAD, ISD::SEXTLOAD}, MVT::i16,
                    MVT::i8, Expand);
   setTruncStoreAction(MVT::i16, MVT::i8, Expand);
+  // The low bit of an ALU opcode's high nibble is what makes it a word
+  // operation: ADDB is 0x40 and ADD is 0x50. MUL is 0x77, so the byte slot
+  // would be 0x67, and that opcode is the block-memory group (memcpy, memset,
+  // and the rest of the 0x47 forms). webCenREE's multiply is the word
+  // product, and EtchedPixels implements it as mul16. An i8 multiply is the
+  // low byte of the i16 MUL.
+  setOperationAction(ISD::MUL, MVT::i8, Promote);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   // A condition only exists in the flags, as a compare glued to the branch or
   // select that reads it. setcc and select become select_cc, brcond br_cc.
