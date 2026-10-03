@@ -218,3 +218,37 @@ define i16 @sext_arg(i8 signext %a) {
   %z = sext i8 %a to i16
   ret i16 %z
 }
+
+; i8 constants from 0x80 up. imm8_as_16 zero-extends into the word literal.
+; A sign extension of these values used to reach getTargetConstant as a
+; negative uint64_t and assert in the unsigned APInt constructor.
+; CHECK-LABEL: const128:
+; CHECK:      XFR A,128
+; CHECK-NEXT: RSR
+define i8 @const128() {
+  ret i8 128
+}
+
+; CHECK-LABEL: const255:
+; CHECK:      XFR A,255
+; CHECK-NEXT: RSR
+define i8 @const255() {
+  ret i8 -1
+}
+
+; The byte literal OR/AND/XOR and the literal SUB all go through imm8_as_16.
+; CHECK-LABEL: or128:
+; CHECK:      ORI A,A,128
+; CHECK-NEXT: RSR
+define i8 @or128(i8 %a) {
+  %v = or i8 %a, 128
+  ret i8 %v
+}
+
+; CHECK-LABEL: rsub144:
+; CHECK:      SUB A,A,144
+; CHECK-NEXT: RSR
+define i8 @rsub144(i8 %a) {
+  %v = sub i8 144, %a
+  ret i8 %v
+}

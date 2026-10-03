@@ -55,13 +55,10 @@ void copy5(char *d, const char *s) {
     d[i] = s[i];
 }
 
-// TODO(cpu6): a local array initialized from a string. Clang expands it to a
-// copy, and register allocation reports "ran out of registers during register
-// allocation". Walking a pointer or copying in a loop, as above, is fine.
-// int starts_h(void) {
-//   char buf[6] = "hello";
-//   return buf[0] == 'h' && buf[4] == 'o';
-// }
+int starts_h(void) {
+  char buf[6] = "hello";
+  return buf[0] == 'h' && buf[4] == 'o';
+}
 
 struct Pair {
   int x;

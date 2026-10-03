@@ -91,6 +91,9 @@ def GPRB  : RegisterClass<"CPU6", [i8], 8, (add rAL, rBL, rXL, rYL, rZL, rSL, rC
 
 // LDAB and STAB always touch AL, the byte half of the accumulator.
 def AccB : RegisterClass<"CPU6", [i8], 8, (add rAL)>;
+// LDBB and STBB always touch BL. A byte load selects either accumulator,
+// then copies into any byte register when the result lives somewhere else.
+def AccBL : RegisterClass<"CPU6", [i8], 8, (add rBL)>;
 
 // Condition flags. The wiki packs them into C, in bits 7-4 of the low byte:
 //   7 Value (zero), 6 Minus (sign), 5 Fault (overflow), 4 Link (carry).

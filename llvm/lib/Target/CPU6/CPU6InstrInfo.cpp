@@ -140,6 +140,7 @@ Register CPU6InstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
   case CPU6::XFRidx:
   case CPU6::LDAfi:
   case CPU6::LDABfi:
+  case CPU6::LDBYTEfi:
   case CPU6::RELOADB:
     return frameSlotAccess(MI, FrameIndex);
   default:
@@ -170,9 +171,10 @@ static void swapBytes(const CPU6InstrInfo &TII, MachineBasicBlock &MBB,
   BuildMI(MBB, I, DL, TII.get(CPU6::OREB), R2).addReg(R1).addReg(R2);
 }
 
-// SPILLB and RELOADB do not touch AL, so AL is live across them exactly when
-// something after them still reads it.
-static bool isALLiveAt(const TargetRegisterInfo &TRI, MachineInstr &MI) {
+// SPILLB and RELOADB do not touch AL until they are expanded, so AL is live
+// across them exactly when something after them still reads it.
+static bool isPhysRegLiveAt(const TargetRegisterInfo &TRI, MachineInstr &MI,
+                            MCRegister Reg) {
   MachineBasicBlock &MBB = *MI.getParent();
   LivePhysRegs LiveRegs(TRI);
   LiveRegs.addLiveOuts(MBB);
@@ -181,15 +183,60 @@ static bool isALLiveAt(const TargetRegisterInfo &TRI, MachineInstr &MI) {
       break;
     LiveRegs.stepBackward(I);
   }
-  return LiveRegs.contains(CPU6::rAL);
+  return LiveRegs.contains(Reg);
+}
+
+// LDBYTEfi / LDBYTEabs. webCenREE rrfetchb has no memory mode, so the byte
+// comes through LDAB (AL) or LDBB (BL). A destination that is neither is an
+// XFRB off whichever accumulator is free. Both live means the same exchange
+// RELOADB uses: park AL in the destination, load, and swap back.
+static bool expandByteLoad(const CPU6InstrInfo &TII, MachineInstr &MI) {
+  MachineBasicBlock &MBB = *MI.getParent();
+  const DebugLoc &DL = MI.getDebugLoc();
+  const bool Abs = MI.getOpcode() == CPU6::LDBYTEabs;
+  const Register Dst = MI.getOperand(0).getReg();
+  const Register AL = CPU6::rAL;
+  const Register BL = CPU6::rBL;
+  const unsigned LdAL = Abs ? CPU6::LDABabs : CPU6::LDABfi;
+  const unsigned LdBL = Abs ? CPU6::LDBBabs : CPU6::LDBBfi;
+
+  auto emitLd = [&](unsigned Opc, Register Acc) {
+    auto B = BuildMI(MBB, MI, DL, TII.get(Opc), Acc);
+    B.add(MI.getOperand(1));
+    if (!Abs)
+      B.add(MI.getOperand(2));
+    B.cloneMemRefs(MI);
+  };
+  auto copyAcc = [&](Register Acc) {
+    BuildMI(MBB, MI, DL, TII.get(CPU6::XFRB), Dst).addReg(Acc, RegState::Kill);
+  };
+
+  if (Dst == AL) {
+    emitLd(LdAL, AL);
+  } else if (Dst == BL) {
+    emitLd(LdBL, BL);
+  } else if (!isPhysRegLiveAt(TII.getRegisterInfo(), MI, AL)) {
+    emitLd(LdAL, AL);
+    copyAcc(AL);
+  } else if (!isPhysRegLiveAt(TII.getRegisterInfo(), MI, BL)) {
+    emitLd(LdBL, BL);
+    copyAcc(BL);
+  } else {
+    BuildMI(MBB, MI, DL, TII.get(CPU6::XFRB), Dst).addReg(AL);
+    emitLd(LdAL, AL);
+    swapBytes(TII, MBB, MI, DL, Dst, AL);
+  }
+  MI.eraseFromParent();
+  return true;
 }
 
 bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   // Frame indices are already displacements here; the prologue inserter ran
-  // first. Only AL can be stored or loaded with an arbitrary displacement
-  // from S, so the byte goes through AL. If AL holds a live value, exchange
-  // it with the byte register around the access instead of clobbering it.
+  // first. A byte load result is any byte register (LDBYTE). A spill still
+  // goes through AL, and an exchange keeps a live AL intact.
   unsigned Opc = MI.getOpcode();
+  if (Opc == CPU6::LDBYTEfi || Opc == CPU6::LDBYTEabs)
+    return expandByteLoad(*this, MI);
   if (Opc != CPU6::SPILLB && Opc != CPU6::RELOADB)
     return false;
 
@@ -218,7 +265,7 @@ bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     bool Kill = MI.getOperand(0).isKill();
     if (Reg == AL) {
       storeAL(Kill);
-    } else if (!isALLiveAt(RI, MI)) {
+    } else if (!isPhysRegLiveAt(RI, MI, AL)) {
       BuildMI(MBB, MI, DL, get(CPU6::XFRB), AL)
           .addReg(Reg, getKillRegState(Kill));
       storeAL(true);
@@ -230,7 +277,7 @@ bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   } else {
     if (Reg == AL) {
       loadAL();
-    } else if (!isALLiveAt(RI, MI)) {
+    } else if (!isPhysRegLiveAt(RI, MI, AL)) {
       loadAL();
       BuildMI(MBB, MI, DL, get(CPU6::XFRB), Reg).addReg(AL, RegState::Kill);
     } else {

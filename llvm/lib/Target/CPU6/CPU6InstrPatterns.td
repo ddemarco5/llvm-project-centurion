@@ -101,9 +101,12 @@ def srl_mask8 : SDNodeXForm<imm, [{
 }]>;
 
 // An i8 literal as the i16 operand of a word instruction. Only the low byte
-// of the result is used, so sign- or zero-extending makes no difference.
+// of the result is used. getTargetConstant takes a uint64_t and builds an
+// unsigned APInt of that width. getSExtValue() of 0x80..0xFF is negative,
+// and that value does not fit in 16 unsigned bits, so the constructor
+// asserts. Zero-extending keeps the i8 bit pattern.
 def imm8_as_16 : SDNodeXForm<imm, [{
-  return CurDAG->getTargetConstant(N->getSExtValue(), SDLoc(N), MVT::i16);
+  return CurDAG->getTargetConstant(N->getZExtValue(), SDLoc(N), MVT::i16);
 }]>;
 
 // A byte in the low half of an otherwise undefined word. REG_SEQUENCE, not
@@ -362,12 +365,13 @@ def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 // A load or store address is one of two modes (CPU6ISelDAGToDAG.cpp):
 //   addr     `(r),disp`. A register or a frame index plus a displacement.
 //            A word uses XFR/STR, which name the data register and take a
-//            word displacement. A byte uses LDA/STA, whose displacement is a
-//            signed byte. eliminateFrameIndex replaces a frame index with S
-//            and adds the slot's distance from S.
+//            word displacement. A byte uses LDBYTE, expanded to LDAB or LDBB,
+//            whose displacement is a signed byte. eliminateFrameIndex
+//            replaces a frame index with S and adds the slot's distance
+//            from S.
 //   absaddr  `(addr)`, M = 1. A global, an external symbol, a block
 //            address, or a number. A word is XFRabs/STRmem, any register.
-//            A byte is LDAB/STAB, which name AL.
+//            A byte is LDBYTEabs, expanded to LDAB or LDBB.
 // absaddr is tried first. Otherwise addr would take a global as its base and
 // load through a register holding the global's address.
 def addr : ComplexPattern<i16, 2, "SelectAddr">;
@@ -402,26 +406,46 @@ multiclass AccMemory<bits<4> ldOpc, bits<4> stOpc, RegisterClass RC> {
 // LDAfi, STAfi, LDAabs, STAabs: opcode rows 0x9 and 0xB. The absolute word
 // patterns are not these. LDA writes only A, so two absolute loads cannot
 // both be live. XFRabs is rrfetchw mode 1 and writes any word register.
-// STRmem is the matching store. A byte still has to go through AL.
+// STRmem is the matching store.
 defm A : AccMemory<0x9, 0xB, Acc>;
-// LDABfi, STABfi, LDABabs, STABabs: opcode rows 0x8 and 0xA.
+// LDABfi, STABfi, LDABabs, STABabs: opcode rows 0x8 and 0xA. LDBBfi and
+// LDBBabs are rows 0xC and 0xE. webCenREE's rrfetchb has no memory mode, so
+// a byte load cannot name an arbitrary register the way XFR does. These are
+// what expandPostRAPseudo emits for LDBYTEfi and LDBYTEabs.
 defm AB : AccMemory<0x8, 0xA, AccB>;
+defm BB : AccMemory<0xC, 0xE, AccBL>;
+// A selected byte load. The destination is any byte register, so two loads
+// can be live at a CMPB. expandPostRAPseudo turns it into LDAB or LDBB.
+// Operands match LDABfi, so eliminateFrameIndex treats a frame index alike.
+// Five bytes covers LDAB plus an XFRB when the destination is neither
+// accumulator. The expanded load sets Minus and Value, so the pseudo does too.
+let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV],
+    Size = 5 in {
+let mayLoad = 1, mayStore = 0 in {
+def LDBYTEfi : CenturionInst<(outs GPRB:$dst), (ins GPR:$base, i16imm:$disp),
+                             "#LDBYTE", "(${base}),$dst,$disp">;
+def LDBYTEabs : CenturionInst<(outs GPRB:$dst), (ins abs16:$addr),
+                              "#LDBYTE", "(${addr}),$dst">;
+}
+}
 def : Pat<(i16 (load (absaddr abs16:$a))), (XFRabs abs16:$a)>;
 def : Pat<(store GPR:$src, (absaddr abs16:$a)),
           (STRmem GPR:$src, abs16:$a)>;
-def : Pat<(i8 (load (absaddr abs16:$a))), (LDABabs abs16:$a)>;
+def : Pat<(i8 (load (absaddr abs16:$a))), (LDBYTEabs abs16:$a)>;
 def : Pat<(store AccB:$src, (absaddr abs16:$a)),
           (STABabs AccB:$src, abs16:$a)>;
 
 // Word indexed load/store. XFR and STR name the data register, so two loaded
-// values can be live together. The byte forms stay on LDAB/STAB: only AL has
-// a byte load and store.
+// values can be live together. A byte load's result is any byte register for
+// the same reason: CMPB needs both operands at once, and a result pinned to
+// AL makes the second one impossible. The expanded form is LDAB or LDBB, and
+// an XFRB when the register is neither accumulator.
 def : Pat<(i16 (load (addr GPR:$r, i16imm:$d))),
           (XFRidx GPR:$r, i16imm:$d)>;
 def : Pat<(store GPR:$src, (addr GPR:$r, i16imm:$d)),
           (STRidx GPR:$src, GPR:$r, i16imm:$d)>;
 def : Pat<(i8 (load (addr GPR:$r, i16imm:$d))),
-          (LDABfi GPR:$r, i16imm:$d)>;
+          (LDBYTEfi GPR:$r, i16imm:$d)>;
 def : Pat<(store AccB:$src, (addr GPR:$r, i16imm:$d)),
           (STABfi AccB:$src, GPR:$r, i16imm:$d)>;
 
@@ -429,12 +453,11 @@ def : Pat<(frameaddr GPR:$r, i16imm:$d), (ADDimm GPR:$r, i16imm:$d)>;
 // XFRimm's immediate is abs16, so a symbol is fixup_cpu6_abs_16.
 def : Pat<(absaddr abs16:$a), (XFRimm abs16:$a)>;
 
-// Byte spill and reload. The register allocator can spill any byte register,
-// but only AL and BL have byte load/store forms. expandPostRAPseudo turns
-// these into LDAB/STAB, moving the byte through AL and keeping AL intact if
-// it is live. Operands match LDABfi/STABfi, so eliminateFrameIndex treats
-// them alike. They are not selected; storeRegToStackSlot and
-// loadRegFromStackSlot emit them.
+// Byte spill and reload. The register allocator can spill any byte register.
+// expandPostRAPseudo turns these into LDAB/STAB, moving the byte through AL
+// and keeping AL intact if it is live. Operands match LDABfi/STABfi, so
+// eliminateFrameIndex treats them alike. They are not selected;
+// storeRegToStackSlot and loadRegFromStackSlot emit them.
 // The expanded LDAB/STAB set Minus and Value, so the pseudo does too.
 let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0, Defs = [rM, rV] in {
 let mayLoad = 0, mayStore = 1 in
