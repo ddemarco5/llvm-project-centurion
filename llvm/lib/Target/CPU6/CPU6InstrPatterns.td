@@ -366,7 +366,8 @@ def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 //   addr     `(r),disp`. A register or a frame index plus a displacement.
 //            A word uses XFR/STR, which name the data register and take a
 //            word displacement. A byte uses LDBYTE, expanded to LDAB or LDBB,
-//            whose displacement is a signed byte. eliminateFrameIndex
+//            whose displacement is a signed byte. orderFrameObjects places
+//            those byte objects nearest the final S. eliminateFrameIndex
 //            replaces a frame index with S and adds the slot's distance
 //            from S.
 //   absaddr  `(addr)`, M = 1. A global, an external symbol, a block

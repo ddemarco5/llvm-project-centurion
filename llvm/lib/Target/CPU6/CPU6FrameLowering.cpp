@@ -9,6 +9,8 @@
 #include "CPU6FrameLowering.h"
 #include "CPU6InstrInfo.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/ADT/SmallSet.h"
+#include <algorithm>
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -304,4 +306,42 @@ bool CPU6FrameLowering::restoreCalleeSavedRegisters(
     MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *) const {
   emitSaves(MBB, MI, CSI, /*IsSpill=*/false);
   return true;
+}
+
+// These are the accesses whose displacement is a signed byte. A word access
+// is XFR, STR, or ADDimm and can name a slot anywhere in the frame.
+static bool isByteFrameAccess(unsigned Opc) {
+  switch (Opc) {
+  case CPU6::LDABfi:
+  case CPU6::LDBBfi:
+  case CPU6::STABfi:
+  case CPU6::STBBfi:
+  case CPU6::LDBYTEfi:
+  case CPU6::SPILLB:
+  case CPU6::RELOADB:
+    return true;
+  default:
+    return false;
+  }
+}
+
+void CPU6FrameLowering::orderFrameObjects(
+    const MachineFunction &MF, SmallVectorImpl<int> &ObjectsToAllocate) const {
+  // The stack grows down and objects are allocated from the front of this
+  // list, so the front sits furthest from the final S. LDAB and STAB cannot
+  // name a slot more than 127 bytes from that S. Objects they use go last
+  // and land nearest it. A folded index of at most 127 stays inside the
+  // byte field when those objects themselves fit there. The outgoing
+  // argument area, if any, sits below them and uses part of the same field.
+  SmallSet<int, 16> ByteObjs;
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB) {
+      if (!isByteFrameAccess(MI.getOpcode()))
+        continue;
+      for (const MachineOperand &MO : MI.operands())
+        if (MO.isFI())
+          ByteObjs.insert(MO.getIndex());
+    }
+  std::stable_partition(ObjectsToAllocate.begin(), ObjectsToAllocate.end(),
+                        [&](int FI) { return !ByteObjs.count(FI); });
 }

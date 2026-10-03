@@ -55,6 +55,14 @@ public:
   StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
                                      Register &FrameReg) const override;
 
+  // LDAB/STAB's indexed displacement is a signed byte. Byte objects have to
+  // be nearest the final S or that displacement does not fit. This holds at
+  // -O0, where the optional stack-symbol reordering does not run.
+  bool orderFrameObjectsForCorrectness() const override { return true; }
+
+  void orderFrameObjects(const MachineFunction &MF,
+                         SmallVectorImpl<int> &ObjectsToAllocate) const override;
+
 protected:
   bool hasFPImpl(const MachineFunction &MF) const override;
 };

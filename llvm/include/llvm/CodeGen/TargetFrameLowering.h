@@ -432,6 +432,12 @@ public:
                     SmallVectorImpl<int> &objectsToAllocate) const {
   }
 
+  /// Return true when orderFrameObjects has to run for the code to be
+  /// correct, including at -O0 and when stack-symbol ordering is disabled.
+  /// The default order is already correct for a target that leaves the
+  /// hook empty.
+  virtual bool orderFrameObjectsForCorrectness() const { return false; }
+
   /// Check whether or not the given \p MBB can be used as a prologue
   /// for the target.
   /// The prologue will be inserted first in this basic block.

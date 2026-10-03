@@ -1085,8 +1085,11 @@ void PEIImpl::calculateFrameObjectOffsets(MachineFunction &MF) {
                       MaxAlign);
 
   // Give the targets a chance to order the objects the way they like it.
-  if (MF.getTarget().getOptLevel() != CodeGenOptLevel::None &&
-      MF.getTarget().Options.StackSymbolOrdering)
+  // StackSymbolOrdering is an optimization and stays off at -O0. A target
+  // that reorders so a displacement fits has to run at -O0 as well.
+  if (TFI.orderFrameObjectsForCorrectness() ||
+      (MF.getTarget().getOptLevel() != CodeGenOptLevel::None &&
+       MF.getTarget().Options.StackSymbolOrdering))
     TFI.orderFrameObjects(MF, ObjectsToAllocate);
 
   // Keep track of which bytes in the fixed and callee-save range are used so we
