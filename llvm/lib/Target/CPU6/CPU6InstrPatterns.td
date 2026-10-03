@@ -90,6 +90,16 @@ def count_as_i8 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(N->getSExtValue(), SDLoc(N), MVT::i8);
 }]>;
 
+// SRR sign-fills. These are the bits that are still real data afterwards.
+def srl_mask16 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((1u << (16 - N->getZExtValue())) - 1,
+                                   SDLoc(N), MVT::i16);
+}]>;
+def srl_mask8 : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((1u << (8 - N->getZExtValue())) - 1,
+                                   SDLoc(N), MVT::i16);
+}]>;
+
 // An i8 literal as the i16 operand of a word instruction. Only the low byte
 // of the result is used, so sign- or zero-extending makes no difference.
 def imm8_as_16 : SDNodeXForm<imm, [{
@@ -247,14 +257,23 @@ def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
 
 // IVR ignores its count nibble. SLR r,n shifts left by n + 1, and SRR r,n
-// shifts right arithmetically by n + 1. The rotates, MUL, and DIV have no
-// patterns. RRR, RLR, RRRB, and RLRB have no working handler in webCenREE,
-// and MUL and DIV are decoded as OPM.RRX, which throws before any result is
-// computed.
+// shifts right arithmetically by n + 1. There is no logical right shift.
+// A constant one is SRR plus a mask (LowerShift): one arithmetic shift of the
+// whole distance, then the sign bits it filled are cleared. A variable one
+// cannot use a longer RRR, because that rotates the shifted-out bits back
+// through Link; the loop clears Link and rotates by one. RLR is the matching
+// left rotate. MUL and DIV have no patterns: they are decoded as OPM.RRX,
+// which throws before any result is computed.
 let AddedComplexity = 1 in {
 def : Pat<(not GPR:$r), (IVR GPR:$r, 0)>;
 def : Pat<(shl GPR:$r, shamt16_1to15:$n), (SLR GPR:$r, (count_minus1 $n))>;
 def : Pat<(sra GPR:$r, shamt16_1to15:$n), (SRR GPR:$r, (count_minus1 $n))>;
+// Built here rather than by rewriting the node to an arithmetic shift and an
+// AND. That rewrite is turned back into a logical shift by the combiner, and
+// legalization never finishes. A longer RRR is not this either: it rotates
+// the shifted-out bits back through Link.
+def : Pat<(srl GPR:$r, shamt16_1to15:$n),
+          (ANDimm (SRR GPR:$r, (count_minus1 $n)), (srl_mask16 $n))>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -291,7 +310,42 @@ def : Pat<(add GPRB:$r, imm8_m16tom1:$n),
 def : Pat<(not GPRB:$r), (IVRB GPRB:$r)>;
 def : Pat<(shl GPRB:$r, shamt8_1to7:$n), (SLRB GPRB:$r, (count_minus1 $n))>;
 def : Pat<(sra GPRB:$r, shamt8_1to7:$n), (SRRB GPRB:$r, (count_minus1 $n))>;
+// The mask is applied to the word that holds the byte. The high half is
+// undefined and the extract keeps only the shifted byte.
+def : Pat<(srl GPRB:$r, shamt8_1to7:$n),
+          (EXTRACT_SUBREG
+              (ANDimm (REG_SEQUENCE GPR,
+                                    (SRRB GPRB:$r, (count_minus1 $n)), sub_lo,
+                                    (i8 (IMPLICIT_DEF)), sub_hi),
+                      (srl_mask8 $n)),
+              sub_lo)>;
 }
+
+// A variable count cannot use the nibble above. EmitShift replaces the pseudo
+// with a one-bit loop. The count is i16 for a byte shift as well: that is
+// getShiftAmountTy on this target. A constant count is an immediate, so it
+// matches SLR/SRR above and not these.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0 in {
+def SHLrr : CenturionInst<(outs GPR:$dst), (ins GPR:$src, GPR:$cnt),
+                          "#SHLrr", "$dst,$src,$cnt">;
+def SRArr : CenturionInst<(outs GPR:$dst), (ins GPR:$src, GPR:$cnt),
+                          "#SRArr", "$dst,$src,$cnt">;
+def SRLrr : CenturionInst<(outs GPR:$dst), (ins GPR:$src, GPR:$cnt),
+                          "#SRLrr", "$dst,$src,$cnt">;
+def SHLbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
+                          "#SHLbr", "$dst,$src,$cnt">;
+def SRAbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
+                          "#SRAbr", "$dst,$src,$cnt">;
+def SRLbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
+                          "#SRLbr", "$dst,$src,$cnt">;
+}
+def : Pat<(shl GPR:$src, GPR:$cnt), (SHLrr GPR:$src, GPR:$cnt)>;
+def : Pat<(sra GPR:$src, GPR:$cnt), (SRArr GPR:$src, GPR:$cnt)>;
+def : Pat<(srl GPR:$src, GPR:$cnt), (SRLrr GPR:$src, GPR:$cnt)>;
+def : Pat<(shl GPRB:$src, GPR:$cnt), (SHLbr GPRB:$src, GPR:$cnt)>;
+def : Pat<(sra GPRB:$src, GPR:$cnt), (SRAbr GPRB:$src, GPR:$cnt)>;
+def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 
 //===----------------------------------------------------------------------===//
 // Addresses

@@ -80,6 +80,11 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   for (MVT VT : {MVT::i8, MVT::i16}) {
     setOperationAction({ISD::BR_CC, ISD::SELECT_CC}, VT, Custom);
     setOperationAction({ISD::SETCC, ISD::SELECT}, VT, Expand);
+    // SLR and SRR take an immediate count, so a constant shift stays a
+    // pattern. Returning the node from LowerShift leaves that pattern in
+    // place. A variable count has no instruction; the pseudo it matches is
+    // a one-bit loop. Expanding a scalar shift is not available here.
+    setOperationAction({ISD::SHL, ISD::SRA, ISD::SRL}, VT, Custom);
   }
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
   // Nothing selects a jump table, so a switch is a tree of compares.
@@ -452,11 +457,44 @@ static SDValue emitCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
       .getValue(1);
 }
 
+// SRR sign-fills, and there is no logical right shift of more than one bit
+// in a single instruction. A constant in range is left for the SRR-plus-mask
+// pattern. Rewriting it here to an arithmetic shift and an AND makes the
+// combiner rebuild the logical shift, and legalization never finishes. Zero
+// and an amount past the width never match the 1..width-1 patterns. A
+// variable count is returned unchanged so the one-bit loop can match it.
+SDValue CPU6TargetLowering::LowerShift(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Amt = Op.getOperand(1);
+  auto *C = dyn_cast<ConstantSDNode>(Amt);
+  if (!C)
+    return Op;
+  EVT VT = Op.getValueType();
+  unsigned Bits = VT.getSizeInBits();
+  uint64_t N = C->getZExtValue();
+  if (N == 0)
+    return Op.getOperand(0);
+  if (N >= Bits) {
+    // The IR leaves this undefined. Shifting all the bits out is the result
+    // a longer arithmetic or logical shift produces, and a left shift of the
+    // whole width is zero.
+    SDLoc DL(Op);
+    if (Op.getOpcode() == ISD::SRA)
+      return DAG.getNode(ISD::SRA, DL, VT, Op.getOperand(0),
+                         DAG.getConstant(Bits - 1, DL, Amt.getValueType()));
+    return DAG.getConstant(0, DL, VT);
+  }
+  return Op;
+}
+
 SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   SDLoc DL(Op);
   unsigned Opc;
   switch (Op.getOpcode()) {
+  case ISD::SHL:
+  case ISD::SRA:
+  case ISD::SRL:
+    return LowerShift(Op, DAG);
   case ISD::BR_CC: {
     SDValue Glue =
         emitCmp(Op.getOperand(2), Op.getOperand(3),
@@ -481,8 +519,7 @@ SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
 // once the rest of the block moves to Join it ends the block, followed by
 // the branch to Join. False is empty and falls through to Join.
 MachineBasicBlock *
-CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
-                                                MachineBasicBlock *BB) const {
+CPU6TargetLowering::EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const {
   MachineFunction *MF = BB->getParent();
   const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
   const DebugLoc &DL = MI.getDebugLoc();
@@ -506,4 +543,125 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       .addMBB(False);
   MI.eraseFromParent();
   return Join;
+}
+
+MachineBasicBlock *
+CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
+                                                MachineBasicBlock *BB) const {
+  switch (MI.getOpcode()) {
+  case CPU6::SELECT:
+  case CPU6::SELECTB:
+    return EmitSelect(MI, BB);
+  default:
+    return EmitShift(MI, BB);
+  }
+}
+
+// A variable shift. The count is a nibble in the instruction, so SLR, SRR,
+// and RRR cannot take a register, and the pseudo becomes a one-bit loop. A
+// constant count never reaches here: it is one SLR or SRR, or, for a logical
+// right shift, one SRR plus a mask. A longer RRR rotates the shifted-out bits
+// back through Link, so only a one-bit rotate with Link clear is logical.
+MachineBasicBlock *
+CPU6TargetLowering::EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+  Register Src = MI.getOperand(1).getReg();
+  Register Cnt = MI.getOperand(2).getReg();
+
+  // A count nibble of 0 is a shift of one. A logical step is RRR or RRRB:
+  // with Link clear, that shifts a zero in.
+  bool Byte = false;
+  bool Logical = false;
+  unsigned ShiftOpc = 0;
+  switch (MI.getOpcode()) {
+  case CPU6::SHLrr:
+    ShiftOpc = CPU6::SLR;
+    break;
+  case CPU6::SRArr:
+    ShiftOpc = CPU6::SRR;
+    break;
+  case CPU6::SRLrr:
+    ShiftOpc = CPU6::RRR;
+    Logical = true;
+    break;
+  case CPU6::SHLbr:
+    ShiftOpc = CPU6::SLRB;
+    Byte = true;
+    break;
+  case CPU6::SRAbr:
+    ShiftOpc = CPU6::SRRB;
+    Byte = true;
+    break;
+  case CPU6::SRLbr:
+    ShiftOpc = CPU6::RRRB;
+    Byte = true;
+    Logical = true;
+    break;
+  default:
+    llvm_unreachable("not a CPU6 shift pseudo");
+  }
+
+  const TargetRegisterClass *ValRC =
+      Byte ? &CPU6::GPRBRegClass : &CPU6::GPRRegClass;
+  Register ValPhi = MRI.createVirtualRegister(ValRC);
+  Register CntPhi = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  Register CntDec = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  Register ValNext = MRI.createVirtualRegister(ValRC);
+
+  // The block falls into the loop when the count is not zero, and the loop
+  // falls out to Rem when the decremented count is. Rem keeps whatever
+  // followed the pseudo.
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  MachineBasicBlock *Loop = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Rem = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, Loop);
+  MF->insert(It, Rem);
+  Rem->splice(Rem->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Rem->transferSuccessorsAndUpdatePHIs(BB);
+  BB->addSuccessor(Loop);
+  BB->addSuccessor(Rem);
+  Loop->addSuccessor(Loop);
+  Loop->addSuccessor(Rem);
+
+  // TST is a terminator, so a later copy cannot land between it and the branch.
+  BuildMI(BB, DL, TII.get(CPU6::TST)).addReg(Cnt);
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Rem);
+
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), ValPhi)
+      .addReg(Src)
+      .addMBB(BB)
+      .addReg(ValNext)
+      .addMBB(Loop);
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), CntPhi)
+      .addReg(Cnt)
+      .addMBB(BB)
+      .addReg(CntDec)
+      .addMBB(Loop);
+
+  // RL clears Link so the rotate shifts in a zero. It has to sit in front of
+  // RRR: DCR replaces Link, and a copy writes only Minus and Value, so one
+  // can land between them without setting the bit the rotate shifts in.
+  if (Logical)
+    BuildMI(Loop, DL, TII.get(CPU6::RL));
+  BuildMI(Loop, DL, TII.get(ShiftOpc), ValNext).addReg(ValPhi).addImm(0);
+
+  // The shift replaced the flags, so the loop test is a TST of the new count,
+  // again a terminator glued to its branch.
+  BuildMI(Loop, DL, TII.get(CPU6::DCR), CntDec).addReg(CntPhi).addImm(0);
+  BuildMI(Loop, DL, TII.get(CPU6::TST)).addReg(CntDec);
+  BuildMI(Loop, DL, TII.get(CPU6::BNZ)).addMBB(Loop);
+
+  // A count of zero skips the loop, so the result is the original value.
+  // Otherwise it is the last one-bit step.
+  BuildMI(*Rem, Rem->begin(), DL, TII.get(TargetOpcode::PHI), Dst)
+      .addReg(Src)
+      .addMBB(BB)
+      .addReg(ValNext)
+      .addMBB(Loop);
+  MI.eraseFromParent();
+  return Rem;
 }

@@ -113,6 +113,76 @@ define i16 @ashr1(i16 %a) {
   ret i16 %v
 }
 
+; SRR sign-fills. The bits it filled are cleared, leaving a logical shift.
+; CHECK-LABEL: lshr4:
+; CHECK:      SRR A,3
+; CHECK-NEXT: AND A,A,4095
+; CHECK-NEXT: RSR
+define i16 @lshr4(i16 %a) {
+  %v = lshr i16 %a, 4
+  ret i16 %v
+}
+
+; The top bit is the one SRR filled. Masking it is the whole correction.
+; CHECK-LABEL: lshr1:
+; CHECK:      SRR A,0
+; CHECK-NEXT: AND A,A,32767
+; CHECK-NEXT: RSR
+define i16 @lshr1(i16 %a) {
+  %v = lshr i16 %a, 1
+  ret i16 %v
+}
+
+; An i32 shift by a constant splits into i16 shifts. The low half's top bit
+; reaches the high half through a logical shift of 15.
+; CHECK-LABEL: shl32:
+; CHECK-DAG: SLR
+; CHECK-DAG: SRR
+; CHECK-DAG: AND
+; CHECK:     RSR
+define i32 @shl32(i32 %a) {
+  %v = shl i32 %a, 1
+  ret i32 %v
+}
+
+; The count nibble is an immediate, so a register count is a one-bit loop.
+; A zero count branches past it. SLA is SLR A,0 and DCA is DCR A,0.
+; CHECK-LABEL: shl_var:
+; CHECK:      BZ
+; CHECK:      {{SLA|SLR}}
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i16 @shl_var(i16 %a, i16 %n) {
+  %v = shl i16 %a, %n
+  ret i16 %v
+}
+
+; CHECK-LABEL: ashr_var:
+; CHECK:      BZ
+; CHECK:      {{SRA|SRR}}
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i16 @ashr_var(i16 %a, i16 %n) {
+  %v = ashr i16 %a, %n
+  ret i16 %v
+}
+
+; Each step is a rotate through a cleared Link, which shifts in a zero.
+; A longer rotate would bring that bit back, so the count here is 0.
+; CHECK-LABEL: lshr_var:
+; CHECK:      BZ
+; CHECK:      RL
+; CHECK:      RRR
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i16 @lshr_var(i16 %a, i16 %n) {
+  %v = lshr i16 %a, %n
+  ret i16 %v
+}
+
 ; Register/register ALU is two-address: OP src,dst is dst = dst op src.
 ; ADD, AND, ORI and ORE are commutable, so the result is built in A.
 ; CHECK-LABEL: addrr:

@@ -82,6 +82,13 @@ public:
                               MachineBasicBlock *BB) const override;
 
 private:
+  // A constant logical right shift is an arithmetic shift plus a mask. A
+  // variable shift is left for the one-bit loop in EmitShift.
+  SDValue LowerShift(SDValue Op, SelectionDAG &DAG) const;
+
+  MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
+
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,
                           const SDLoc &DL, SelectionDAG &DAG,

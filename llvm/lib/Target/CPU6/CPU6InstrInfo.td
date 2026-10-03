@@ -292,8 +292,14 @@ def SRRB: SingleReg16_B<0x24, "SRRB">;   // Shift Register Right (Byte mode)
 def SLR : SingleReg16<0x35, "SLR">;      // Shift Register Left
 def SLRB: SingleReg16_B<0x25, "SLRB">;   // Shift Register Left (Byte mode)
 }
-// Rotate-through-link. The live interpreter has no handler; the dead
-// RRR/RRRB path shifts the old Link in and writes all four flags.
+// Rotate through Link, count nibble n meaning n + 1 bits. The bit shifted
+// out of the register becomes the new Link, and the old Link is shifted in,
+// so this is a 17-bit (or 9-bit) rotate: a longer count brings those bits
+// back. With Link clear, a count of 0 is a logical shift of one. The diag
+// ROM checks that an RR of 0xFF then leaves Minus clear, which is 0x7F.
+// CenREE's live interpreter has no handler. Its dead 0x36 path is the
+// one-bit case; the dead 0x26 loop refills from the original Link and does
+// not match that diag.
 let Uses = [rL], Defs = [rF, rL, rM, rV] in {
 def RRR : SingleReg16<0x36, "RRR">;      // Rotate Register Right
 def RRRB: SingleReg16_B<0x26, "RRRB">;   // Rotate Register Right (Byte mode)

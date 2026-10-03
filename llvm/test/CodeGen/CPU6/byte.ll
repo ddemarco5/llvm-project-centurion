@@ -96,6 +96,52 @@ define i8 @ashr3(i8 %a) {
   ret i8 %v
 }
 
+; Same sign-fill correction as a word, in the low byte. 31 is 0x1f.
+; CHECK-LABEL: lshr3:
+; CHECK:      SRRB AL,2
+; CHECK:      AND {{.*}},31
+; CHECK:      RSR
+define i8 @lshr3(i8 %a) {
+  %v = lshr i8 %a, 3
+  ret i8 %v
+}
+
+; SLAB is SLRB AL,0. The count is widened to a word, so the decrement is DCR.
+; CHECK-LABEL: shl_var:
+; CHECK:      BZ
+; CHECK:      {{SLAB|SLRB}}
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i8 @shl_var(i8 %a, i8 %n) {
+  %v = shl i8 %a, %n
+  ret i8 %v
+}
+
+; CHECK-LABEL: ashr_var:
+; CHECK:      BZ
+; CHECK:      {{SRAB|SRRB}}
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i8 @ashr_var(i8 %a, i8 %n) {
+  %v = ashr i8 %a, %n
+  ret i8 %v
+}
+
+; Each step clears Link and rotates the byte right by one, shifting in a zero.
+; CHECK-LABEL: lshr_var:
+; CHECK:      BZ
+; CHECK:      RL
+; CHECK:      RRRB
+; CHECK:      {{DCA|DCR}}
+; CHECK:      BNZ
+; CHECK:      RSR
+define i8 @lshr_var(i8 %a, i8 %n) {
+  %v = lshr i8 %a, %n
+  ret i8 %v
+}
+
 ; CLRB r,n writes n (0-15); a byte store goes through AL with STAB.
 ; CHECK-LABEL: store5:
 ; CHECK:      DCR S,0
