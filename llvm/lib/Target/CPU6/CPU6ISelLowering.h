@@ -95,6 +95,10 @@ private:
   // variable shift is left for the one-bit loop in EmitShift.
   SDValue LowerShift(SDValue Op, SelectionDAG &DAG) const;
 
+  // Signed i16 quotient and remainder. DIV is unsigned, so both are
+  // magnitudes, one DIV, then the sign is put back.
+  SDValue LowerDivRem(SDValue Op, SelectionDAG &DAG) const;
+
   MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;

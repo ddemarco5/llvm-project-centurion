@@ -85,6 +85,25 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // it would take bits [31:16], which are 0 once the bytes have been
   // zero-extended. MULHUb expands to the zero-extend, word MUL, and shift.
   setOperationAction(ISD::MULHU, MVT::i8, Legal);
+  // DIV is the word opcode 0x78. There is no byte divide. A byte quotient or
+  // remainder is promoted to i16: signed operands are sign-extended, unsigned
+  // operands are zero-extended, and the i16 result is truncated. Promoting
+  // an i8 urem stops there. It yields an i16 urem, which is not an
+  // instruction; the Expand below rewrites that i16 urem.
+  setOperationAction({ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM}, MVT::i8,
+                     Promote);
+  // expandREM prefers a *DIVREM node whenever that node is Legal or Custom.
+  // Both default to Legal, and nothing selects them, so leave them Expand.
+  // Otherwise an unsigned remainder becomes an unselectable udivrem instead
+  // of udiv, mul, and sub.
+  for (MVT VT : {MVT::i8, MVT::i16})
+    setOperationAction({ISD::SDIVREM, ISD::UDIVREM}, VT, Expand);
+  // Unsigned remainder has no opcode. i16 UDIV is DIV, so expandREM rewrites
+  // x % y as x - (x / y) * y. That is also the sequence an i8 urem reaches
+  // after promotion.
+  setOperationAction(ISD::UREM, MVT::i16, Expand);
+  // DIV is unsigned. Signed quotient and remainder are lowered onto it.
+  setOperationAction({ISD::SDIV, ISD::SREM}, MVT::i16, Custom);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
   // A condition only exists in the flags, as a compare glued to the branch or
   // select that reads it. setcc and select become select_cc, brcond br_cc.
@@ -497,6 +516,37 @@ SDValue CPU6TargetLowering::LowerShift(SDValue Op, SelectionDAG &DAG) const {
   return Op;
 }
 
+// C division truncates toward zero, and the remainder takes the dividend's
+// sign. DIV is unsigned. Magnitudes use an unsigned negate so that INT16_MIN
+// (0x8000) becomes 32768, which still fits in the word; a signed negate of
+// that value does not. The quotient is negated when the signs differ. The
+// remainder magnitude is |n| - quot * |d|, negated when the dividend is
+// negative.
+SDValue CPU6TargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+  SDValue N = Op.getOperand(0);
+  SDValue D = Op.getOperand(1);
+  SDValue Zero = DAG.getConstant(0, DL, VT);
+  auto Magnitude = [&](SDValue V) {
+    SDValue Neg = DAG.getNode(ISD::SUB, DL, VT, Zero, V);
+    return DAG.getSelectCC(DL, V, Zero, Neg, V, ISD::SETLT);
+  };
+  SDValue UN = Magnitude(N);
+  SDValue UD = Magnitude(D);
+  SDValue UQ = DAG.getNode(ISD::UDIV, DL, VT, UN, UD);
+  if (Op.getOpcode() == ISD::SDIV) {
+    SDValue NNeg = DAG.getSetCC(DL, VT, N, Zero, ISD::SETLT);
+    SDValue DNeg = DAG.getSetCC(DL, VT, D, Zero, ISD::SETLT);
+    SDValue NQ = DAG.getNode(ISD::SUB, DL, VT, Zero, UQ);
+    return DAG.getSelectCC(DL, NNeg, DNeg, NQ, UQ, ISD::SETNE);
+  }
+  SDValue UR =
+      DAG.getNode(ISD::SUB, DL, VT, UN, DAG.getNode(ISD::MUL, DL, VT, UQ, UD));
+  SDValue NR = DAG.getNode(ISD::SUB, DL, VT, Zero, UR);
+  return DAG.getSelectCC(DL, N, Zero, NR, UR, ISD::SETLT);
+}
+
 SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -506,6 +556,9 @@ SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
   case ISD::SRA:
   case ISD::SRL:
     return LowerShift(Op, DAG);
+  case ISD::SDIV:
+  case ISD::SREM:
+    return LowerDivRem(Op, DAG);
   case ISD::BR_CC: {
     SDValue Glue =
         emitCmp(Op.getOperand(2), Op.getOperand(3),
