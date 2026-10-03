@@ -607,6 +607,12 @@ def XFRabs : XFRAbs32;
 // Z would clobber S and C would clobber P. The assembler still accepts
 // every word register. An i16 product is the low half, so codegen uses
 // MULlo / MULimmLo and only allocates B or Y as the destination.
+// A widened multiply needs both halves. MULAB is that form with the
+// destination fixed as A, so the low half is written to B. An i16 product
+// is MULB, destination fixed as B, so only the low half is written. B and
+// Y are the only registers that receive a low half, and they are also
+// argument registers, so a MulLo class cannot be allocated while those
+// arguments are still live.
 // DIV src,dst writes the unsigned quotient dst / src, so the dividend stays
 // in the destination. That is not SUB's src - dst order. The literal forms
 // below are three-address, like ADDimm: dst = src * imm and dst = src / imm.
@@ -626,6 +632,28 @@ class DoubleReg16RMWLo<bits<8> opcode, string opstr>
                       opstr, "$arghnibble,$arglnibble"> { }
 let Defs = [rF, rL, rM, rV], isCodeGenOnly = 1 in
 def MULlo : DoubleReg16RMWLo<0x77, "MUL">;
+// Same encoding as MUL with destination A. The operand in A is one factor
+// and is overwritten with the high half. B receives the low half and is
+// not read. The other factor is $src and may be A or B: both are read
+// before either is written.
+let Uses = [rA], Defs = [rA, rB, rF, rL, rM, rV], isCodeGenOnly = 1,
+    hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
+def MULAB : CenturionInst16<(outs), (ins GPR:$src), "MUL", "$src,A"> {
+  bits<4> src;
+  let Inst{15-8} = 0x77;
+  let Inst{7-4} = src;
+  let Inst{3-0} = 0;
+}
+// Destination B. The nibble's low bit is set, so B is written with the low
+// half and A is left alone. B is read as the other factor.
+let Uses = [rB], Defs = [rB, rF, rL, rM, rV], isCodeGenOnly = 1,
+    hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
+def MULB : CenturionInst16<(outs), (ins GPR:$src), "MUL", "$src,B"> {
+  bits<4> src;
+  let Inst{15-8} = 0x77;
+  let Inst{7-4} = src;
+  let Inst{3-0} = 2;
+}
 // Literal MUL, destination restricted the same way. dst = src * imm, and
 // only B or Y are selected, so the written register is the low half.
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1,

@@ -22,9 +22,7 @@ long ladd(long a, long b) { return a + b; }
 // unsigned long lshr(unsigned long a, int n) { return a >> n; }
 // long lsar(long a, int n) { return a >> n; }
 
-// TODO(cpu6): long multiply. Expansion wants umul_lohi, which nothing selects
-// ("Cannot select").
-// long lmul(long a, long b) { return a * b; }
+long lmul(long a, long b) { return a * b; }
 
 // TODO(cpu6): long divide and remainder. These become a compiler-rt call and
 // the backend reports "unsupported library call operation".

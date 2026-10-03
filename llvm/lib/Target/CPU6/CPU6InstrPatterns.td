@@ -247,12 +247,28 @@ def : Pat<(and GPR:$a, GPR:$b), (AND GPR:$a, GPR:$b)>;
 def : Pat<(or GPR:$a, GPR:$b), (ORI GPR:$a, GPR:$b)>;
 def : Pat<(xor GPR:$a, GPR:$b), (ORE GPR:$a, GPR:$b)>;
 def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
-// The i16 product is the low half of the 32-bit unsigned MUL. One operand is
-// copied into B or Y, and that register is the destination the hardware
-// writes the low half into. DIV keeps the dividend in the destination, so
-// a / b is DIV b, a.
-def : Pat<(mul GPR:$a, GPR:$b),
-          (MULlo GPR:$a, (COPY_TO_REGCLASS GPR:$b, MulLo))>;
+// The i16 product is the low half of the 32-bit unsigned MUL. EmitMulLow
+// copies one operand into B and uses MULB, so the written register is the
+// low half. B is fixed rather than allocated from MulLo: B and Y are the
+// only such destinations, and they are where a wider argument arrives.
+// DIV keeps the dividend in the destination, so a / b is DIV b, a.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Defs = [rF, rL, rM, rV] in
+def MULrr : CenturionInst<(outs GPR:$dst), (ins GPR:$a, GPR:$b),
+                          "#MUL", "$dst,$a,$b">;
+def : Pat<(mul GPR:$a, GPR:$b), (MULrr GPR:$a, GPR:$b)>;
+// umul_lohi is the node the type legalizer emits when it splits a multiply
+// wider than i16. An i32 mul becomes one i16 umul_lohi of the low halves
+// plus i16 muls for the cross terms. An i64 mul splits into i32 muls, and
+// each of those splits again into the same node. EmitMulLoHi copies one
+// operand into A and uses MULAB, which writes the high half back to A and
+// the low half to B.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Defs = [rF, rL, rM, rV] in
+def MULlohi : CenturionInst<(outs GPR:$lo, GPR:$hi), (ins GPR:$a, GPR:$b),
+                            "#MULLOHI", "$lo,$hi,$a,$b"> {
+  let Pattern = [(set GPR:$lo, GPR:$hi, (umullohi GPR:$a, GPR:$b))];
+}
 // Bits [15:8] of an unsigned 8x8 product. EmitMulhu zero-extends both bytes
 // and shifts the word MUL. An i16 mulhu would be bits [31:16] of a 32-bit
 // product, and those are zero for a pair of zero-extended bytes.

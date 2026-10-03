@@ -99,9 +99,16 @@ private:
   // magnitudes, one DIV, then the sign is put back.
   SDValue LowerDivRem(SDValue Op, SelectionDAG &DAG) const;
 
+  // Signed widening product. The low half matches the unsigned pair MUL.
+  // The high half subtracts the other operand for each negative input.
+  SDValue LowerSmulLoHi(SDValue Op, SelectionDAG &DAG) const;
+
   MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitMulLow(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitMulLoHi(MachineInstr &MI,
+                                 MachineBasicBlock *BB) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,

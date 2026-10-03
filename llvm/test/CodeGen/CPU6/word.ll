@@ -277,11 +277,12 @@ define i16 @mul10(i16 %a) {
   ret i16 %v
 }
 
-; A square is copied into B and multiplied there. MUL A,A would return the
-; high half of the product.
+; A square is copied into B (XAB is XFR B,A). MUL A,B then multiplies the
+; two copies. Destination B keeps the low half. MUL A,A would keep the high
+; half.
 ; CHECK-LABEL: sq:
 ; CHECK:      XAB
-; CHECK-NEXT: MUL B,B
+; CHECK-NEXT: MUL A,B
 ; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i16 @sq(i16 %a) {

@@ -85,6 +85,19 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // it would take bits [31:16], which are 0 once the bytes have been
   // zero-extended. MULHUb expands to the zero-extend, word MUL, and shift.
   setOperationAction(ISD::MULHU, MVT::i8, Legal);
+  // i32 and i64 are illegal, so a multiply of either is split into
+  // half-width pieces. The bottom of that split is an i16 umul_lohi, the
+  // 16x16->32 product. MULAB is that product in A:B. A plain i16 mul is
+  // MULB and only keeps the low half.
+  setOperationAction(ISD::UMUL_LOHI, MVT::i16, Legal);
+  // The low half of a signed product matches the unsigned one. LowerSmulLoHi
+  // corrects the high half. A sign-extended widening multiply selects this
+  // rather than the unsigned node.
+  setOperationAction(ISD::SMUL_LOHI, MVT::i16, Custom);
+  // The high half alone is the second result of the same pair. Left at the
+  // default Legal, nothing would select it.
+  setOperationAction(ISD::MULHU, MVT::i16, Expand);
+  setOperationAction(ISD::MULHS, MVT::i16, Expand);
   // DIV is the word opcode 0x78. There is no byte divide. A byte quotient or
   // remainder is promoted to i16: signed operands are sign-extended, unsigned
   // operands are zero-extended, and the i16 result is truncated. Promoting
@@ -547,6 +560,26 @@ SDValue CPU6TargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getSelectCC(DL, N, Zero, NR, UR, ISD::SETLT);
 }
 
+// Unsigned 16x16->32, then the signed correction on the high half only:
+// hi -= b when a < 0, and hi -= a when b < 0. The low half is the same
+// for a signed and an unsigned product.
+SDValue CPU6TargetLowering::LowerSmulLoHi(SDValue Op,
+                                          SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  SDValue A = Op.getOperand(0);
+  SDValue B = Op.getOperand(1);
+  EVT VT = A.getValueType();
+  SDValue Prod = DAG.getNode(ISD::UMUL_LOHI, DL, DAG.getVTList(VT, VT), A, B);
+  SDValue Lo = Prod;
+  SDValue Hi = Prod.getValue(1);
+  SDValue Zero = DAG.getConstant(0, DL, VT);
+  SDValue HiMinusB = DAG.getNode(ISD::SUB, DL, VT, Hi, B);
+  Hi = DAG.getSelectCC(DL, A, Zero, HiMinusB, Hi, ISD::SETLT);
+  SDValue HiMinusA = DAG.getNode(ISD::SUB, DL, VT, Hi, A);
+  Hi = DAG.getSelectCC(DL, B, Zero, HiMinusA, Hi, ISD::SETLT);
+  return DAG.getMergeValues({Lo, Hi}, DL);
+}
+
 SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
                                            SelectionDAG &DAG) const {
   SDLoc DL(Op);
@@ -559,6 +592,8 @@ SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
   case ISD::SDIV:
   case ISD::SREM:
     return LowerDivRem(Op, DAG);
+  case ISD::SMUL_LOHI:
+    return LowerSmulLoHi(Op, DAG);
   case ISD::BR_CC: {
     SDValue Glue =
         emitCmp(Op.getOperand(2), Op.getOperand(3),
@@ -618,6 +653,10 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     return EmitSelect(MI, BB);
   case CPU6::MULHUb:
     return EmitMulhu(MI, BB);
+  case CPU6::MULrr:
+    return EmitMulLow(MI, BB);
+  case CPU6::MULlohi:
+    return EmitMulLoHi(MI, BB);
   default:
     return EmitShift(MI, BB);
   }
@@ -664,6 +703,47 @@ CPU6TargetLowering::EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const {
   BuildMI(*BB, MI, DL, TII.get(CPU6::SRR), Shifted).addReg(Wide).addImm(7);
   BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Dst)
       .addReg(Shifted, RegState::NoFlags, CPU6::sub_lo);
+
+  MI.eraseFromParent();
+  return BB;
+}
+
+// i16 mul. One operand is copied into B. MULB multiplies B by the other
+// operand and writes the low half back to B. A is not written.
+MachineBasicBlock *
+CPU6TargetLowering::EmitMulLow(MachineInstr &MI, MachineBasicBlock *BB) const {
+  const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+  Register A = MI.getOperand(1).getReg();
+  Register B = MI.getOperand(2).getReg();
+
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), CPU6::rB).addReg(B);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::MULB)).addReg(A);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Dst).addReg(CPU6::rB);
+  MI.eraseFromParent();
+  return BB;
+}
+
+// i16 umul_lohi. One operand is copied into A. MULAB multiplies A by the
+// other operand, writes the high half back to A, and writes the low half
+// to B. A and B are fixed registers, so a 32-bit or 64-bit multiply can
+// use several of these in one function without a pair register class.
+// The low half is copied out of B before the high half is copied out of A.
+MachineBasicBlock *
+CPU6TargetLowering::EmitMulLoHi(MachineInstr &MI,
+                                MachineBasicBlock *BB) const {
+  const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Lo = MI.getOperand(0).getReg();
+  Register Hi = MI.getOperand(1).getReg();
+  Register A = MI.getOperand(2).getReg();
+  Register B = MI.getOperand(3).getReg();
+
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), CPU6::rA).addReg(A);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::MULAB)).addReg(B);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Lo).addReg(CPU6::rB);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Hi).addReg(CPU6::rA);
 
   MI.eraseFromParent();
   return BB;
