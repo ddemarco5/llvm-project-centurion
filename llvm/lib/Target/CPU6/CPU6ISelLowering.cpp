@@ -136,6 +136,10 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // through it via STK and POP.
   setStackPointerRegisterToSaveRestore(CPU6::rS);
 
+  // No atomic instructions and no atomic libcalls. Keep the default of 0
+  // explicit so a later change cannot silently grow inline atomics.
+  setMaxAtomicSizeInBitsSupported(0);
+
   setBooleanContents(ZeroOrOneBooleanContent);
   setBooleanVectorContents(ZeroOrOneBooleanContent);
   // Keep the scheduled order close to the IR while the patterns are new.

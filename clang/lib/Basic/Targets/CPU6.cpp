@@ -28,4 +28,6 @@ void CPU6TargetInfo::getTargetDefines(const LangOptions &,
                                       MacroBuilder &Builder) const {
   Builder.defineMacro("CPU6");
   Builder.defineMacro("__CPU6__");
+  // Always software floating point; there is no FPU.
+  Builder.defineMacro("__SOFTFP__");
 }

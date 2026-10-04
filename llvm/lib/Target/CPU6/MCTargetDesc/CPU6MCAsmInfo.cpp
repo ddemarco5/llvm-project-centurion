@@ -16,14 +16,19 @@ void CPU6MCAsmInfo::anchor() {}
 
 CPU6MCAsmInfo::CPU6MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
     : MCAsmInfoELF(Options) {
+  (void)TT;
   // Integer data is big-endian, matching the data layout. The ELF container
   // stays little-endian; that is the AsmBackend endian llvm-cpu6-ld reads.
   IsLittleEndian = false;
-  CodePointerSize = CalleeSaveStackSlotSize = TT.isArch64Bit() ? 8 : 4;
+  // Pointers and CSR slots are 16-bit words.
+  CodePointerSize = 2;
+  CalleeSaveStackSlotSize = 2;
   CommentString = "#";
   AlignmentIsInBytes = false;
   SupportsDebugInformation = true;
-  ExceptionsType = ExceptionHandling::DwarfCFI;
+  // Freestanding target: no EH runtime. Must match
+  // Triple::getDefaultExceptionHandling for cpu6.
+  ExceptionsType = ExceptionHandling::None;
   Data16bitsDirective = "\t.half\t";
   Data32bitsDirective = "\t.word\t";
 }

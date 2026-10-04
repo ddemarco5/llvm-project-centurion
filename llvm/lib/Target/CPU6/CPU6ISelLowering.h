@@ -84,6 +84,9 @@ public:
     return VT == MVT::i16;
   }
 
+  // No floating-point hardware. f32/f64 stay SoftenFloat via libcalls.
+  bool useSoftFloat() const override { return true; }
+
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   MachineBasicBlock *

@@ -2553,13 +2553,13 @@ ExceptionHandling Triple::getDefaultExceptionHandling() const {
   case Triple::systemz:
   case Triple::xcore:
   case Triple::xtensa:
-  case Triple::cpu6:
     return ExceptionHandling::DwarfCFI;
   default:
     break;
   }
 
   // Explicitly none targets.
+  // cpu6 is freestanding with no EH runtime; leave it on the None path.
   if (isWasm() || isAMDGPU() || isNVPTX() || isSPIROrSPIRV())
     return ExceptionHandling::None;
 

@@ -32,6 +32,9 @@ public:
     TLSSupported = false;
     VLASupported = false;
     HasUnalignedAccess = true;
+    // No atomic instructions; keep Clang from promoting atomics to
+    // lock-free builtins the backend cannot lower.
+    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 0;
     PointerWidth = 16;
     PointerAlign = 8;
     ShortWidth = 16;
@@ -46,6 +49,8 @@ public:
     DefaultAlignForAttributeAligned = 8;
     HalfWidth = 16;
     HalfAlign = 8;
+    // Float types exist for the language, but there is no FPU. The backend
+    // softens them to integer libcalls (useSoftFloat).
     FloatWidth = 32;
     FloatAlign = 8;
     DoubleWidth = 64;
