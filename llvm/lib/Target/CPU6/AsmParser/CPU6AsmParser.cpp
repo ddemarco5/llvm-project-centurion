@@ -20,15 +20,10 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCRegister.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/MC/TargetRegistry.h"
 
-
-
 using namespace llvm;
-
-#define DEBUG_TYPE "riscv-asm-parser"
 
 namespace {
 
@@ -429,12 +424,10 @@ ParseStatus CPU6AsmParser::parseRegOrImm(OperandVector &Operands) {
 
 
     //Attempt to parse token as a register
-    LLVM_DEBUG(dbgs() << "Attempting register parse\n");
     if(parseRegister(Operands).isSuccess())
        return ParseStatus::Success;
     
     // Attempt to parse token as an immediate
-    dbgs() << "Attempting immediate parse\n";
     if (parseImmediate(Operands).isSuccess())
        return ParseStatus::Success;
 
@@ -456,7 +449,6 @@ ParseStatus CPU6AsmParser::parseDirect(OperandVector &Operands) {
         getParser().Lex(); // Eat '('  
 
         result = parseRegOrImm(Operands);
-        dbgs() << "parseDirect parseRegOrImm result: " << result.isSuccess() << "\n";
         
         Operands.push_back(CPU6Operand::createToken(")", getLoc()));
         getParser().Lex(); // Eat ')'     
@@ -485,31 +477,23 @@ ParseStatus CPU6AsmParser::parseIndirect(OperandVector &Operands) {
         getParser().Lex(); // Eat '('
 
         result = parseRegOrImm(Operands);
-        dbgs() << "parseIndirect parseRegOrImm result: " << result.isSuccess() << "\n";
 
         // There are two possibilities here, a )) to end our indirect statement,
         // or ',i8imm)', we need to check and parse accordingly
 
         if(getLexer().getTok().is(AsmToken::RParen) && getLexer().peekTok().is(AsmToken::Comma)) {
             is_one_arg = false;
-            dbgs() << "Checking next: " << getLexer().peekTok().getKind() << "\n";
             if (getLexer().peekTok().isNot(AsmToken::RParen)) {
                 Operands.push_back(CPU6Operand::createToken(")", getLoc()));
                 // If we don't see another paren, we have another arg, it will always be an immediate
                 getLexer().Lex(); // eat what is most likely a ','
                 getLexer().Lex(); // do it again so the lexer is sitting on the immediate to be parsed
                 result = parseImmediate(Operands);
-                dbgs() << "parseIndirect parseImmediate number 2 result: " << result.isSuccess() << "\n";
-                if (!result.isSuccess()) { // non-success is a parse failure
-                    dbgs() << "detected parse failure, leaving\n";
+                if (!result.isSuccess()) // non-success is a parse failure
                     return result;
-                }
             }
         }
 
-        dbgs() << "What are we on?: " << getLexer().getKind() << "\n";
-        dbgs() << "What's next?: " << getLexer().peekTok().getKind() << "\n";
-        
         if (is_one_arg) {
             Operands.push_back(CPU6Operand::createToken("))", getLoc()));
             getParser().Lex(); // Eat ')' 
@@ -530,13 +514,9 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
     SMLoc Start = getLoc();
     bool OuterParens = false;
 
-    dbgs() << "We made it to parsePCOffset!!!\n";
-
     // If we aren't at a left paren this isn't right
     if (getLexer().isNot(AsmToken::LParen))
         return ParseStatus::NoMatch;
-
-    dbgs() << "Verified that we're on a left paren\n";
 
     // Handle the case where we're wrapped in a second pair of parens
     if (getLexer().peekTok().is(AsmToken::LParen))
@@ -551,13 +531,11 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
     };
     AsmToken Buf[4];
     size_t ReadCount = getLexer().peekTokens(Buf);
-    dbgs() << "Got a ReadCount of: " << ReadCount <<"\n";
 
     // If we didn't read 3 tokens, or our read tokens don't match what we expect
     if (ReadCount != 4)
         return ParseStatus::NoMatch;
 
-    dbgs() << "About to check the token types\n";
     // Check to make sure the peeked tokens match what we want
     // if we detected a double left paren, check it against Match, otherwise, skip it
     int p = 1;
@@ -567,17 +545,13 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
         loop++;
     }
     for (int i = 0; i<loop; i++) {
-        dbgs() << "Checking: " << Buf[i].getString() << " : " << Buf[i].getKind();
-        dbgs() << " against : " << Match[i+p] << "\n";
         if (Buf[i].isNot(Match[i+p]))
             return ParseStatus::NoMatch;
     }
 
-    dbgs() << "Checking that the string " << Buf[0+OuterParens].getString() << " we got was 'PC'\n";
     // Verify the identifiers are 'P' and 'C'
     if (Buf[0+OuterParens].getString().compare(llvm::StringRef("PC")) != 0)
         return ParseStatus::NoMatch;
-    dbgs() << "Verified that we got the right string, lexing\n";
     // If we succeeded, we're confident this is where we're meant to be, so we can
     // lex our way through the expression to extract our arg
     // need a +1 because we'll need to be ON the right token to parse, not have it next
@@ -585,7 +559,6 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
         ReadCount--;
     while(ReadCount+1) {  
         getLexer().Lex();
-        dbgs() << "Lexed: " << getLexer().getTok().getString() << "\n";
         ReadCount--;
     }
     // And emit our token for the matcher
@@ -595,10 +568,7 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
     Operands.push_back(CPU6Operand::createToken(tokenstr, Start));
 
     // parse our operand, this will also eat our right paren
-    dbgs() << "Attempting to parse the token we're at: " << getLexer().getTok().getString() << "\n";
     ParseStatus result = parseRegOrImm(Operands);
-    dbgs() << "Result: " << result.isSuccess() << "\n";
-
 
     // Handle the case where we're wrapped in a second pair of parens
     if (getLexer().getTok().is(AsmToken::RParen) && OuterParens) {
@@ -606,11 +576,8 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
         getLexer().Lex(); // Eat ')'
     }
 
-    dbgs() << "Checking that we have an end of statement :" << getLexer().getTok().getKind() << "\n";
     if (getLexer().getTok().isNot(AsmToken::EndOfStatement))
         return ParseStatus::Failure;
-
-    dbgs() << "We matched!\n";
 
     // If we got this far, we're good
     return result;
@@ -621,44 +588,22 @@ ParseStatus CPU6AsmParser::parsePCOffset(OperandVector &Operands) {
 /// information, adding to Operands. If operand was parsed, returns false, else
 /// true.
 bool CPU6AsmParser::parseOperand(OperandVector &Operands, StringRef Mnemonic) {
-
-    //dbgs() << "parseOperand running for Mnemonic " << Mnemonic << "\n";
-
-    // Check if the current operand has a custom associated parser, if so, try to
-    // custom parse the operand, or fallback to the general approach.
-    // dbgs() << "Attempting MatchOperandParserImpl\n";
-    // ParseStatus Result =
-    //     MatchOperandParserImpl(Operands, Mnemonic, /*ParseForAllFeatures=*/true);
-    // if (Result.isSuccess()) {
-    //     dbgs() << "Return with ParseStatus::Success";
-    //     return false;
-    // }
-    // if (Result .isFailure()) {
-    //     dbgs() << "Return with ParseStatus::Failure";
-    //     return true;
-    // }
-    // dbgs() << "Returned with result " << Result << "\n";
-
     // If we try to parse operands in this fashion, make sure that each function will
     // exit WITHOUT advancing the parser with Lex() or parsing functions, 
     // otherwise subsequent checks will not begin where indended and behavior will collapse
 
-    dbgs() << "Attempting reg or immediate parse\n";
     if (parseRegOrImm(Operands).isSuccess())
         return false;
 
     // Try a PC offset format
-    dbgs() << "Attmpting PC offset parse\n";
     if (parsePCOffset(Operands).isSuccess())
         return false;
 
     // Try an indirect
-    dbgs() << "Attempting indirect parse\n";
     if (parseIndirect(Operands).isSuccess())
         return false;
 
     // Try a direct
-    dbgs() << "Attempting direct parse\n";
     if (parseDirect(Operands).isSuccess())
         return false;
 
