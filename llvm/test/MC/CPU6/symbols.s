@@ -49,6 +49,24 @@
 # ASM: STR Z,(abs)
 # ASM: encoding: [0xd6,0x89,A,A]
 # ASM: fixup A - offset: 2, value: abs, kind: fixup_cpu6_abs_16
+# A bignum operand pair holds two address words, or one word and a register
+# or index operand. The relocation lands on the word, not at Size - 2.
+# ASM: ZAD 3,3,(src),(dst)
+# ASM: encoding: [0x46,0x33,0x30,A,A,B,B]
+# ASM: fixup A - offset: 3, value: src, kind: fixup_cpu6_abs_16
+# ASM: fixup B - offset: 5, value: dst, kind: fixup_cpu6_abs_16
+# ASM: ZAD 3,3,(src),(Y),2
+# ASM: encoding: [0x46,0x33,0x31,A,A,0x60,0x02]
+# ASM: fixup A - offset: 3, value: src, kind: fixup_cpu6_abs_16
+# ASM: ZAD 3,3,(src),Y
+# ASM: encoding: [0x46,0x33,0x32,A,A,0x06]
+# ASM: fixup A - offset: 3, value: src, kind: fixup_cpu6_abs_16
+# ASM: ZAD 3,3,(X),2,(dst)
+# ASM: encoding: [0x46,0x33,0x34,0x40,0x02,A,A]
+# ASM: fixup A - offset: 5, value: dst, kind: fixup_cpu6_abs_16
+# ASM: ZAD 3,3,X,(dst)
+# ASM: encoding: [0x46,0x33,0x38,0x40,A,A]
+# ASM: fixup A - offset: 4, value: dst, kind: fixup_cpu6_abs_16
 
 # loop is the BZ itself, so the displacement is 1 - 3 = -2.
 # fwd is the instruction after the following NOP: 6 - 5 = 1.
@@ -86,3 +104,12 @@ abs:
 	NOP
 	XFR (abs), Z
 	STR Z, (abs)
+	ZAD 3,3,(src),(dst)
+	ZAD 3,3,(src),(Y),2
+	ZAD 3,3,(src),Y
+	ZAD 3,3,(X),2,(dst)
+	ZAD 3,3,X,(dst)
+src:
+	NOP
+dst:
+	NOP

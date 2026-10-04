@@ -55,6 +55,15 @@ void CPU6InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   report_fatal_error("CPU6 cannot copy between a word and a byte register");
 }
 
+// Spill code is never read for its flags. The built instruction carries the
+// flag implicit-defs of its opcode, and the register allocator asserts that
+// every def of a spill it deletes (a redundant one) is dead.
+static void markFlagDefsDead(MachineInstrBuilder &MIB) {
+  for (MachineOperand &MO : MIB->implicit_operands())
+    if (MO.isReg() && MO.isDef())
+      MO.setIsDead();
+}
+
 void CPU6InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MI,
                                         Register SrcReg, bool IsKill,
@@ -85,12 +94,13 @@ void CPU6InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
       MachineMemOperand::MOStore, MFI.getObjectSize(FrameIndex),
       MFI.getObjectAlign(FrameIndex));
 
-  BuildMI(MBB, MI, DebugLoc(), get(Opc))
-      .addReg(SrcReg, getKillRegState(IsKill))
-      .addFrameIndex(FrameIndex)
-      .addImm(0)
-      .addMemOperand(MMO)
-      .setMIFlags(Flags);
+  MachineInstrBuilder MIB = BuildMI(MBB, MI, DebugLoc(), get(Opc))
+                                .addReg(SrcReg, getKillRegState(IsKill))
+                                .addFrameIndex(FrameIndex)
+                                .addImm(0)
+                                .addMemOperand(MMO)
+                                .setMIFlags(Flags);
+  markFlagDefsDead(MIB);
 }
 
 void CPU6InstrInfo::loadRegFromStackSlot(
@@ -116,11 +126,12 @@ void CPU6InstrInfo::loadRegFromStackSlot(
       MachineMemOperand::MOLoad, MFI.getObjectSize(FrameIndex),
       MFI.getObjectAlign(FrameIndex));
 
-  BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg)
-      .addFrameIndex(FrameIndex)
-      .addImm(0)
-      .addMemOperand(MMO)
-      .setMIFlags(Flags);
+  MachineInstrBuilder MIB = BuildMI(MBB, MI, DebugLoc(), get(Opc), DestReg)
+                                .addFrameIndex(FrameIndex)
+                                .addImm(0)
+                                .addMemOperand(MMO)
+                                .setMIFlags(Flags);
+  markFlagDefsDead(MIB);
 }
 
 // Every frame-slot access is the data register, the frame index as base, and

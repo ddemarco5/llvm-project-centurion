@@ -68,11 +68,13 @@ public:
                               SmallVectorImpl<MCFixup> &Fixups,
                               const MCSubtargetInfo &STI) const;
 
+    // Tail is the number of instruction bytes after the address word.
+    template <unsigned Tail>
     uint64_t getAbs16OpValue(const MCInst &MI, unsigned OpNo,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
 
-    void addSymbolFixup(const MCInst &MI, const MCExpr *Expr, bool PCRel,
+    void addSymbolFixup(const MCExpr *Expr, bool PCRel, unsigned Offset,
                         SmallVectorImpl<MCFixup> &Fixups) const;
 
 };    
@@ -173,13 +175,9 @@ CPU6MCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   return 0;
 }
 
-void CPU6MCCodeEmitter::addSymbolFixup(const MCInst &MI, const MCExpr *Expr,
-                                       bool PCRel,
+void CPU6MCCodeEmitter::addSymbolFixup(const MCExpr *Expr, bool PCRel,
+                                       unsigned Offset,
                                        SmallVectorImpl<MCFixup> &Fixups) const {
-  unsigned Size = MCII.get(MI.getOpcode()).getSize();
-  // Both fields sit at the end of the instruction: the displacement is the
-  // last byte, the address word the last two. applyFixup uses that.
-  unsigned Offset = PCRel ? Size - 1 : Size - 2;
   MCFixupKind Kind = PCRel ? MCFixupKind(CPU6::fixup_cpu6_pcrel_8)
                            : MCFixupKind(CPU6::fixup_cpu6_abs_16);
   Fixups.push_back(MCFixup::create(Offset, Expr, Kind, PCRel));
@@ -193,12 +191,18 @@ CPU6MCCodeEmitter::getPCRel8OpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isImm())
     return static_cast<uint64_t>(MO.getImm());
   if (MO.isExpr()) {
-    addSymbolFixup(MI, MO.getExpr(), /*PCRel=*/true, Fixups);
+    // The displacement is the last byte of the instruction.
+    unsigned Size = MCII.get(MI.getOpcode()).getSize();
+    addSymbolFixup(MO.getExpr(), /*PCRel=*/true, Size - 1, Fixups);
     return 0;
   }
   llvm_unreachable("Unhandled operand in getPCRel8OpValue");
 }
 
+// The address word is followed by Tail more bytes. Most instructions end in
+// the word (Tail 0), so the relocation is at Size - 2. Bignum operand pairs
+// put another operand after the first word.
+template <unsigned Tail>
 uint64_t
 CPU6MCCodeEmitter::getAbs16OpValue(const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups,
@@ -207,7 +211,8 @@ CPU6MCCodeEmitter::getAbs16OpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isImm())
     return static_cast<uint64_t>(MO.getImm());
   if (MO.isExpr()) {
-    addSymbolFixup(MI, MO.getExpr(), /*PCRel=*/false, Fixups);
+    unsigned Size = MCII.get(MI.getOpcode()).getSize();
+    addSymbolFixup(MO.getExpr(), /*PCRel=*/false, Size - 2 - Tail, Fixups);
     return 0;
   }
   llvm_unreachable("Unhandled operand in getAbs16OpValue");

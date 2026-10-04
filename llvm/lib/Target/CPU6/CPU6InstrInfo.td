@@ -90,10 +90,17 @@ def Abs16AsmOperand : AsmOperandClass {
     let RenderMethod = "addImmOperands";
     let DiagnosticType = "InvalidAbs16";
 }
-def abs16 : Operand<i16> {
+// A 16-bit absolute address word. Tail is how many bytes of the instruction
+// follow the word, which is where a symbol's relocation has to point. Most
+// instructions end in the word, so Tail is 0 and the relocation sits at
+// Size - 2. A bignum operand pair puts the second operand after the first.
+class Abs16Operand<int tail> : Operand<i16> {
     let ParserMatchClass = Abs16AsmOperand;
-    let EncoderMethod = "getAbs16OpValue";
+    let EncoderMethod = "getAbs16OpValue<" # tail # ">";
 }
+def abs16 : Abs16Operand<0>;
+def abs16_t1 : Abs16Operand<1>;
+def abs16_t2 : Abs16Operand<2>;
 
 // a parse method for (PC)+${arg}
 // def PCOffsetOperand : AsmOperandClass {
@@ -2132,260 +2139,199 @@ foreach OP = [
 // Bignum
 //===----------------------------------------------------------------------===//
 
-// The wiki prefix is `46 llllkkkk ssssmmnn`. It does not specify the
-// bytes that follow. The tail below is a layout defined here.
+// Opcode family 0x46: `46 llllkkkk ssssmmnn`, then the operand tails, as
+// webCenREE decodes them (cen.ts ex_decode; decode_exmode prints them).
 //
-// Byte 0 is 0x46.
-// Byte 1 is llllkkkk. l is the 4-bit size of operand 1. k is the 4-bit
-// size of operand 2.
-// Byte 2 is ssssmmnn. s is the 4-bit selector. mm is operand 1's mode.
-// nn is operand 2's mode.
+//   llll, kkkk  Source and destination length-1. 3 is a 4-byte operand (an
+//               i32) and 7 is 8 bytes (an i64). 1 to 16 bytes are valid.
+//               Memory is big-endian: the address names the most significant
+//               byte.
+//   ssss        Selector, see BigOps below.
+//   mm, nn      Source and destination addressing mode:
+//                 0 address   a 16-bit big-endian address word             (A)
+//                 1 indexed   an index byte, then a disp8                  (X)
+//                 2 register  one byte, source in the high nibble and
+//                             destination in the low one. Two register
+//                             operands share that byte.                    (R)
+//                 3 literal   inline bytes, source only. See BN6Lit*.
+//   The tails follow the prefix, source first. Selectors 0-8 compute
+//   Dest := Dest op Src. CFB (9) swaps the operand order.
 //
-// The Instructions page names Literal, Direct, Indirect, Relative,
-// Relative Indirect, and Indexed. The BIGNUM paragraph calls out
-// literal (literal->literal). mm and nn are two bits, so this layout
-// assigns only the three named modes whose widths already exist in
-// CPU6InstrFormats.td. Indirect, relative, and relative-indirect are
-// not given a value. Value 3 is unused.
-//   0 literal: 16-bit big-endian immediate, the LDA M=0 width.
-//   1 direct:  16-bit big-endian address, the LDA M=1 width.
-//   2 indexed: base register in the high nibble of the next byte, low
-//              nibble fixed at 0, then an 8-bit displacement. Those are
-//              the LDA (r),disp field widths. LDA's m' nibble is not
-//              repeated; the mode already lives in mm or nn.
+// Index byte: the base register in the high nibble, whose low bit selects a
+// disp16 instead of the disp8 used here, and a second register to add in the
+// low nibble, 0 here. webCenREE rejects an odd register nibble.
 //
-// Each tail is two bytes. Operand 1's tail is bytes 3-4. Operand 2's
-// tail is bytes 5-6.
-// Selectors 0-8: operand 1 is the source and operand 2 is the destination.
-// CFB (selector 9) swaps that pair. Operand 1 is the destination and
-// operand 2 is the source. Same opcode, different operand order.
+// A def name ends in the source and destination mode: BNA_AA is two address
+// words and BNA_RR is two registers. Assembly spells A as `(sym)`, X as
+// `(reg),disp` and R as a bare register. Codegen selects AA and RR only; the
+// other layouts are for the assembler and disassembler.
 //
-// A, S, and C are register asm names, so selectors 0-2 are spelled
-// BNA, BNS, and BNC.
-//
-// CTB: the page does not say how the conversion base is supplied.
-// This layout uses the base register of an indexed operand. Operand 1's
-// base is that base when operand 1 is indexed; otherwise operand 2's
-// base is. A form with no indexed operand does not encode a base.
-// DRM: the remainder is written through AW and the link flag is set for
-// a zero remainder. AW is not an operand.
+// Selectors:
+//   0 BNA  ADD    Dest := Dest + Src                         F L M V
+//   1 BNS  SUB    Dest := Dest - Src                         F L M V
+//   2 BNC  CMP    flags of Dest - Src, Dest unchanged        F L M V
+//   3 ZAD  MOV    Dest := Src, zero filled if Dest is wider  F M V
+//   4 ZSU  NEG    5 M  SMUL    6 D  DIV    7 DRM  DIVMOD
+//   8 CTB  TOBIN  9 CFB  FMBIN
+// A, S and C are register names, so the first three are spelled BNA, BNS and
+// BNC. cen.ts implements only ZAD and CTB. ZAD walks from the least
+// significant byte: V is set when every byte written is zero, M follows the
+// source sign byte, F is set when the source and final destination sign bytes
+// differ in sign, and Link is untouched. The flags of BNA, BNS and BNC are the
+// ones the BIG group declares (FLAGS.FLMV); cen.ts does not model their
+// values. Codegen reads V for == and !=, and Link for unsigned order, as it
+// does after SUB: Link set means no borrow.
 
-class BN_LL<bits<4> sel, string name>
-      : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
-          name, "$l,$k,$op1,$op2"> {
+// The prefix shared by every layout: opcode, lengths, selector, modes.
+class BNHead<bits<4> sel, bits<2> sm, bits<2> dm> {
   bits<4> l;
   bits<4> k;
-  bits<16> op1;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 0;
-  let Inst{33-32} = 0;
-  let Inst{31-16} = op1;
-  let Inst{15-0} = op2;
+  bits<24> Head = {0b01000110, l, k, sel, sm, dm};
 }
 
-class BN_LD<bits<4> sel, string name>
+class BN_AA<bits<4> sel, string name>
       : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
-          name, "$l,$k,$op1,(${op2})"> {
-  bits<4> l;
-  bits<4> k;
-  bits<16> op1;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 0;
-  let Inst{33-32} = 1;
-  let Inst{31-16} = op1;
-  let Inst{15-0} = op2;
+          (ins uimm4:$l, uimm4:$k, abs16_t2:$src, abs16:$dst),
+          name, "$l,$k,(${src}),(${dst})">,
+        BNHead<sel, 0, 0> {
+  bits<16> src;
+  bits<16> dst;
+  let Inst{55-32} = Head;
+  let Inst{31-16} = src;
+  let Inst{15-0} = dst;
 }
 
-class BN_LI<bits<4> sel, string name>
+class BN_AX<bits<4> sel, string name>
       : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, GPR:$op2r, i8imm:$op2d),
-          name, "$l,$k,$op1,(${op2r}),$op2d"> {
-  bits<4> l;
-  bits<4> k;
-  bits<16> op1;
-  bits<4> op2r;
-  bits<8> op2d;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 0;
-  let Inst{33-32} = 2;
-  let Inst{31-16} = op1;
-  let Inst{15-12} = op2r;
-  let Inst{11-8} = 0;
-  let Inst{7-0} = op2d;
+          (ins uimm4:$l, uimm4:$k, abs16_t2:$src, GPR:$dbase, simm8:$ddisp),
+          name, "$l,$k,(${src}),(${dbase}),$ddisp">,
+        BNHead<sel, 0, 1> {
+  bits<16> src;
+  bits<4> dbase;
+  bits<8> ddisp;
+  let Inst{55-32} = Head;
+  let Inst{31-16} = src;
+  let Inst{15-0} = {dbase{3-1}, 0b0, 0b0000, ddisp};
 }
 
-class BN_DL<bits<4> sel, string name>
+class BN_AR<bits<4> sel, string name>
+      : CenturionInst48<(outs),
+          (ins uimm4:$l, uimm4:$k, abs16_t1:$src, GPR:$dst),
+          name, "$l,$k,(${src}),$dst">,
+        BNHead<sel, 0, 2> {
+  bits<16> src;
+  bits<4> dst;
+  let Inst{47-24} = Head;
+  let Inst{23-8} = src;
+  let Inst{7-0} = {0b0000, dst};
+}
+
+class BN_XA<bits<4> sel, string name>
       : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
-          name, "$l,$k,(${op1}),$op2"> {
-  bits<4> l;
-  bits<4> k;
-  bits<16> op1;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 1;
-  let Inst{33-32} = 0;
-  let Inst{31-16} = op1;
-  let Inst{15-0} = op2;
+          (ins uimm4:$l, uimm4:$k, GPR:$sbase, simm8:$sdisp, abs16:$dst),
+          name, "$l,$k,(${sbase}),$sdisp,(${dst})">,
+        BNHead<sel, 1, 0> {
+  bits<4> sbase;
+  bits<8> sdisp;
+  bits<16> dst;
+  let Inst{55-32} = Head;
+  let Inst{31-16} = {sbase{3-1}, 0b0, 0b0000, sdisp};
+  let Inst{15-0} = dst;
 }
 
-class BN_DD<bits<4> sel, string name>
+class BN_XX<bits<4> sel, string name>
       : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, i16imm:$op2),
-          name, "$l,$k,(${op1}),(${op2})"> {
-  bits<4> l;
-  bits<4> k;
-  bits<16> op1;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 1;
-  let Inst{33-32} = 1;
-  let Inst{31-16} = op1;
-  let Inst{15-0} = op2;
+          (ins uimm4:$l, uimm4:$k, GPR:$sbase, simm8:$sdisp,
+               GPR:$dbase, simm8:$ddisp),
+          name, "$l,$k,(${sbase}),$sdisp,(${dbase}),$ddisp">,
+        BNHead<sel, 1, 1> {
+  bits<4> sbase;
+  bits<8> sdisp;
+  bits<4> dbase;
+  bits<8> ddisp;
+  let Inst{55-32} = Head;
+  let Inst{31-16} = {sbase{3-1}, 0b0, 0b0000, sdisp};
+  let Inst{15-0} = {dbase{3-1}, 0b0, 0b0000, ddisp};
 }
 
-class BN_DI<bits<4> sel, string name>
-      : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, i16imm:$op1, GPR:$op2r, i8imm:$op2d),
-          name, "$l,$k,(${op1}),(${op2r}),$op2d"> {
-  bits<4> l;
-  bits<4> k;
-  bits<16> op1;
-  bits<4> op2r;
-  bits<8> op2d;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 1;
-  let Inst{33-32} = 2;
-  let Inst{31-16} = op1;
-  let Inst{15-12} = op2r;
-  let Inst{11-8} = 0;
-  let Inst{7-0} = op2d;
+class BN_XR<bits<4> sel, string name>
+      : CenturionInst48<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$sbase, simm8:$sdisp, GPR:$dst),
+          name, "$l,$k,(${sbase}),$sdisp,$dst">,
+        BNHead<sel, 1, 2> {
+  bits<4> sbase;
+  bits<8> sdisp;
+  bits<4> dst;
+  let Inst{47-24} = Head;
+  let Inst{23-8} = {sbase{3-1}, 0b0, 0b0000, sdisp};
+  let Inst{7-0} = {0b0000, dst};
 }
 
-class BN_IL<bits<4> sel, string name>
-      : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, i16imm:$op2),
-          name, "$l,$k,(${op1r}),$op1d,$op2"> {
-  bits<4> l;
-  bits<4> k;
-  bits<4> op1r;
-  bits<8> op1d;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 2;
-  let Inst{33-32} = 0;
-  let Inst{31-28} = op1r;
-  let Inst{27-24} = 0;
-  let Inst{23-16} = op1d;
-  let Inst{15-0} = op2;
+class BN_RA<bits<4> sel, string name>
+      : CenturionInst48<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$src, abs16:$dst),
+          name, "$l,$k,$src,(${dst})">,
+        BNHead<sel, 2, 0> {
+  bits<4> src;
+  bits<16> dst;
+  let Inst{47-24} = Head;
+  let Inst{23-16} = {src, 0b0000};
+  let Inst{15-0} = dst;
 }
 
-class BN_ID<bits<4> sel, string name>
-      : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, i16imm:$op2),
-          name, "$l,$k,(${op1r}),$op1d,(${op2})"> {
-  bits<4> l;
-  bits<4> k;
-  bits<4> op1r;
-  bits<8> op1d;
-  bits<16> op2;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 2;
-  let Inst{33-32} = 1;
-  let Inst{31-28} = op1r;
-  let Inst{27-24} = 0;
-  let Inst{23-16} = op1d;
-  let Inst{15-0} = op2;
+class BN_RX<bits<4> sel, string name>
+      : CenturionInst48<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$src, GPR:$dbase, simm8:$ddisp),
+          name, "$l,$k,$src,(${dbase}),$ddisp">,
+        BNHead<sel, 2, 1> {
+  bits<4> src;
+  bits<4> dbase;
+  bits<8> ddisp;
+  let Inst{47-24} = Head;
+  let Inst{23-16} = {src, 0b0000};
+  let Inst{15-0} = {dbase{3-1}, 0b0, 0b0000, ddisp};
 }
 
-class BN_II<bits<4> sel, string name>
-      : CenturionInst56<(outs),
-          (ins uimm4:$l, uimm4:$k, GPR:$op1r, i8imm:$op1d, GPR:$op2r, i8imm:$op2d),
-          name, "$l,$k,(${op1r}),$op1d,(${op2r}),$op2d"> {
-  bits<4> l;
-  bits<4> k;
-  bits<4> op1r;
-  bits<8> op1d;
-  bits<4> op2r;
-  bits<8> op2d;
-  let Inst{55-48} = 0x46;
-  let Inst{47-44} = l;
-  let Inst{43-40} = k;
-  let Inst{39-36} = sel;
-  let Inst{35-34} = 2;
-  let Inst{33-32} = 2;
-  let Inst{31-28} = op1r;
-  let Inst{27-24} = 0;
-  let Inst{23-16} = op1d;
-  let Inst{15-12} = op2r;
-  let Inst{11-8} = 0;
-  let Inst{7-0} = op2d;
+class BN_RR<bits<4> sel, string name>
+      : CenturionInst32<(outs),
+          (ins uimm4:$l, uimm4:$k, GPR:$src, GPR:$dst),
+          name, "$l,$k,$src,$dst">,
+        BNHead<sel, 2, 2> {
+  bits<4> src;
+  bits<4> dst;
+  let Inst{31-8} = Head;
+  let Inst{7-0} = {src, dst};
 }
 
-class BNSel<string name, bits<4> sel, list<Register> flags = []> {
-  string Name = name;
-  bits<4> Sel = sel;
-  list<Register> Flags = flags;
-}
+// Every 0x46 selector, shared by the register/address forms and the literal
+// forms below. Flags is what the selector writes.
+defvar BigOps = [
+    OpSel<"BNA", 0, [rF, rL, rM, rV]>,
+    OpSel<"BNS", 1, [rF, rL, rM, rV]>,
+    OpSel<"BNC", 2, [rF, rL, rM, rV]>,
+    OpSel<"ZAD", 3, [rF, rM, rV]>,
+    OpSel<"ZSU", 4>,
+    OpSel<"M", 5>,
+    OpSel<"D", 6>,
+    OpSel<"DRM", 7, [rL]>,
+    OpSel<"CTB", 8, [rL]>,
+    OpSel<"CFB", 9>
+];
 
-foreach OP = [
-    BNSel<"BNA", 0>,
-    BNSel<"BNS", 1>,
-    BNSel<"BNC", 2>,
-    BNSel<"ZAD", 3, [rF, rM, rV]>,
-    BNSel<"ZSU", 4>,
-    BNSel<"M", 5>,
-    BNSel<"D", 6>,
-    BNSel<"DRM", 7, [rL]>,
-    BNSel<"CTB", 8, [rL]>,
-    BNSel<"CFB", 9>
-] in {
-  let Defs = OP.Flags in
-  def OP.Name#_LL : BN_LL<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_LD : BN_LD<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_LI : BN_LI<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_DL : BN_DL<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_DD : BN_DD<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_DI : BN_DI<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_IL : BN_IL<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_ID : BN_ID<OP.Sel, OP.Name>;
-  let Defs = OP.Flags in
-  def OP.Name#_II : BN_II<OP.Sel, OP.Name>;
+// The operands are read from memory, and every selector but BNC writes the
+// destination back.
+foreach OP = BigOps in {
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC") in {
+    def OP.Name#_AA : BN_AA<OP.Sel, OP.Name>;
+    def OP.Name#_AX : BN_AX<OP.Sel, OP.Name>;
+    def OP.Name#_AR : BN_AR<OP.Sel, OP.Name>;
+    def OP.Name#_XA : BN_XA<OP.Sel, OP.Name>;
+    def OP.Name#_XX : BN_XX<OP.Sel, OP.Name>;
+    def OP.Name#_XR : BN_XR<OP.Sel, OP.Name>;
+    def OP.Name#_RA : BN_RA<OP.Sel, OP.Name>;
+    def OP.Name#_RX : BN_RX<OP.Sel, OP.Name>;
+    def OP.Name#_RR : BN_RR<OP.Sel, OP.Name>;
+  }
 }
 
 class BN6LitD<bits<4> sel, string name>
@@ -2460,68 +2406,14 @@ class BN6LitI16<bits<4> sel, string name>
   let Inst{19-16} = 0;
   let Inst{15-0} = wdisp;
 }
-foreach OP = [
-    OpSel<"BNA", 0>,
-    OpSel<"BNS", 1>,
-    OpSel<"BNC", 2>,
-    OpSel<"ZAD", 3, [rF, rM, rV]>,
-    OpSel<"ZSU", 4>,
-    OpSel<"M", 5>,
-    OpSel<"D", 6>,
-    OpSel<"DRM", 7, [rL]>,
-    OpSel<"CTB", 8, [rL]>,
-    OpSel<"CFB", 9>
-] in {
-  let Defs = OP.Flags in
-  def OP.Name#_LitD : BN6LitD<OP.Sel, OP.Name>;
-}
-
-foreach OP = [
-    OpSel<"BNA", 0>,
-    OpSel<"BNS", 1>,
-    OpSel<"BNC", 2>,
-    OpSel<"ZAD", 3, [rF, rM, rV]>,
-    OpSel<"ZSU", 4>,
-    OpSel<"M", 5>,
-    OpSel<"D", 6>,
-    OpSel<"DRM", 7, [rL]>,
-    OpSel<"CTB", 8, [rL]>,
-    OpSel<"CFB", 9>
-] in {
-  let Defs = OP.Flags in
-  def OP.Name#_LitI8 : BN6LitI8<OP.Sel, OP.Name>;
-}
-
-foreach OP = [
-    OpSel<"BNA", 0>,
-    OpSel<"BNS", 1>,
-    OpSel<"BNC", 2>,
-    OpSel<"ZAD", 3, [rF, rM, rV]>,
-    OpSel<"ZSU", 4>,
-    OpSel<"M", 5>,
-    OpSel<"D", 6>,
-    OpSel<"DRM", 7, [rL]>,
-    OpSel<"CTB", 8, [rL]>,
-    OpSel<"CFB", 9>
-] in {
-  let Defs = OP.Flags in
-  def OP.Name#_LitR : BN6LitR<OP.Sel, OP.Name>;
-}
-
-foreach OP = [
-    OpSel<"BNA", 0>,
-    OpSel<"BNS", 1>,
-    OpSel<"BNC", 2>,
-    OpSel<"ZAD", 3, [rF, rM, rV]>,
-    OpSel<"ZSU", 4>,
-    OpSel<"M", 5>,
-    OpSel<"D", 6>,
-    OpSel<"DRM", 7, [rL]>,
-    OpSel<"CTB", 8, [rL]>,
-    OpSel<"CFB", 9>
-] in {
-  let Defs = OP.Flags in
-  def OP.Name#_LitI16 : BN6LitI16<OP.Sel, OP.Name>;
+// Literal source (mode 3, one inline byte) into each destination mode.
+foreach OP = BigOps in {
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC") in {
+    def OP.Name#_LitD : BN6LitD<OP.Sel, OP.Name>;
+    def OP.Name#_LitI8 : BN6LitI8<OP.Sel, OP.Name>;
+    def OP.Name#_LitR : BN6LitR<OP.Sel, OP.Name>;
+    def OP.Name#_LitI16 : BN6LitI16<OP.Sel, OP.Name>;
+  }
 }
 
 //===----------------------------------------------------------------------===//

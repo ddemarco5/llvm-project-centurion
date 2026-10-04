@@ -41,6 +41,14 @@ enum NodeType : unsigned {
   TST,
   BR_CC,
   SELECT_CC,
+  // Bignum mem ops (0x46). Chain in, chain out. Operands are src ptr, dest
+  // ptr, and a byte length-1 immediate (3 => i32, 7 => i64). See the Bignum
+  // section of CPU6InstrInfo.td and the TODO patterns in
+  // CPU6InstrPatterns.td.
+  BN_MOV, // ZAD
+  BN_ADD, // BNA
+  BN_SUB, // BNS
+  BN_CMP, // BNC — sets flags; no store
 };
 } // namespace CPU6ISD
 
@@ -89,11 +97,18 @@ public:
 
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
+  SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
+
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *BB) const override;
 
 private:
+  // Fold store(add/sub(load,load)) and store(load) into 0x46 bignum ops
+  // while the value type is still i32/i64.
+  SDValue combineBignumStore(StoreSDNode *St, SelectionDAG &DAG) const;
+  // Fold setcc(load,load) on i32/i64 into BNC plus a flag reader.
+  SDValue combineBignumSetCC(SDNode *N, SelectionDAG &DAG) const;
   // A constant logical right shift is an arithmetic shift plus a mask. A
   // variable shift is left for the one-bit loop in EmitShift.
   SDValue LowerShift(SDValue Op, SelectionDAG &DAG) const;

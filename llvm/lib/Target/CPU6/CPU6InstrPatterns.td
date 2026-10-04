@@ -71,6 +71,26 @@ def CPU6selectcc : SDNode<"CPU6ISD::SELECT_CC",
                                                SDTCisVT<3, i16>]>,
                           [SDNPInGlue]>;
 
+// Bignum memops. Ptrs are i16; $len is length-1 (i8 target constant).
+def SDT_CPU6Bignum : SDTypeProfile<0, 3,
+    [SDTCisVT<0, iPTR>, SDTCisVT<1, iPTR>, SDTCisVT<2, i8>]>;
+def CPU6bnmov : SDNode<"CPU6ISD::BN_MOV", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+def CPU6bnadd : SDNode<"CPU6ISD::BN_ADD", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+def CPU6bnsub : SDNode<"CPU6ISD::BN_SUB", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+// Compare: chain and glue out. BNC only reads memory.
+def CPU6bncmp : SDNode<"CPU6ISD::BN_CMP",
+                       SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                            SDTCisVT<1, iPTR>,
+                                            SDTCisVT<2, i8>]>,
+                       [SDNPHasChain, SDNPOutGlue, SDNPMayLoad,
+                        SDNPMemOperand]>;
+
 //===----------------------------------------------------------------------===//
 // Predicates and transforms
 //===----------------------------------------------------------------------===//
@@ -522,3 +542,49 @@ def : Pat<(CPU6tcret (i16 imm:$dst)), (TAILJMP imm:$dst)>;
 // Indirect. webCenREE's indexed form with M' = 0 reads the word register
 // and does not modify it. `JSR (X)` encodes as 7D 40.
 def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
+
+//===----------------------------------------------------------------------===//
+// Bignum (0x46)
+//===----------------------------------------------------------------------===//
+//
+// Length-1 in the instruction: i32 → 3, i64 → 7. Addressing: *_AA is
+// two address words (globals) and *_RR is two registers (pointers). The
+// indexed layouts are assembler-only until an `addr` pattern selects them.
+//
+// Implemented (combineBignumStore/SetCC emit the nodes, selected below):
+//   ZAD (MOV), BNA (ADD), BNS (SUB), BNC (CMP)
+//
+// TODO(cpu6): ZSU (NEG) — select for store(sub(0, load)) / negate of a
+// memory big-int once CenREE microcode for selector 4 is stepped.
+//
+// TODO(cpu6): M (SMUL) — signed Dest *= Src. Wiki: zero results with a
+// negative operand are unreliable; do not select until CenREE confirms.
+//
+// TODO(cpu6): D (DIV) — signed Dest /= Src, remainder discarded.
+//
+// TODO(cpu6): DRM (DIVMOD) — signed div; remainder through *A; Link set
+// iff remainder is zero. Needs an A setup before the op.
+//
+// TODO(cpu6): CTB (TOBIN) — ASCII/base string → bignum. Base = llll+2;
+// source width in AL. Libc/runtime territory, not IR math.
+//
+// TODO(cpu6): CFB (FMBIN) — bignum → formatted base string. Op order
+// swapped; AL/BL/A control width, pad, and end pointer. Format language
+// (@/#) is not expressible as a normal store.
+
+// One pattern per width (length-1 3 is an i32, 7 an i64) and addressing form.
+multiclass BNPats<SDPatternOperator op, string inst> {
+  foreach len = [3, 7] in {
+    def : Pat<(op (absaddr abs16:$src), (absaddr abs16:$dst), (i8 len)),
+              (!cast<Instruction>(inst # "_AA") (i8 len), (i8 len),
+                                                abs16:$src, abs16:$dst)>;
+    def : Pat<(op GPR:$src, GPR:$dst, (i8 len)),
+              (!cast<Instruction>(inst # "_RR") (i8 len), (i8 len),
+                                                GPR:$src, GPR:$dst)>;
+  }
+}
+
+defm : BNPats<CPU6bnmov, "ZAD">;
+defm : BNPats<CPU6bnadd, "BNA">;
+defm : BNPats<CPU6bnsub, "BNS">;
+defm : BNPats<CPU6bncmp, "BNC">;

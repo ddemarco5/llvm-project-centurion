@@ -37,10 +37,6 @@ CPU6Subtarget::CPU6Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
 CPU6Subtarget::~CPU6Subtarget() = default;
 
 const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
-  // TODO(cpu6): names for the CPU6ISD opcodes, so -debug-only=isel can print
-  // them. Until this switch has a case, custom nodes show up as
-  // "<<Unknown Target Node #N>>".
-  //
   switch (Opcode) {
   case CPU6ISD::RET_GLUE:
     return "CPU6ISD::RET_GLUE";
@@ -58,6 +54,14 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::BR_CC";
   case CPU6ISD::SELECT_CC:
     return "CPU6ISD::SELECT_CC";
+  case CPU6ISD::BN_MOV:
+    return "CPU6ISD::BN_MOV";
+  case CPU6ISD::BN_ADD:
+    return "CPU6ISD::BN_ADD";
+  case CPU6ISD::BN_SUB:
+    return "CPU6ISD::BN_SUB";
+  case CPU6ISD::BN_CMP:
+    return "CPU6ISD::BN_CMP";
   }
   return nullptr;
 }

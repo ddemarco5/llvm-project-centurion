@@ -14,7 +14,9 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/SelectionDAGAddressAnalysis.h"
 #include "llvm/IR/Function.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -145,6 +147,194 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // Keep the scheduled order close to the IR while the patterns are new.
   setSchedulingPreference(Sched::Source);
   setMinFunctionAlignment(Align(1));
+
+  // Fold i32/i64 mem op trees into 0x46 bignum before they split to i16.
+  setTargetDAGCombine(ISD::STORE);
+  setTargetDAGCombine(ISD::SETCC);
+}
+
+namespace {
+
+// Length-1 nibble for a bignum operand. Only i32 and i64 are folded today.
+std::optional<unsigned> bignumLenMinus1(EVT VT) {
+  if (VT == MVT::i32)
+    return 3;
+  if (VT == MVT::i64)
+    return 7;
+  return std::nullopt;
+}
+
+// A plain, non-extending load of exactly VT.
+LoadSDNode *getBignumLoad(SDValue V, EVT VT) {
+  auto *Ld = dyn_cast<LoadSDNode>(V);
+  if (!Ld || !Ld->isSimple() || Ld->isIndexed() ||
+      Ld->getExtensionType() != ISD::NON_EXTLOAD || Ld->getMemoryVT() != VT)
+    return nullptr;
+  return Ld;
+}
+
+// Byte distance between two accesses, when they are known to share a base.
+std::optional<int64_t> addressDelta(const MemSDNode *A, const MemSDNode *B,
+                                    const SelectionDAG &DAG) {
+  int64_t Off;
+  if (BaseIndexOffset::match(A, DAG).equalBaseIndex(
+          BaseIndexOffset::match(B, DAG), DAG, Off))
+    return Off;
+  return std::nullopt;
+}
+
+// The bignum instruction runs where the store (or compare) is, so every load
+// folded into it must see memory as it is there. Loads that start from one
+// chain have no write between them.
+bool loadsShareMemoryState(ArrayRef<LoadSDNode *> Loads) {
+  return all_of(Loads, [&](LoadSDNode *Ld) {
+    return Ld->getChain() == Loads[0]->getChain();
+  });
+}
+
+// ... and the store's chain adds nothing to that chain but those loads.
+bool onlyLoadsJoinChain(SDValue StoreChain, SDValue Root) {
+  auto IsRootOrRootLoad = [&](SDValue Op) {
+    if (Op == Root)
+      return true;
+    auto *Ld = dyn_cast<LoadSDNode>(Op.getNode());
+    return Ld && Op.getResNo() == 1 && Ld->getChain() == Root;
+  };
+  if (StoreChain.getOpcode() != ISD::TokenFactor)
+    return IsRootOrRootLoad(StoreChain);
+  return all_of(StoreChain->op_values(), IsRootOrRootLoad);
+}
+
+} // namespace
+
+// store (load Src), Dest            -> ZAD
+// store (add/sub (load Dest), (load Src)), Dest  -> BNA / BNS
+// The result is Dest := Dest op Src, so Src - Dest is not folded.
+SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
+                                               SelectionDAG &DAG) const {
+  EVT VT = St->getMemoryVT();
+  auto Len = bignumLenMinus1(VT);
+  if (!Len || !St->isSimple() || St->isIndexed() || St->isTruncatingStore())
+    return SDValue();
+
+  SDValue Val = St->getValue();
+  unsigned Opc;
+  LoadSDNode *Src;
+  SmallVector<LoadSDNode *, 2> Loads;
+  if (LoadSDNode *Ld = getBignumLoad(Val, VT)) {
+    Opc = CPU6ISD::BN_MOV;
+    Src = Ld;
+    Loads = {Ld};
+  } else if (Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::SUB) {
+    LoadSDNode *L0 = getBignumLoad(Val.getOperand(0), VT);
+    LoadSDNode *L1 = getBignumLoad(Val.getOperand(1), VT);
+    if (!L0 || !L1)
+      return SDValue();
+    bool IsAdd = Val.getOpcode() == ISD::ADD;
+    if (addressDelta(L0, St, DAG) == 0)
+      Src = L1;
+    else if (IsAdd && addressDelta(L1, St, DAG) == 0)
+      Src = L0;
+    else
+      return SDValue();
+    Opc = IsAdd ? CPU6ISD::BN_ADD : CPU6ISD::BN_SUB;
+    Loads = {L0, L1};
+  } else {
+    return SDValue();
+  }
+
+  if (!loadsShareMemoryState(Loads) ||
+      !onlyLoadsJoinChain(St->getChain(), Loads[0]->getChain()))
+    return SDValue();
+
+  // The instruction works a byte at a time. That equals load-then-store unless
+  // Src and Dest overlap partly, which two accesses off one base can show.
+  // Unrelated pointers are taken to be identical or disjoint, as for memcpy.
+  int64_t Bytes = VT.getStoreSize().getFixedValue();
+  std::optional<int64_t> Delta = addressDelta(Src, St, DAG);
+  if (Delta && *Delta != 0 && *Delta > -Bytes && *Delta < Bytes)
+    return SDValue();
+
+  SDLoc DL(St);
+  return DAG.getNode(Opc, DL, MVT::Other, St->getChain(), Src->getBasePtr(),
+                     St->getBasePtr(),
+                     DAG.getTargetConstant(*Len, DL, MVT::i8));
+}
+
+// setcc (load A), (load B) -> BNC, then a branch on the flags it sets.
+// BNC src,dest sets the flags of Dest - Src, and Link set means no borrow. So
+// Dest is the left operand of >= and <, and the right operand of > and <=,
+// which are the same tests with the operands swapped. == and != read V.
+SDValue CPU6TargetLowering::combineBignumSetCC(SDNode *N,
+                                               SelectionDAG &DAG) const {
+  EVT VT = N->getOperand(0).getValueType();
+  auto Len = bignumLenMinus1(VT);
+  if (!Len)
+    return SDValue();
+  LoadSDNode *LHS = getBignumLoad(N->getOperand(0), VT);
+  LoadSDNode *RHS = getBignumLoad(N->getOperand(1), VT);
+  if (!LHS || !RHS || !loadsShareMemoryState({LHS, RHS}))
+    return SDValue();
+
+  LoadSDNode *Dest = LHS, *Src = RHS;
+  unsigned Br;
+  switch (cast<CondCodeSDNode>(N->getOperand(2))->get()) {
+  case ISD::SETEQ:
+    Br = CPU6::BZ;
+    break;
+  case ISD::SETNE:
+    Br = CPU6::BNZ;
+    break;
+  case ISD::SETUGE:
+    Br = CPU6::BL;
+    break;
+  case ISD::SETULT:
+    Br = CPU6::BNL;
+    break;
+  case ISD::SETULE:
+    std::swap(Dest, Src);
+    Br = CPU6::BL;
+    break;
+  case ISD::SETUGT:
+    std::swap(Dest, Src);
+    Br = CPU6::BNL;
+    break;
+  default:
+    return SDValue();
+  }
+
+  SDLoc DL(N);
+  SDValue Cmp = DAG.getNode(
+      CPU6ISD::BN_CMP, DL, DAG.getVTList(MVT::Other, MVT::Glue),
+      LHS->getChain(), Src->getBasePtr(), Dest->getBasePtr(),
+      DAG.getTargetConstant(*Len, DL, MVT::i8));
+  // Writes after the loads must not move above the compare, so they chain
+  // after it now that it stands in for the loads.
+  DAG.ReplaceAllUsesOfValueWith(SDValue(LHS, 1), Cmp.getValue(0));
+  if (RHS != LHS)
+    DAG.ReplaceAllUsesOfValueWith(SDValue(RHS, 1), Cmp.getValue(0));
+
+  SDValue Sel = DAG.getNode(CPU6ISD::SELECT_CC, DL, MVT::i16,
+                            DAG.getConstant(1, DL, MVT::i16),
+                            DAG.getConstant(0, DL, MVT::i16),
+                            DAG.getTargetConstant(Br, DL, MVT::i16),
+                            Cmp.getValue(1));
+  EVT ResVT = N->getValueType(0);
+  return ResVT == MVT::i16 ? Sel : DAG.getNode(ISD::TRUNCATE, DL, ResVT, Sel);
+}
+
+SDValue CPU6TargetLowering::PerformDAGCombine(SDNode *N,
+                                              DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+  switch (N->getOpcode()) {
+  case ISD::STORE:
+    return combineBignumStore(cast<StoreSDNode>(N), DAG);
+  case ISD::SETCC:
+    return combineBignumSetCC(N, DAG);
+  default:
+    break;
+  }
+  return SDValue();
 }
 
 SDValue CPU6TargetLowering::LowerFormalArguments(
