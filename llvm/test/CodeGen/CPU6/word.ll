@@ -258,9 +258,14 @@ define i16 @mulrr(i16 %a, i16 %b) {
   ret i16 %v
 }
 
-; DIV src,dst is dst = dst / src. The dividend stays in A.
+; DIV src,B is B = B / src. %b arrives in B, so it is saved before the
+; dividend is copied there (XAB is XFR B,A). The quotient is copied back
+; to A.
 ; CHECK-LABEL: divrr:
-; CHECK:      DIV B,A
+; CHECK:      XFR B,C
+; CHECK-NEXT: XAB
+; CHECK-NEXT: DIV C,B
+; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i16 @divrr(i16 %a, i16 %b) {
   %v = udiv i16 %a, %b
@@ -290,8 +295,10 @@ define i16 @sq(i16 %a) {
   ret i16 %v
 }
 
+; Literal DIV with destination B writes the quotient. A holds the dividend.
 ; CHECK-LABEL: div10:
-; CHECK:      DIV A,A,10
+; CHECK:      DIV A,B,10
+; CHECK-NEXT: XFR B,A
 ; CHECK-NEXT: RSR
 define i16 @div10(i16 %a) {
   %v = udiv i16 %a, 10

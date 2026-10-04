@@ -72,7 +72,8 @@ define i16 @load_slot() nounwind {
 
 ; MUL and DIV read the destination as well as the source, and replace all
 ; four flags. An i16 multiply is MULB: B holds one factor and receives the
-; low half.
+; low half. An i16 divide is DIVB: B holds the dividend and receives the
+; quotient.
 ; ISEL-LABEL: name: do_mul
 ; ISEL: MULB {{%[0-9]+}}, implicit-def $rb, implicit-def $rf, implicit-def $rl, implicit-def $rm, implicit-def $rv, implicit $rb
 define i16 @do_mul(i16 %a, i16 %b) nounwind {
@@ -81,7 +82,7 @@ define i16 @do_mul(i16 %a, i16 %b) nounwind {
 }
 
 ; ISEL-LABEL: name: do_div
-; ISEL: DIV {{%[0-9]+}}, {{%[0-9]+}}, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+; ISEL: DIVB {{%[0-9]+}}, implicit-def $rb, implicit-def $rf, implicit-def $rl, implicit-def $rm, implicit-def $rv, implicit $rb
 define i16 @do_div(i16 %a, i16 %b) nounwind {
   %v = udiv i16 %a, %b
   ret i16 %v

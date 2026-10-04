@@ -1,9 +1,11 @@
-; DIV is an unsigned word quotient. There is no byte divide and no
+; DIV's 32-bit result is remainder:quotient. An i16 quotient is the low
+; half, written by DIVB or DIVimmLo. There is no byte divide and no
 ; remainder opcode.
 ;
 ; An i8 quotient or remainder is promoted to i16. That promotion does not
 ; emit the remainder: an i8 urem becomes an i16 urem. i16 urem is Expand,
-; and expandREM rewrites it as udiv, mul, and sub because i16 udiv is DIV.
+; and expandREM rewrites it as udiv, mul, and sub because i16 udiv is the
+; quotient half of DIV.
 ; Signed i16 quotient and remainder are custom-lowered onto the same DIV.
 ; The magnitude is an unsigned negate, so the sign bit still fits.
 ;

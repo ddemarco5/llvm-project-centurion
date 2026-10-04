@@ -79,7 +79,7 @@ public:
     return true;
   }
 
-  // DIV is one instruction, so a constant divisor stays DIVimm.
+  // DIV is one instruction, so a constant divisor stays DIVimmLo.
   bool isIntDivCheap(EVT VT, AttributeList) const override {
     return VT == MVT::i16;
   }
@@ -107,6 +107,7 @@ private:
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulLow(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitDiv(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulLoHi(MachineInstr &MI,
                                  MachineBasicBlock *BB) const;
 

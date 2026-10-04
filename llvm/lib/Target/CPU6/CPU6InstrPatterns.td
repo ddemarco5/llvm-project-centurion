@@ -251,12 +251,20 @@ def : Pat<(sub GPR:$a, GPR:$b), (SUB GPR:$a, GPR:$b)>;
 // copies one operand into B and uses MULB, so the written register is the
 // low half. B is fixed rather than allocated from MulLo: B and Y are the
 // only such destinations, and they are where a wider argument arrives.
-// DIV keeps the dividend in the destination, so a / b is DIV b, a.
 let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
     hasSideEffects = 0, Defs = [rF, rL, rM, rV] in
 def MULrr : CenturionInst<(outs GPR:$dst), (ins GPR:$a, GPR:$b),
                           "#MUL", "$dst,$a,$b">;
 def : Pat<(mul GPR:$a, GPR:$b), (MULrr GPR:$a, GPR:$b)>;
+// The i16 quotient is the low half of the 32-bit DIV, and the remainder is
+// the high half. EmitDiv copies the dividend into B and uses DIVB, so the
+// written register is the quotient. A pair destination would leave the
+// remainder in the named register.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Defs = [rF, rL, rM, rV] in
+def DIVrr : CenturionInst<(outs GPR:$dst), (ins GPR:$a, GPR:$b),
+                          "#DIV", "$dst,$a,$b">;
+def : Pat<(udiv GPR:$a, GPR:$b), (DIVrr GPR:$a, GPR:$b)>;
 // umul_lohi is the node the type legalizer emits when it splits a multiply
 // wider than i16. An i32 mul becomes one i16 umul_lohi of the low halves
 // plus i16 muls for the cross terms. An i64 mul splits into i32 muls, and
@@ -277,7 +285,6 @@ let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
 def MULHUb : CenturionInst<(outs GPRB:$dst), (ins GPRB:$a, GPRB:$b),
                            "#MULHUb", "$dst,$a,$b">;
 def : Pat<(mulhu GPRB:$a, GPRB:$b), (MULHUb GPRB:$a, GPRB:$b)>;
-def : Pat<(udiv GPR:$a, GPR:$b), (DIV GPR:$b, GPR:$a)>;
 
 // Word ALU with a literal. Mode 2 writes dst = src op imm, except SUB, which
 // is dst = imm - src. A register minus a constant is an add of the negated
@@ -290,7 +297,7 @@ def : Pat<(and GPR:$src, (i16 imm:$imm)), (ANDimm GPR:$src, imm:$imm)>;
 def : Pat<(or GPR:$src, (i16 imm:$imm)), (ORIimm GPR:$src, imm:$imm)>;
 def : Pat<(xor GPR:$src, (i16 imm:$imm)), (OREimm GPR:$src, imm:$imm)>;
 def : Pat<(mul GPR:$src, (i16 imm:$imm)), (MULimmLo GPR:$src, imm:$imm)>;
-def : Pat<(udiv GPR:$src, (i16 imm:$imm)), (DIVimm GPR:$src, imm:$imm)>;
+def : Pat<(udiv GPR:$src, (i16 imm:$imm)), (DIVimmLo GPR:$src, imm:$imm)>;
 
 // IVR ignores its count nibble. SLR r,n shifts left by n + 1, and SRR r,n
 // shifts right arithmetically by n + 1. There is no logical right shift.

@@ -111,9 +111,9 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // of udiv, mul, and sub.
   for (MVT VT : {MVT::i8, MVT::i16})
     setOperationAction({ISD::SDIVREM, ISD::UDIVREM}, VT, Expand);
-  // Unsigned remainder has no opcode. i16 UDIV is DIV, so expandREM rewrites
-  // x % y as x - (x / y) * y. That is also the sequence an i8 urem reaches
-  // after promotion.
+  // Unsigned remainder has no opcode. i16 UDIV is the low half of DIV, so
+  // expandREM rewrites x % y as x - (x / y) * y. That is also the sequence
+  // an i8 urem reaches after promotion.
   setOperationAction(ISD::UREM, MVT::i16, Expand);
   // DIV is unsigned. Signed quotient and remainder are lowered onto it.
   setOperationAction({ISD::SDIV, ISD::SREM}, MVT::i16, Custom);
@@ -655,6 +655,8 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     return EmitMulhu(MI, BB);
   case CPU6::MULrr:
     return EmitMulLow(MI, BB);
+  case CPU6::DIVrr:
+    return EmitDiv(MI, BB);
   case CPU6::MULlohi:
     return EmitMulLoHi(MI, BB);
   default:
@@ -704,6 +706,24 @@ CPU6TargetLowering::EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const {
   BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Dst)
       .addReg(Shifted, RegState::NoFlags, CPU6::sub_lo);
 
+  MI.eraseFromParent();
+  return BB;
+}
+
+// i16 udiv. The dividend is copied into B. DIVB divides B by the divisor
+// and writes the quotient back to B. A pair destination would leave the
+// remainder there instead. A is not written.
+MachineBasicBlock *
+CPU6TargetLowering::EmitDiv(MachineInstr &MI, MachineBasicBlock *BB) const {
+  const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+  Register Dividend = MI.getOperand(1).getReg();
+  Register Divisor = MI.getOperand(2).getReg();
+
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), CPU6::rB).addReg(Dividend);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::DIVB)).addReg(Divisor);
+  BuildMI(*BB, MI, DL, TII.get(TargetOpcode::COPY), Dst).addReg(CPU6::rB);
   MI.eraseFromParent();
   return BB;
 }

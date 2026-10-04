@@ -613,9 +613,16 @@ def XFRabs : XFRAbs32;
 // Y are the only registers that receive a low half, and they are also
 // argument registers, so a MulLo class cannot be allocated while those
 // arguments are still live.
-// DIV src,dst writes the unsigned quotient dst / src, so the dividend stays
-// in the destination. That is not SUB's src - dst order. The literal forms
-// below are three-address, like ADDimm: dst = src * imm and dst = src / imm.
+// DIV uses the same pair write as MUL. The 32-bit result is the remainder
+// in the high half and the quotient in the low half. A destination whose
+// nibble has bit 1 clear (A, X, Z, C) leaves the remainder in that register
+// and the quotient in the next one. B, Y, S, and P are written alone, and
+// that register is the quotient. rem-O0's DIV B,X left i % 10 in X; treating
+// X as the quotient made the reconstructed remainder i - (i % 10) * 10.
+// An i16 quotient therefore uses DIVB / DIVimmLo, the same way an i16
+// product uses MULB / MULimmLo. The register form still reads the dividend
+// from the destination: DIVB is B = B / src. The literal form is
+// three-address, like ADDimm: dst = src / imm.
 let Defs = [rF, rL, rM, rV], isCommutable = 1 in
 def MUL: DoubleReg16RMW<0x77, "MUL">;
 let Defs = [rF, rL, rM, rV] in
@@ -654,6 +661,16 @@ def MULB : CenturionInst16<(outs), (ins GPR:$src), "MUL", "$src,B"> {
   let Inst{7-4} = src;
   let Inst{3-0} = 2;
 }
+// Destination B. The nibble's low bit is set, so B is written with the
+// quotient and A is left alone. B is read as the dividend.
+let Uses = [rB], Defs = [rB, rF, rL, rM, rV], isCodeGenOnly = 1,
+    hasSideEffects = 0, mayLoad = 0, mayStore = 0 in
+def DIVB : CenturionInst16<(outs), (ins GPR:$src), "DIV", "$src,B"> {
+  bits<4> src;
+  let Inst{15-8} = 0x78;
+  let Inst{7-4} = src;
+  let Inst{3-0} = 2;
+}
 // Literal MUL, destination restricted the same way. dst = src * imm, and
 // only B or Y are selected, so the written register is the low half.
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1,
@@ -664,6 +681,23 @@ def MULimmLo : CenturionInst32<(outs MulLo:$dst), (ins GPR:$src, abs16:$imm),
   bits<4> dst;
   bits<16> imm;
   let Inst{31-24} = 0x77;
+  let Inst{23} = src{3};
+  let Inst{22} = src{2};
+  let Inst{21} = src{1};
+  let Inst{20} = 1;
+  let Inst{19-16} = dst;
+  let Inst{15-0} = imm;
+}
+// Literal DIV, destination restricted the same way. dst = src / imm, and
+// only B or Y are selected, so the written register is the quotient.
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1,
+    Defs = [rF, rL, rM, rV] in
+def DIVimmLo : CenturionInst32<(outs MulLo:$dst), (ins GPR:$src, abs16:$imm),
+                               "DIV", "$src,$dst,$imm"> {
+  bits<4> src;
+  bits<4> dst;
+  bits<16> imm;
+  let Inst{31-24} = 0x78;
   let Inst{23} = src{3};
   let Inst{22} = src{2};
   let Inst{21} = src{1};
