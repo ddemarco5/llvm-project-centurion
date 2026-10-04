@@ -83,6 +83,20 @@ def CPU6bnadd : SDNode<"CPU6ISD::BN_ADD", SDT_CPU6Bignum,
 def CPU6bnsub : SDNode<"CPU6ISD::BN_SUB", SDT_CPU6Bignum,
                        [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
                         SDNPMemOperand]>;
+def CPU6bnneg : SDNode<"CPU6ISD::BN_NEG", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+def CPU6bnmul : SDNode<"CPU6ISD::BN_MUL", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+def CPU6bndiv : SDNode<"CPU6ISD::BN_DIV", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
+// Divide with remainder. The remainder's address is in A, copied there by the
+// node that creates this one, and arrives as glue.
+def CPU6bndrm : SDNode<"CPU6ISD::BN_DRM", SDT_CPU6Bignum,
+                       [SDNPHasChain, SDNPInGlue, SDNPMayLoad, SDNPMayStore,
+                        SDNPMemOperand]>;
 // Compare: chain and glue out. BNC only reads memory.
 def CPU6bncmp : SDNode<"CPU6ISD::BN_CMP",
                        SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
@@ -552,18 +566,9 @@ def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
 // indexed layouts are assembler-only until an `addr` pattern selects them.
 //
 // Implemented (combineBignumStore/SetCC emit the nodes, selected below):
-//   ZAD (MOV), BNA (ADD), BNS (SUB), BNC (CMP)
-//
-// TODO(cpu6): ZSU (NEG) — select for store(sub(0, load)) / negate of a
-// memory big-int once CenREE microcode for selector 4 is stepped.
-//
-// TODO(cpu6): M (SMUL) — signed Dest *= Src. Wiki: zero results with a
-// negative operand are unreliable; do not select until CenREE confirms.
-//
-// TODO(cpu6): D (DIV) — signed Dest /= Src, remainder discarded.
-//
-// TODO(cpu6): DRM (DIVMOD) — signed div; remainder through *A; Link set
-// iff remainder is zero. Needs an A setup before the op.
+//   ZAD (MOV), BNA (ADD), BNS (SUB), BNC (CMP), ZSU (NEG), M (MUL),
+//   D (SDIV), and DRM (SREM; the quotient goes to a stack temporary
+//   unless the dividend is already at the destination).
 //
 // TODO(cpu6): CTB (TOBIN) — ASCII/base string → bignum. Base = llll+2;
 // source width in AL. Libc/runtime territory, not IR math.
@@ -587,4 +592,8 @@ multiclass BNPats<SDPatternOperator op, string inst> {
 defm : BNPats<CPU6bnmov, "ZAD">;
 defm : BNPats<CPU6bnadd, "BNA">;
 defm : BNPats<CPU6bnsub, "BNS">;
+defm : BNPats<CPU6bnneg, "ZSU">;
+defm : BNPats<CPU6bnmul, "M">;
+defm : BNPats<CPU6bndiv, "D">;
+defm : BNPats<CPU6bndrm, "DRM">;
 defm : BNPats<CPU6bncmp, "BNC">;

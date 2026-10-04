@@ -29,6 +29,9 @@ CPU6MCAsmInfo::CPU6MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
   // Freestanding target: no EH runtime. Must match
   // Triple::getDefaultExceptionHandling for cpu6.
   ExceptionsType = ExceptionHandling::None;
-  Data16bitsDirective = "\t.half\t";
-  Data32bitsDirective = "\t.word\t";
+  // The directives have to be ones CPU6AsmParser reads back. .word is a
+  // big-endian 16-bit word there, so a 32-bit value is .long, which the
+  // generic parser emits in the target's (big-endian) byte order.
+  Data16bitsDirective = "\t.word\t";
+  Data32bitsDirective = "\t.long\t";
 }

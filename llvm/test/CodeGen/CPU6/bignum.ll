@@ -256,3 +256,252 @@ define i1 @slt32() nounwind {
   %c = icmp slt i32 %a, %b
   ret i1 %c
 }
+
+;===----------------------------------------------------------------------===;
+; ZSU: Dest := -Src. M: Dest := Dest * Src. D: Dest := Dest / Src (signed).
+; DRM: the quotient goes to Dest and the remainder to the address in A.
+; All were run on the machine with 4 and 8 bytes and negative values, with the
+; source and destination at one address too, so these fold whether or not the
+; two are the same. DRM puts the remainder after the quotient, but writing both
+; to one address gave +1 for -22 % 7, so DRM always sends the quotient to a
+; temporary. The remainder over the divisor was right for every sign.
+;===----------------------------------------------------------------------===;
+
+@a32 = global i32 3
+@b32 = global i32 4
+@c32 = global i32 5
+@a64 = global i64 6
+
+; CHECK-LABEL: zsu32:
+; CHECK:       ZSU 3,3,(src32),(dst32)
+; CHECK-NEXT:  RSR
+define void @zsu32() nounwind {
+  %a = load i32, ptr @src32, align 1
+  %n = sub i32 0, %a
+  store i32 %n, ptr @dst32, align 1
+  ret void
+}
+
+; CHECK-LABEL: m32:
+; CHECK:       M 3,3,(src32),(dst32)
+; CHECK-NEXT:  RSR
+define void @m32() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %b = load i32, ptr @src32, align 1
+  %c = mul i32 %a, %b
+  store i32 %c, ptr @dst32, align 1
+  ret void
+}
+
+; Multiplication commutes, so the destination may be either operand.
+; CHECK-LABEL: m32_commuted:
+; CHECK:       M 3,3,(src32),(dst32)
+; CHECK-NEXT:  RSR
+define void @m32_commuted() nounwind {
+  %a = load i32, ptr @src32, align 1
+  %b = load i32, ptr @dst32, align 1
+  %c = mul i32 %a, %b
+  store i32 %c, ptr @dst32, align 1
+  ret void
+}
+
+; CHECK-LABEL: d32:
+; CHECK:       D 3,3,(src32),(dst32)
+; CHECK-NEXT:  RSR
+define void @d32() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %b = load i32, ptr @src32, align 1
+  %c = sdiv i32 %a, %b
+  store i32 %c, ptr @dst32, align 1
+  ret void
+}
+
+; The remainder lands where A points, so A is set last, after the dividend
+; has been copied to the temporary that takes the quotient.
+; CHECK-LABEL: drm32:
+; CHECK:       ZAD 3,3,{{[A-Z]+}},{{[A-Z]+}}
+; CHECK-NEXT:  XFR A,c32
+; CHECK-NEXT:  DRM 3,3,{{[B-Z]}},{{[B-Z]}}
+define void @drm32() nounwind {
+  %a = load i32, ptr @a32, align 1
+  %b = load i32, ptr @b32, align 1
+  %r = srem i32 %a, %b
+  store i32 %r, ptr @c32, align 1
+  ret void
+}
+
+; The same address, and pointers that may be equal at run time, were run for M.
+; CHECK-LABEL: m32_self:
+; CHECK:       M 3,3,(dst32),(dst32)
+; CHECK-NEXT:  RSR
+define void @m32_self() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %c = mul i32 %a, %a
+  store i32 %c, ptr @dst32, align 1
+  ret void
+}
+
+; CHECK-LABEL: m32_rr:
+; CHECK:       M 3,3,{{[A-Z]+}},{{[A-Z]+}}
+define void @m32_rr(ptr %p, ptr %q) nounwind {
+  %a = load i32, ptr %p, align 1
+  %b = load i32, ptr %q, align 1
+  %c = mul i32 %a, %b
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; A dividend that is also the destination keeps its quotient in a temporary,
+; and then the remainder goes to the destination.
+; CHECK-LABEL: drm32_in_place:
+; CHECK:       ZAD 3,3,
+; CHECK:       DRM 3,3,
+; CHECK-NEXT:  INR S,3
+; CHECK-NEXT:  RSR
+define void @drm32_in_place() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %b = load i32, ptr @src32, align 1
+  %r = srem i32 %a, %b
+  store i32 %r, ptr @dst32, align 1
+  ret void
+}
+
+; 8-byte operands.
+; CHECK-LABEL: zsu64:
+; CHECK:       ZSU 7,7,(src64),(dst64)
+; CHECK-NEXT:  RSR
+define void @zsu64() nounwind {
+  %a = load i64, ptr @src64, align 1
+  %n = sub i64 0, %a
+  store i64 %n, ptr @dst64, align 1
+  ret void
+}
+
+; CHECK-LABEL: m64:
+; CHECK:       M 7,7,(src64),(dst64)
+; CHECK-NEXT:  RSR
+define void @m64() nounwind {
+  %a = load i64, ptr @dst64, align 1
+  %b = load i64, ptr @src64, align 1
+  %c = mul i64 %a, %b
+  store i64 %c, ptr @dst64, align 1
+  ret void
+}
+
+; CHECK-LABEL: d64:
+; CHECK:       D 7,7,(src64),(dst64)
+; CHECK-NEXT:  RSR
+define void @d64() nounwind {
+  %a = load i64, ptr @dst64, align 1
+  %b = load i64, ptr @src64, align 1
+  %c = sdiv i64 %a, %b
+  store i64 %c, ptr @dst64, align 1
+  ret void
+}
+
+; CHECK-LABEL: drm64:
+; CHECK:       ZAD 7,7,
+; CHECK:       DRM 7,7,
+define void @drm64() nounwind {
+  %a = load i64, ptr @src64, align 1
+  %b = load i64, ptr @dst64, align 1
+  %r = srem i64 %a, %b
+  store i64 %r, ptr @a64, align 1
+  ret void
+}
+
+; CHECK-LABEL: m64_self:
+; CHECK:       M 7,7,(dst64),(dst64)
+; CHECK-NEXT:  RSR
+define void @m64_self() nounwind {
+  %a = load i64, ptr @dst64, align 1
+  %c = mul i64 %a, %a
+  store i64 %c, ptr @dst64, align 1
+  ret void
+}
+
+; CHECK-LABEL: m64_rr:
+; CHECK:       M 7,7,{{[A-Z]+}},{{[A-Z]+}}
+define void @m64_rr(ptr %p, ptr %q) nounwind {
+  %a = load i64, ptr %p, align 1
+  %b = load i64, ptr %q, align 1
+  %c = mul i64 %a, %b
+  store i64 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: zsu32_in_place:
+; CHECK:       ZSU 3,3,(dst32),(dst32)
+; CHECK-NEXT:  RSR
+define void @zsu32_in_place() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %n = sub i32 0, %a
+  store i32 %n, ptr @dst32, align 1
+  ret void
+}
+
+; CHECK-LABEL: zsu32_rr:
+; CHECK:       ZSU 3,3,{{[A-Z]+}},{{[A-Z]+}}
+define void @zsu32_rr(ptr %d, ptr %s) nounwind {
+  %a = load i32, ptr %s, align 1
+  %n = sub i32 0, %a
+  store i32 %n, ptr %d, align 1
+  ret void
+}
+
+; CHECK-LABEL: d32_rr:
+; CHECK:       D 3,3,{{[A-Z]+}},{{[A-Z]+}}
+define void @d32_rr(ptr %p, ptr %q) nounwind {
+  %a = load i32, ptr %p, align 1
+  %b = load i32, ptr %q, align 1
+  %c = sdiv i32 %a, %b
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; The remainder may go over the divisor, for any pair of pointers.
+; CHECK-LABEL: drm32_rr:
+; CHECK:       ZAD 3,3,
+; CHECK:       DRM 3,3,
+define void @drm32_rr(ptr %r, ptr %a, ptr %b) nounwind {
+  %x = load i32, ptr %a, align 1
+  %y = load i32, ptr %b, align 1
+  %z = srem i32 %x, %y
+  store i32 %z, ptr %r, align 1
+  ret void
+}
+
+; CHECK-LABEL: drm32_over_divisor:
+; CHECK:       ZAD 3,3,
+; CHECK:       DRM 3,3,
+define void @drm32_over_divisor() nounwind {
+  %a = load i32, ptr @dst32, align 1
+  %b = load i32, ptr @src32, align 1
+  %r = srem i32 %a, %b
+  store i32 %r, ptr @src32, align 1
+  ret void
+}
+
+; CHECK-LABEL: drm64_rr:
+; CHECK:       ZAD 7,7,
+; CHECK:       DRM 7,7,
+define void @drm64_rr(ptr %r, ptr %a, ptr %b) nounwind {
+  %x = load i64, ptr %a, align 1
+  %y = load i64, ptr %b, align 1
+  %z = srem i64 %x, %y
+  store i64 %z, ptr %r, align 1
+  ret void
+}
+
+; A negate whose result overlaps its source by two bytes stays as loads and
+; stores.
+; CHECK-LABEL: zsu32_overlap:
+; CHECK-NOT:   ZSU
+; CHECK:       RSR
+define void @zsu32_overlap(ptr %p) nounwind {
+  %q = getelementptr i8, ptr %p, i16 2
+  %a = load i32, ptr %p, align 1
+  %n = sub i32 0, %a
+  store i32 %n, ptr %q, align 1
+  ret void
+}

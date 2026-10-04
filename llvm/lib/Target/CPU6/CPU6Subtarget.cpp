@@ -60,6 +60,14 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::BN_ADD";
   case CPU6ISD::BN_SUB:
     return "CPU6ISD::BN_SUB";
+  case CPU6ISD::BN_NEG:
+    return "CPU6ISD::BN_NEG";
+  case CPU6ISD::BN_MUL:
+    return "CPU6ISD::BN_MUL";
+  case CPU6ISD::BN_DIV:
+    return "CPU6ISD::BN_DIV";
+  case CPU6ISD::BN_DRM:
+    return "CPU6ISD::BN_DRM";
   case CPU6ISD::BN_CMP:
     return "CPU6ISD::BN_CMP";
   }

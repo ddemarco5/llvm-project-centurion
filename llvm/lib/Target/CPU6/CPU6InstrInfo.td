@@ -2171,16 +2171,31 @@ foreach OP = [
 //   1 BNS  SUB    Dest := Dest - Src                         F L M V
 //   2 BNC  CMP    flags of Dest - Src, Dest unchanged        F L M V
 //   3 ZAD  MOV    Dest := Src, zero filled if Dest is wider  F M V
-//   4 ZSU  NEG    5 M  SMUL    6 D  DIV    7 DRM  DIVMOD
+//   4 ZSU  NEG    Dest := -Src
+//   5 M    SMUL   Dest := Dest * Src, the low bytes of the product
+//   6 D    DIV    Dest := Dest / Src, signed, truncated toward zero
+//   7 DRM  DIVREM Dest := Dest / Src as D does, and the remainder (sign of
+//                 the dividend) is written to the Dest-sized bytes at the
+//                 address in A. A is read and left unchanged.
 //   8 CTB  TOBIN  9 CFB  FMBIN
 // A, S and C are register names, so the first three are spelled BNA, BNS and
 // BNC. cen.ts implements only ZAD and CTB. ZAD walks from the least
 // significant byte: V is set when every byte written is zero, M follows the
 // source sign byte, F is set when the source and final destination sign bytes
-// differ in sign, and Link is untouched. The flags of BNA, BNS and BNC are the
-// ones the BIG group declares (FLAGS.FLMV); cen.ts does not model their
-// values. Codegen reads V for == and !=, and Link for unsigned order, as it
-// does after SUB: Link set means no borrow.
+// differ in sign, and Link is untouched.
+//
+// The results of BNA, BNS, BNC, ZSU, M, D and DRM were confirmed on the machine
+// (bignum*.c and bnprobe.c in cent_stdlibs), including where DRM puts its
+// remainder. They were run on 4 and 8 bytes, with negative values, and with
+// Src and Dest at one address (for DRM: the divisor, as the remainder's
+// address). The one surprise: DRM writes the remainder after the quotient, but
+// with the remainder sent to the Dest bytes the quotient's sign fix also hits
+// it, so -22 % 7 gave +1 and 22 % -7 gave -1. A remainder sent to the Src
+// bytes was right for every sign combination. The values of the flags other
+// than what BNC's users read are not known, so every
+// selector that computes lists all of F, L, M and V as clobbered. Codegen
+// reads V for == and !=, and Link for unsigned order, as it does after SUB:
+// Link set means no borrow.
 
 // The prefix shared by every layout: opcode, lengths, selector, modes.
 class BNHead<bits<4> sel, bits<2> sm, bits<2> dm> {
@@ -2310,18 +2325,19 @@ defvar BigOps = [
     OpSel<"BNS", 1, [rF, rL, rM, rV]>,
     OpSel<"BNC", 2, [rF, rL, rM, rV]>,
     OpSel<"ZAD", 3, [rF, rM, rV]>,
-    OpSel<"ZSU", 4>,
-    OpSel<"M", 5>,
-    OpSel<"D", 6>,
-    OpSel<"DRM", 7, [rL]>,
+    OpSel<"ZSU", 4, [rF, rL, rM, rV]>,
+    OpSel<"M", 5, [rF, rL, rM, rV]>,
+    OpSel<"D", 6, [rF, rL, rM, rV]>,
+    OpSel<"DRM", 7, [rF, rL, rM, rV]>,
     OpSel<"CTB", 8, [rL]>,
     OpSel<"CFB", 9>
 ];
 
 // The operands are read from memory, and every selector but BNC writes the
-// destination back.
+// destination back. DRM also reads the remainder's address from A.
 foreach OP = BigOps in {
-  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC") in {
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC"),
+      Uses = !if(!eq(OP.Name, "DRM"), [rA], []<Register>) in {
     def OP.Name#_AA : BN_AA<OP.Sel, OP.Name>;
     def OP.Name#_AX : BN_AX<OP.Sel, OP.Name>;
     def OP.Name#_AR : BN_AR<OP.Sel, OP.Name>;
@@ -2406,9 +2422,11 @@ class BN6LitI16<bits<4> sel, string name>
   let Inst{19-16} = 0;
   let Inst{15-0} = wdisp;
 }
+
 // Literal source (mode 3, one inline byte) into each destination mode.
 foreach OP = BigOps in {
-  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC") in {
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC"),
+      Uses = !if(!eq(OP.Name, "DRM"), [rA], []<Register>) in {
     def OP.Name#_LitD : BN6LitD<OP.Sel, OP.Name>;
     def OP.Name#_LitI8 : BN6LitI8<OP.Sel, OP.Name>;
     def OP.Name#_LitR : BN6LitR<OP.Sel, OP.Name>;

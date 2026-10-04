@@ -205,11 +205,42 @@ bool onlyLoadsJoinChain(SDValue StoreChain, SDValue Root) {
   return all_of(StoreChain->op_values(), IsRootOrRootLoad);
 }
 
+// How a source access sits against the destination store.
+enum class Overlap {
+  Same,     // the same bytes
+  Disjoint, // proven not to touch
+  Unknown,  // different pointers that may or may not be the same at run time
+  Partial,  // proven to overlap without being the same bytes
+};
+
+Overlap classifyOverlap(const MemSDNode *Src, const StoreSDNode *Dest,
+                        SelectionDAG &DAG) {
+  int64_t Bytes = Dest->getMemoryVT().getStoreSize().getFixedValue();
+  if (std::optional<int64_t> Delta = addressDelta(Src, Dest, DAG)) {
+    if (*Delta == 0)
+      return Overlap::Same;
+    return (*Delta > -Bytes && *Delta < Bytes) ? Overlap::Partial
+                                               : Overlap::Disjoint;
+  }
+  bool IsAlias;
+  LocationSize Size = LocationSize::precise(Bytes);
+  if (BaseIndexOffset::computeAliasing(Src, Size, Dest, Size, DAG, IsAlias))
+    return IsAlias ? Overlap::Partial : Overlap::Disjoint;
+  return Overlap::Unknown;
+}
+
 } // namespace
 
-// store (load Src), Dest            -> ZAD
-// store (add/sub (load Dest), (load Src)), Dest  -> BNA / BNS
-// The result is Dest := Dest op Src, so Src - Dest is not folded.
+// store (load Src), Dest                           -> ZAD
+// store (sub 0, (load Src)), Dest                   -> ZSU
+// store (add/sub/mul/sdiv (load Dest), (load Src)), Dest -> BNA/BNS/M/D
+// store (srem (load Num), (load Den)), Dest         -> DRM
+// Each is Dest := Dest op Src, so Src - Dest and Src / Dest are not folded.
+// The instruction works a byte at a time, which equals load-then-store when
+// Src and Dest are the same bytes or disjoint. Both were run on the machine at
+// 4 and 8 bytes, with negative values, for ZAD, BNA, BNS, ZSU, M and D, so
+// those fold whether the addresses are equal, apart, or not known to differ.
+// A partial overlap never folds.
 SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
                                                SelectionDAG &DAG) const {
   EVT VT = St->getMemoryVT();
@@ -218,6 +249,9 @@ SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
     return SDValue();
 
   SDValue Val = St->getValue();
+  if (Val.getOpcode() == ISD::SREM)
+    return combineBignumRem(St, DAG);
+
   unsigned Opc;
   LoadSDNode *Src;
   SmallVector<LoadSDNode *, 2> Loads;
@@ -225,40 +259,89 @@ SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
     Opc = CPU6ISD::BN_MOV;
     Src = Ld;
     Loads = {Ld};
-  } else if (Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::SUB) {
+  } else if (Val.getOpcode() == ISD::SUB && isNullConstant(Val.getOperand(0))) {
+    Src = getBignumLoad(Val.getOperand(1), VT);
+    if (!Src)
+      return SDValue();
+    Opc = CPU6ISD::BN_NEG;
+    Loads = {Src};
+  } else if (Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::SUB ||
+             Val.getOpcode() == ISD::MUL || Val.getOpcode() == ISD::SDIV) {
     LoadSDNode *L0 = getBignumLoad(Val.getOperand(0), VT);
     LoadSDNode *L1 = getBignumLoad(Val.getOperand(1), VT);
     if (!L0 || !L1)
       return SDValue();
-    bool IsAdd = Val.getOpcode() == ISD::ADD;
+    bool Commutes =
+        Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::MUL;
     if (addressDelta(L0, St, DAG) == 0)
       Src = L1;
-    else if (IsAdd && addressDelta(L1, St, DAG) == 0)
+    else if (Commutes && addressDelta(L1, St, DAG) == 0)
       Src = L0;
     else
       return SDValue();
-    Opc = IsAdd ? CPU6ISD::BN_ADD : CPU6ISD::BN_SUB;
+    switch (Val.getOpcode()) {
+    case ISD::ADD:
+      Opc = CPU6ISD::BN_ADD;
+      break;
+    case ISD::SUB:
+      Opc = CPU6ISD::BN_SUB;
+      break;
+    case ISD::MUL:
+      Opc = CPU6ISD::BN_MUL;
+      break;
+    default:
+      Opc = CPU6ISD::BN_DIV;
+      break;
+    }
     Loads = {L0, L1};
   } else {
     return SDValue();
   }
 
   if (!loadsShareMemoryState(Loads) ||
-      !onlyLoadsJoinChain(St->getChain(), Loads[0]->getChain()))
-    return SDValue();
-
-  // The instruction works a byte at a time. That equals load-then-store unless
-  // Src and Dest overlap partly, which two accesses off one base can show.
-  // Unrelated pointers are taken to be identical or disjoint, as for memcpy.
-  int64_t Bytes = VT.getStoreSize().getFixedValue();
-  std::optional<int64_t> Delta = addressDelta(Src, St, DAG);
-  if (Delta && *Delta != 0 && *Delta > -Bytes && *Delta < Bytes)
+      !onlyLoadsJoinChain(St->getChain(), Loads[0]->getChain()) ||
+      classifyOverlap(Src, St, DAG) == Overlap::Partial)
     return SDValue();
 
   SDLoc DL(St);
   return DAG.getNode(Opc, DL, MVT::Other, St->getChain(), Src->getBasePtr(),
                      St->getBasePtr(),
                      DAG.getTargetConstant(*Len, DL, MVT::i8));
+}
+
+// store (srem (load Num), (load Den)), Dest. DRM puts the quotient in its
+// destination operand and writes the remainder, after it, through the address
+// in A. So A holds Dest, and the quotient goes to a stack temporary after the
+// dividend is copied there.
+//
+// The remainder must not land on the quotient. On the machine, -22 % 7 with
+// the remainder written over the quotient's bytes gave +1, not -1 (and
+// 22 % -7 gave -1): the quotient's sign fix also hits the remainder. So the
+// quotient is never at Dest. The remainder over the divisor gave the right
+// answer for every sign combination run, at 4 and 8 bytes, so Dest may be Den.
+SDValue CPU6TargetLowering::combineBignumRem(StoreSDNode *St,
+                                             SelectionDAG &DAG) const {
+  EVT VT = St->getMemoryVT();
+  SDValue Val = St->getValue();
+  LoadSDNode *Num = getBignumLoad(Val.getOperand(0), VT);
+  LoadSDNode *Den = getBignumLoad(Val.getOperand(1), VT);
+  if (!Num || !Den || !loadsShareMemoryState({Num, Den}) ||
+      !onlyLoadsJoinChain(St->getChain(), Num->getChain()))
+    return SDValue();
+  if (classifyOverlap(Den, St, DAG) == Overlap::Partial)
+    return SDValue();
+
+  SDLoc DL(St);
+  SDValue Len = DAG.getTargetConstant(*bignumLenMinus1(VT), DL, MVT::i8);
+  SDValue Chain = St->getChain();
+  SDValue Quot = DAG.CreateStackTemporary(VT);
+  Chain = DAG.getNode(CPU6ISD::BN_MOV, DL, MVT::Other, Chain,
+                      Num->getBasePtr(), Quot, Len);
+  // The empty glue operand is what gives the copy a glue result.
+  SDValue ToA =
+      DAG.getCopyToReg(Chain, DL, CPU6::rA, St->getBasePtr(), SDValue());
+  return DAG.getNode(CPU6ISD::BN_DRM, DL, MVT::Other, ToA, Den->getBasePtr(),
+                     Quot, Len, ToA.getValue(1));
 }
 
 // setcc (load A), (load B) -> BNC, then a branch on the flags it sets.

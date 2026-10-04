@@ -48,6 +48,11 @@ enum NodeType : unsigned {
   BN_MOV, // ZAD
   BN_ADD, // BNA
   BN_SUB, // BNS
+  BN_NEG, // ZSU
+  BN_MUL, // M
+  BN_DIV, // D, signed
+  // DRM: also takes the remainder's address in A, as glue from a CopyToReg.
+  BN_DRM,
   BN_CMP, // BNC — sets flags; no store
 };
 } // namespace CPU6ISD
@@ -107,6 +112,7 @@ private:
   // Fold store(add/sub(load,load)) and store(load) into 0x46 bignum ops
   // while the value type is still i32/i64.
   SDValue combineBignumStore(StoreSDNode *St, SelectionDAG &DAG) const;
+  SDValue combineBignumRem(StoreSDNode *St, SelectionDAG &DAG) const;
   // Fold setcc(load,load) on i32/i64 into BNC plus a flag reader.
   SDValue combineBignumSetCC(SDNode *N, SelectionDAG &DAG) const;
   // A constant logical right shift is an arithmetic shift plus a mask. A
