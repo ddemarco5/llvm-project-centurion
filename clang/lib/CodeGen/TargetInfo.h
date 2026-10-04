@@ -511,6 +511,9 @@ std::unique_ptr<TargetCodeGenInfo>
 createBPFTargetCodeGenInfo(CodeGenModule &CGM);
 
 std::unique_ptr<TargetCodeGenInfo>
+createCPU6TargetCodeGenInfo(CodeGenModule &CGM);
+
+std::unique_ptr<TargetCodeGenInfo>
 createCSKYTargetCodeGenInfo(CodeGenModule &CGM, unsigned FLen);
 
 std::unique_ptr<TargetCodeGenInfo>

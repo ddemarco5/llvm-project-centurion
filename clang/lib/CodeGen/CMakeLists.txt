@@ -141,6 +141,7 @@ add_clang_library(clangCodeGen
   Targets/ARM.cpp
   Targets/AVR.cpp
   Targets/BPF.cpp
+  Targets/CPU6.cpp
   Targets/CSKY.cpp
   Targets/DirectX.cpp
   Targets/Hexagon.cpp

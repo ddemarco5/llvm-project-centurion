@@ -1,7 +1,9 @@
-// Pointers, strings, and aggregates. A pointer is a word. Clang's default
-// ABI passes and returns a struct indirectly, as a pointer, so this does not
-// hit the backend's byval fatal error. The check is that -O0 and -O2 both
-// compile.
+// Pointers, strings, and aggregates. A pointer is a word. An aggregate is
+// passed and returned as i16s when the whole value fits in the registers
+// still free (four for arguments, two for a return). Otherwise it is one
+// pointer to the caller's memory, not a byval copy into the outgoing area.
+// A return that does not fit is an sret pointer in A. The check is that -O0
+// and -O2 both compile.
 //
 // REQUIRES: cpu6-registered-target
 // RUN: %clang -target cpu6 -ffreestanding -O0 -S -mllvm -verify-machineinstrs -o %t %s
@@ -81,3 +83,103 @@ struct Big {
 };
 
 int big_last(struct Big *p) { return p->a + p->e; }
+
+int pair_use(int x, int y) {
+  struct Pair p;
+  p.x = x;
+  p.y = y;
+  return pair_arg(p);
+}
+
+/* Five words do not fit in A, B, Y, Z. One pointer. */
+int big_arg(struct Big b) { return b.a + b.e; }
+
+int big_use(void) {
+  struct Big b;
+  b.a = 1;
+  b.b = 2;
+  b.c = 3;
+  b.d = 4;
+  b.e = 5;
+  return big_arg(b);
+}
+
+/* Five words do not fit in A and B. sret pointer, then the int in B. */
+struct Big big_make(int a) {
+  struct Big b;
+  b.a = a;
+  b.b = 0;
+  b.c = 0;
+  b.d = 0;
+  b.e = 0;
+  return b;
+}
+
+/* One byte. Coerced to i8 and promoted to a word. */
+struct Byte {
+  char c;
+};
+
+char byte_arg(struct Byte b) { return b.c; }
+
+struct Byte byte_make(char c) {
+  struct Byte b;
+  b.c = c;
+  return b;
+}
+
+char byte_use(char c) {
+  struct Byte b;
+  b.c = c;
+  return byte_arg(b);
+}
+
+/* Three bytes, two words. Fits in A and B, including as a return. */
+struct Trio {
+  char a;
+  int b;
+};
+
+int trio_arg(struct Trio t) { return t.a + t.b; }
+
+struct Trio trio_make(char a, int b) {
+  struct Trio t;
+  t.a = a;
+  t.b = b;
+  return t;
+}
+
+int trio_use(char a, int b) {
+  struct Trio t;
+  t.a = a;
+  t.b = b;
+  return trio_arg(t);
+}
+
+/* Exactly four words: all of A, B, Y, Z. */
+struct Quad {
+  int a, b, c, d;
+};
+
+int quad_arg(struct Quad q) { return q.a + q.d; }
+
+int quad_use(int a, int b, int c, int d) {
+  struct Quad q;
+  q.a = a;
+  q.b = b;
+  q.c = c;
+  q.d = d;
+  return quad_arg(q);
+}
+
+/* Three words are taken, so Quad does not fit and is one pointer in Z. */
+int mix(int a, int b, int c, struct Quad q) { return a + q.d; }
+
+int mix_use(int a, int b, int c, int d) {
+  struct Quad q;
+  q.a = a;
+  q.b = b;
+  q.c = c;
+  q.d = d;
+  return mix(a, b, c, q);
+}

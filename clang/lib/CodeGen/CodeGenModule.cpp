@@ -320,6 +320,8 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
                                             : hasFP64   ? 64
                                                         : 32);
   }
+  case llvm::Triple::cpu6:
+    return createCPU6TargetCodeGenInfo(CGM);
   case llvm::Triple::bpfeb:
   case llvm::Triple::bpfel:
     return createBPFTargetCodeGenInfo(CGM);
