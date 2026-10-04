@@ -151,6 +151,8 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // Fold i32/i64 mem op trees into 0x46 bignum before they split to i16.
   setTargetDAGCombine(ISD::STORE);
   setTargetDAGCombine(ISD::SETCC);
+  // A carry or borrow added to a word becomes a conditional INR or DCR.
+  setTargetDAGCombine({ISD::ADD, ISD::SUB});
 }
 
 namespace {
@@ -406,6 +408,51 @@ SDValue CPU6TargetLowering::combineBignumSetCC(SDNode *N,
   return ResVT == MVT::i16 ? Sel : DAG.getNode(ISD::TRUNCATE, DL, ResVT, Sel);
 }
 
+// add x, (select_cc 1, 0, B) -> x + 1 unless the opposite branch is taken
+// sub x, (select_cc 1, 0, B) -> x - 1 unless the opposite branch is taken
+// This is the shape the carry or borrow of a multi-word add or subtract takes
+// (setcc ult, then zext, then add). Made as a select, the 0 and 1 are two
+// registers that stay live across the compare, and the DAG shares them between
+// every carry in a block, so they last the whole function. Here the compare is
+// followed by one branch around one INR or DCR (see EmitStepCC), with no
+// constants. The select (0, 1) steps when B is not taken.
+SDValue CPU6TargetLowering::combineCarryStep(SDNode *N,
+                                             SelectionDAG &DAG) const {
+  if (N->getValueType(0) != MVT::i16)
+    return SDValue();
+  bool IsSub = N->getOpcode() == ISD::SUB;
+  auto IsOneZeroSelect = [](SDValue V) {
+    return V.getOpcode() == CPU6ISD::SELECT_CC && V.hasOneUse() &&
+           isa<ConstantSDNode>(V.getOperand(0)) &&
+           isa<ConstantSDNode>(V.getOperand(1));
+  };
+  SDValue Sel = N->getOperand(1);
+  SDValue X = N->getOperand(0);
+  if (!IsOneZeroSelect(Sel)) {
+    // Only an add takes its operands either way round.
+    if (IsSub || !IsOneZeroSelect(X))
+      return SDValue();
+    std::swap(Sel, X);
+  }
+  uint64_t T = Sel.getConstantOperandVal(0);
+  uint64_t F = Sel.getConstantOperandVal(1);
+  if (!((T == 1 && F == 0) || (T == 0 && F == 1)))
+    return SDValue();
+  // X is computed before the compare, which the step is glued to.
+  if (Sel.getNode()->isPredecessorOf(X.getNode()))
+    return SDValue();
+
+  unsigned Branch = Sel.getConstantOperandVal(2);
+  unsigned Skip = T == 1 ? CPU6InstrInfo::getOppositeBranch(Branch) : Branch;
+  if (!Skip)
+    return SDValue();
+  SDLoc DL(N);
+  return DAG.getNode(CPU6ISD::STEP_CC, DL, MVT::i16, X,
+                     DAG.getSignedTargetConstant(IsSub ? -1 : 1, DL, MVT::i16),
+                     DAG.getTargetConstant(Skip, DL, MVT::i16),
+                     Sel.getOperand(3));
+}
+
 SDValue CPU6TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -414,6 +461,9 @@ SDValue CPU6TargetLowering::PerformDAGCombine(SDNode *N,
     return combineBignumStore(cast<StoreSDNode>(N), DAG);
   case ISD::SETCC:
     return combineBignumSetCC(N, DAG);
+  case ISD::ADD:
+  case ISD::SUB:
+    return combineCarryStep(N, DAG);
   default:
     break;
   }
@@ -921,6 +971,50 @@ CPU6TargetLowering::EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const {
   return Join;
 }
 
+// STEPCC: dst = x + delta unless the branch is taken. The compare glued to the
+// pseudo is right before it, so it ends BB, followed by the branch to Join.
+// Step holds the ADDimm (an INR or DCR once x and dst share a register) and
+// falls through to Join. Its flag writes are dead: the flags are only read by
+// the branch.
+MachineBasicBlock *
+CPU6TargetLowering::EmitStepCC(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  MachineBasicBlock *Step = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Join = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, Step);
+  MF->insert(It, Join);
+  Join->splice(Join->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Join->transferSuccessorsAndUpdatePHIs(BB);
+  BB->addSuccessor(Step);
+  BB->addSuccessor(Join);
+  Step->addSuccessor(Join);
+
+  Register X = MI.getOperand(1).getReg();
+  BuildMI(BB, DL, TII.get(MI.getOperand(3).getImm())).addMBB(Join);
+
+  Register Stepped =
+      MF->getRegInfo().createVirtualRegister(&CPU6::GPRRegClass);
+  MachineInstrBuilder Add = BuildMI(*Step, Step->end(), DL,
+                                    TII.get(CPU6::ADDimm), Stepped)
+                                .addReg(X)
+                                .addImm(MI.getOperand(2).getImm());
+  for (MachineOperand &MO : Add->operands())
+    if (MO.isReg() && MO.isImplicit() && MO.isDef())
+      MO.setIsDead();
+
+  BuildMI(*Join, Join->begin(), DL, TII.get(TargetOpcode::PHI),
+          MI.getOperand(0).getReg())
+      .addReg(X)
+      .addMBB(BB)
+      .addReg(Stepped)
+      .addMBB(Step);
+  MI.eraseFromParent();
+  return Join;
+}
+
 MachineBasicBlock *
 CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                                 MachineBasicBlock *BB) const {
@@ -928,6 +1022,8 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case CPU6::SELECT:
   case CPU6::SELECTB:
     return EmitSelect(MI, BB);
+  case CPU6::STEPCC:
+    return EmitStepCC(MI, BB);
   case CPU6::MULHUb:
     return EmitMulhu(MI, BB);
   case CPU6::MULrr:

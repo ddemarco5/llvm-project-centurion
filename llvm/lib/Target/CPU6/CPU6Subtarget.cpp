@@ -54,6 +54,8 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::BR_CC";
   case CPU6ISD::SELECT_CC:
     return "CPU6ISD::SELECT_CC";
+  case CPU6ISD::STEP_CC:
+    return "CPU6ISD::STEP_CC";
   case CPU6ISD::BN_MOV:
     return "CPU6ISD::BN_MOV";
   case CPU6ISD::BN_ADD:

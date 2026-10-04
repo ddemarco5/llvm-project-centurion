@@ -41,6 +41,9 @@ enum NodeType : unsigned {
   TST,
   BR_CC,
   SELECT_CC,
+  // x + delta, or x if the branch in the last operand is taken; glued to the
+  // compare. See combineCarryStep.
+  STEP_CC,
   // Bignum mem ops (0x46). Chain in, chain out. Operands are src ptr, dest
   // ptr, and a byte length-1 immediate (3 => i32, 7 => i64). See the Bignum
   // section of CPU6InstrInfo.td and the TODO patterns in
@@ -115,6 +118,8 @@ private:
   SDValue combineBignumRem(StoreSDNode *St, SelectionDAG &DAG) const;
   // Fold setcc(load,load) on i32/i64 into BNC plus a flag reader.
   SDValue combineBignumSetCC(SDNode *N, SelectionDAG &DAG) const;
+  // add/sub x, (select_cc 1, 0): a carry or borrow added to a word.
+  SDValue combineCarryStep(SDNode *N, SelectionDAG &DAG) const;
   // A constant logical right shift is an arithmetic shift plus a mask. A
   // variable shift is left for the one-bit loop in EmitShift.
   SDValue LowerShift(SDValue Op, SelectionDAG &DAG) const;
@@ -128,6 +133,7 @@ private:
   SDValue LowerSmulLoHi(SDValue Op, SelectionDAG &DAG) const;
 
   MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitStepCC(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulLow(MachineInstr &MI, MachineBasicBlock *BB) const;

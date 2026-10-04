@@ -25,6 +25,9 @@ class CPU6InstrInfo : public CPU6GenInstrInfo {
 public:
   explicit CPU6InstrInfo(const CPU6Subtarget &STI);
 
+  // The flag test taken exactly when Opc is not taken, or 0 if Opc is not one.
+  static unsigned getOppositeBranch(unsigned Opc);
+
   const CPU6RegisterInfo &getRegisterInfo() const { return RI; }
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,

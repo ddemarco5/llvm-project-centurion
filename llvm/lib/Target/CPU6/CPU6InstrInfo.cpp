@@ -309,8 +309,7 @@ unsigned CPU6InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   return MI.getDesc().getSize();
 }
 
-// The flag test taken exactly when Opc is not taken, or 0 if Opc is not one.
-static unsigned getOppositeBranch(unsigned Opc) {
+unsigned CPU6InstrInfo::getOppositeBranch(unsigned Opc) {
   switch (Opc) {
   case CPU6::BL:
     return CPU6::BNL;

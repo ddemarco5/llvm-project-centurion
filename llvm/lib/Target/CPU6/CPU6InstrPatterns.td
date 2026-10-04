@@ -70,6 +70,15 @@ def CPU6selectcc : SDNode<"CPU6ISD::SELECT_CC",
                                                SDTCisSameAs<0, 2>,
                                                SDTCisVT<3, i16>]>,
                           [SDNPInGlue]>;
+// x + delta, or x if the branch in $skip is taken. This is what the carry or
+// borrow of a wide add or subtract becomes, so the 0 and 1 of a select are
+// never made. delta is 1 or -1.
+def CPU6stepcc : SDNode<"CPU6ISD::STEP_CC",
+                        SDTypeProfile<1, 3, [SDTCisVT<0, i16>,
+                                             SDTCisSameAs<0, 1>,
+                                             SDTCisVT<2, i16>,
+                                             SDTCisVT<3, i16>]>,
+                        [SDNPInGlue]>;
 
 // Bignum memops. Ptrs are i16; $len is length-1 (i8 target constant).
 def SDT_CPU6Bignum : SDTypeProfile<0, 3,
@@ -234,6 +243,17 @@ def : Pat<(CPU6selectcc GPR:$t, GPR:$f, timm:$cc),
           (SELECT GPR:$t, GPR:$f, timm:$cc)>;
 def : Pat<(CPU6selectcc GPRB:$t, GPRB:$f, timm:$cc),
           (SELECTB GPRB:$t, GPRB:$f, timm:$cc)>;
+
+// A step is a branch around an ADDimm
+// (CPU6TargetLowering::EmitInstrWithCustomInserter). $skip is the branch
+// opcode, taken to leave $x as it is.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Uses = [rF, rL, rM, rV] in
+def STEPCC : CenturionInst<(outs GPR:$dst),
+                           (ins GPR:$x, i16imm:$delta, i16imm:$skip),
+                           "#STEPCC", "$dst,$x,$delta,$skip">;
+def : Pat<(CPU6stepcc GPR:$x, timm:$delta, timm:$skip),
+          (STEPCC GPR:$x, timm:$delta, timm:$skip)>;
 
 //===----------------------------------------------------------------------===//
 // Constants
