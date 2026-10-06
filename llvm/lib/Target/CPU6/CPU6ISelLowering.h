@@ -67,6 +67,10 @@ enum NodeType : unsigned {
   MEMCPY_LOOP,
   MEMMOVE_LOOP,
   MEMSET_LOOP,
+  // Variable shift of N i16 words, low word first. Operands are the N words,
+  // the count, and a target constant for the direction (shl / lshr / ashr).
+  // N is 2 for an i32 and 4 for an i64. See EmitWideShift.
+  WSHIFT,
 };
 } // namespace CPU6ISD
 
@@ -131,12 +135,25 @@ public:
   // No floating-point hardware. f32/f64 stay SoftenFloat via libcalls.
   bool useSoftFloat() const override { return true; }
 
+  // A shift wider than one expansion step would otherwise spill a
+  // double-width slot and reload it. Parts (or the half-width shift those
+  // parts become) stay in registers. i32 and i64 are custom, below, and
+  // never consult this.
+  ShiftLegalizationStrategy
+  preferredShiftLegalizationStrategy(SelectionDAG &, SDNode *,
+                                     unsigned) const override {
+    return ShiftLegalizationStrategy::ExpandToParts;
+  }
+
   // "r" picks a GPR. "{A}" and the other names go through the base class.
   std::pair<unsigned, const TargetRegisterClass *>
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                StringRef Constraint, MVT VT) const override;
 
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
 
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
@@ -159,6 +176,10 @@ private:
 
   // Variable shift of a value wider than a word, already split into halves.
   SDValue LowerShiftParts(SDValue Op, SelectionDAG &DAG) const;
+
+  // N-word variable shift. The same inserter serves every width.
+  MachineBasicBlock *EmitWideShift(MachineInstr &MI,
+                                   MachineBasicBlock *BB) const;
 
   // Signed i16 quotient and remainder. DIV is unsigned, so both are
   // magnitudes, one DIV, then the sign is put back.

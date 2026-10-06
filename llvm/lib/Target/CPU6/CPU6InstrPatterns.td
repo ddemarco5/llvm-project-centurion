@@ -473,6 +473,20 @@ def : Pat<(shl GPRB:$src, GPR:$cnt), (SHLbr GPRB:$src, GPR:$cnt)>;
 def : Pat<(sra GPRB:$src, GPR:$cnt), (SRAbr GPRB:$src, GPR:$cnt)>;
 def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 
+// Variable shift of a value wider than a word. Words are low to high.
+// $k is 0 for left, 1 for logical right, 2 for arithmetic right.
+// EmitWideShift walks the defs, so the two widths share one loop.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0 in {
+def WSHIFT2 : CenturionInst<(outs GPR:$d0, GPR:$d1),
+                            (ins GPR:$s0, GPR:$s1, GPR:$c, i16imm:$k),
+                            "#WSHIFT2", "">;
+def WSHIFT4 : CenturionInst<(outs GPR:$d0, GPR:$d1, GPR:$d2, GPR:$d3),
+                            (ins GPR:$s0, GPR:$s1, GPR:$s2, GPR:$s3, GPR:$c,
+                                 i16imm:$k),
+                            "#WSHIFT4", "">;
+}
+
 //===----------------------------------------------------------------------===//
 // Addresses
 //===----------------------------------------------------------------------===//

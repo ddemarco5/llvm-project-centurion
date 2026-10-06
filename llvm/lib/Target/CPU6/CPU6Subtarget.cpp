@@ -106,6 +106,8 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::MEMMOVE_LOOP";
   case CPU6ISD::MEMSET_LOOP:
     return "CPU6ISD::MEMSET_LOOP";
+  case CPU6ISD::WSHIFT:
+    return "CPU6ISD::WSHIFT";
   }
   return nullptr;
 }

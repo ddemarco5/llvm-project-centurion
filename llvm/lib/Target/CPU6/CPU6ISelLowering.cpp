@@ -137,9 +137,13 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
     // integer, so leaving either Legal is a node nothing selects.
     setOperationAction({ISD::CTLZ, ISD::CTTZ, ISD::CTPOP}, VT, Expand);
   }
-  // A variable shift of an i32 is two i16 halves. There is no parts opcode.
-  // Lowering them to funnel shifts reuses the word shifts above. Left at
-  // the default Legal, isel dies on shl_parts.
+  // A variable shift of an i32 or i64 is custom-lowered while the value is
+  // still wide (ReplaceNodeResults), into one N-word loop. A constant still
+  // takes ExpandShiftByConstant: that hook returns without a result for a
+  // constant count. Parts are the same loop for a node that arrives already
+  // split. Left at the default Legal, isel dies on shl_parts.
+  setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i32, Custom);
+  setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   setOperationAction({ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS}, MVT::i16,
                      Custom);
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
@@ -895,14 +899,97 @@ SDValue CPU6TargetLowering::LowerShift(SDValue Op, SelectionDAG &DAG) const {
   return Op;
 }
 
-// i32 variable shift, already split into i16 halves. expandShiftParts turns
-// that into word shifts and a funnel shift, and the funnel shift expands to
-// the same word shifts.
+// 0 is a left shift, 1 a logical right shift, 2 an arithmetic right shift.
+// EmitWideShift reads the same immediate off the pseudo.
+enum { WShiftLeft = 0, WShiftLRight = 1, WShiftARight = 2 };
+
+static unsigned wideShiftKind(unsigned Opc) {
+  if (Opc == ISD::SHL || Opc == ISD::SHL_PARTS)
+    return WShiftLeft;
+  if (Opc == ISD::SRL || Opc == ISD::SRL_PARTS)
+    return WShiftLRight;
+  return WShiftARight;
+}
+
+// Low word first. An i32 is two i16s and an i64 is four. SplitScalar is an
+// extract, so this does not build another shift of the wide value.
+static void collectShiftWords(SDValue V, SmallVectorImpl<SDValue> &Words,
+                              SelectionDAG &DAG, const SDLoc &DL) {
+  if (V.getValueType() == MVT::i16) {
+    Words.push_back(V);
+    return;
+  }
+  EVT LoVT, HiVT;
+  std::tie(LoVT, HiVT) = DAG.GetSplitDestVTs(V.getValueType());
+  SDValue Lo, Hi;
+  std::tie(Lo, Hi) = DAG.SplitScalar(V, DL, LoVT, HiVT);
+  collectShiftWords(Lo, Words, DAG, DL);
+  collectShiftWords(Hi, Words, DAG, DL);
+}
+
+// Pair the words back into the original width. BUILD_PAIR's first operand is
+// the low half, which is also the order collectShiftWords produced.
+static SDValue buildShiftResult(ArrayRef<SDValue> In, SelectionDAG &DAG,
+                                const SDLoc &DL) {
+  SmallVector<SDValue, 4> Cur(In.begin(), In.end());
+  while (Cur.size() > 1) {
+    SmallVector<SDValue, 4> Up;
+    for (unsigned I = 0; I < Cur.size(); I += 2) {
+      unsigned Bits =
+          Cur[I].getValueSizeInBits() + Cur[I + 1].getValueSizeInBits();
+      EVT VT = EVT::getIntegerVT(*DAG.getContext(), Bits);
+      Up.push_back(DAG.getNode(ISD::BUILD_PAIR, DL, VT, Cur[I], Cur[I + 1]));
+    }
+    Cur = std::move(Up);
+  }
+  return Cur[0];
+}
+
+static SDValue makeWideShift(ArrayRef<SDValue> Words, SDValue Amt,
+                             unsigned Kind, const SDLoc &DL,
+                             SelectionDAG &DAG) {
+  if (Amt.getValueType() != MVT::i16)
+    Amt = DAG.getZExtOrTrunc(Amt, DL, MVT::i16);
+  SmallVector<EVT, 4> VTs(Words.size(), MVT::i16);
+  SmallVector<SDValue, 8> Ops(Words.begin(), Words.end());
+  Ops.push_back(Amt);
+  Ops.push_back(DAG.getTargetConstant(Kind, DL, MVT::i16));
+  return DAG.getNode(CPU6ISD::WSHIFT, DL, DAG.getVTList(VTs), Ops);
+}
+
+// The type legalizer asks before it splits a variable i32 or i64 shift into
+// parts. A constant is left for ExpandShiftByConstant, which is a word move
+// plus an immediate SLR or SRR. Anything else is one WSHIFT of every word.
+void CPU6TargetLowering::ReplaceNodeResults(
+    SDNode *N, SmallVectorImpl<SDValue> &Results, SelectionDAG &DAG) const {
+  unsigned Opc = N->getOpcode();
+  if (Opc != ISD::SHL && Opc != ISD::SRL && Opc != ISD::SRA)
+    return;
+  EVT VT = N->getValueType(0);
+  if (VT != MVT::i32 && VT != MVT::i64)
+    return;
+  if (isa<ConstantSDNode>(N->getOperand(1)))
+    return;
+
+  SDLoc DL(N);
+  SmallVector<SDValue, 4> Words;
+  collectShiftWords(N->getOperand(0), Words, DAG, DL);
+  SDValue Parts =
+      makeWideShift(Words, N->getOperand(1), wideShiftKind(Opc), DL, DAG);
+  SmallVector<SDValue, 4> Out;
+  for (unsigned I = 0, E = Words.size(); I != E; ++I)
+    Out.push_back(Parts.getValue(I));
+  Results.push_back(buildShiftResult(Out, DAG, DL));
+}
+
+// Already split into two i16 halves. The same node as ReplaceNodeResults.
 SDValue CPU6TargetLowering::LowerShiftParts(SDValue Op,
                                             SelectionDAG &DAG) const {
-  SDValue Lo, Hi;
-  expandShiftParts(Op.getNode(), Lo, Hi, DAG);
-  return DAG.getMergeValues({Lo, Hi}, SDLoc(Op));
+  SDLoc DL(Op);
+  SDValue Parts = makeWideShift({Op.getOperand(0), Op.getOperand(1)},
+                                Op.getOperand(2), wideShiftKind(Op.getOpcode()),
+                                DL, DAG);
+  return DAG.getMergeValues({Parts, Parts.getValue(1)}, DL);
 }
 
 // C division truncates toward zero, and the remainder takes the dividend's
@@ -1089,6 +1176,9 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case CPU6::MEMMOVELOOP:
   case CPU6::MEMSETLOOP:
     return EmitMemLoop(MI, BB);
+  case CPU6::WSHIFT2:
+  case CPU6::WSHIFT4:
+    return EmitWideShift(MI, BB);
   default:
     return EmitShift(MI, BB);
   }
@@ -1518,6 +1608,155 @@ CPU6TargetLowering::EmitMemLoop(MachineInstr &MI, MachineBasicBlock *BB) const {
   BuildMI(Head, DL, TII.get(CPU6::ADDimm), Next).addReg(Dst).addImm(1);
   BuildMI(Head, DL, TII.get(CPU6::ADDimm), Rest).addReg(N).addImm(-1);
   emitCopyLoop(Head, Exit, Dst, Next, Rest, DL);
+  MI.eraseFromParent();
+  return Exit;
+}
+
+// A variable shift of N words. N is the number of explicit defs, so an i32
+// and an i64 (and any later width with the same operand shape) share this.
+// Whole words move first, at most N - 1 times, and the leftover 0..15 bits
+// are a Link-carry loop. RLR and RRR shift the old Link in and the bit that
+// leaves the word into Link. SLR and SRR do not read Link, so they cannot
+// carry into the next word; SRR is only the sign-filling step of an
+// arithmetic shift, and the bit it writes to Link is what the following RRR
+// shifts in. XFR leaves Link alone, so the two-address copy in front of a
+// rotate does not drop the carry. DCR replaces Link, so the count steps
+// after the chain.
+MachineBasicBlock *
+CPU6TargetLowering::EmitWideShift(MachineInstr &MI,
+                                  MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  const TargetRegisterClass *RC = &CPU6::GPRRegClass;
+
+  unsigned N = MI.getNumExplicitDefs();
+  unsigned Kind = MI.getOperand(2 * N + 1).getImm();
+  bool Left = Kind == WShiftLeft;
+  bool Arith = Kind == WShiftARight;
+  Register Cnt = MI.getOperand(2 * N).getReg();
+
+  SmallVector<Register, 4> Src(N), Dst(N);
+  for (unsigned I = 0; I != N; ++I) {
+    Dst[I] = MI.getOperand(I).getReg();
+    Src[I] = MI.getOperand(N + I).getReg();
+  }
+
+  auto VReg = [&]() { return MRI.createVirtualRegister(RC); };
+  auto Phi = [&](MachineBasicBlock *At, Register R, Register A,
+                 MachineBasicBlock *FromA, Register B, MachineBasicBlock *FromB) {
+    BuildMI(*At, At->begin(), DL, TII.get(TargetOpcode::PHI), R)
+        .addReg(A)
+        .addMBB(FromA)
+        .addReg(B)
+        .addMBB(FromB);
+  };
+
+  Register Masked = VReg();
+  Register Bits = VReg();
+  Register Words = VReg();
+  BuildMI(*BB, MI, DL, TII.get(CPU6::ANDimm), Masked)
+      .addReg(Cnt)
+      .addImm((N * 16) - 1);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::ANDimm), Bits).addReg(Masked).addImm(15);
+  // SRR's count nibble is the distance minus one, so 3 shifts by 4.
+  BuildMI(*BB, MI, DL, TII.get(CPU6::SRR), Words).addReg(Masked).addImm(3);
+
+  Register Sign;
+  if (Arith) {
+    Sign = VReg();
+    // 14 shifts by 15 and leaves the sign in every bit.
+    BuildMI(*BB, MI, DL, TII.get(CPU6::SRR), Sign).addReg(Src[N - 1]).addImm(14);
+  }
+
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  MachineBasicBlock *Word = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Join = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Bit = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Exit = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, Word);
+  MF->insert(It, Join);
+  MF->insert(It, Bit);
+  MF->insert(It, Exit);
+  Exit->splice(Exit->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Exit->transferSuccessorsAndUpdatePHIs(BB);
+  BB->addSuccessor(Word);
+  BB->addSuccessor(Join);
+  Word->addSuccessor(Word);
+  Word->addSuccessor(Join);
+  Join->addSuccessor(Bit);
+  Join->addSuccessor(Exit);
+  Bit->addSuccessor(Bit);
+  Bit->addSuccessor(Exit);
+
+  // A word count of zero falls through the bit join. The bit count does the
+  // same for the exit. TST is a terminator, so it stays the last instruction.
+  BuildMI(*BB, MI, DL, TII.get(CPU6::TST)).addReg(Words);
+  BuildMI(*BB, MI, DL, TII.get(CPU6::BZ)).addMBB(Join);
+
+  SmallVector<Register, 4> WCur(N), WNext(N), AtJoin(N), BCur(N), BNext(N);
+  Register WordsPhi = VReg();
+  Register WordsDec = VReg();
+  for (unsigned I = 0; I != N; ++I) {
+    WCur[I] = VReg();
+    WNext[I] = VReg();
+    AtJoin[I] = VReg();
+    BCur[I] = VReg();
+    BNext[I] = VReg();
+    Phi(Word, WCur[I], Src[I], BB, WNext[I], Word);
+    Phi(Join, AtJoin[I], Src[I], BB, WNext[I], Word);
+    Phi(Bit, BCur[I], AtJoin[I], Join, BNext[I], Bit);
+    Phi(Exit, Dst[I], AtJoin[I], Join, BNext[I], Bit);
+  }
+  Phi(Word, WordsPhi, Words, BB, WordsDec, Word);
+
+  // High index first on a left move, so the word shifted out dies before the
+  // hole at the low end is filled. A right move writes the low index first.
+  if (Left) {
+    for (unsigned I = N; I-- > 1;)
+      BuildMI(Word, DL, TII.get(TargetOpcode::COPY), WNext[I]).addReg(WCur[I - 1]);
+    BuildMI(Word, DL, TII.get(CPU6::CLR), WNext[0]).addImm(0);
+  } else {
+    for (unsigned I = 0; I + 1 < N; ++I)
+      BuildMI(Word, DL, TII.get(TargetOpcode::COPY), WNext[I]).addReg(WCur[I + 1]);
+    if (Arith)
+      BuildMI(Word, DL, TII.get(TargetOpcode::COPY), WNext[N - 1]).addReg(Sign);
+    else
+      BuildMI(Word, DL, TII.get(CPU6::CLR), WNext[N - 1]).addImm(0);
+  }
+  BuildMI(Word, DL, TII.get(CPU6::DCR), WordsDec).addReg(WordsPhi).addImm(0);
+  BuildMI(Word, DL, TII.get(CPU6::TST)).addReg(WordsDec);
+  BuildMI(Word, DL, TII.get(CPU6::BNZ)).addMBB(Word);
+
+  BuildMI(Join, DL, TII.get(CPU6::TST)).addReg(Bits);
+  BuildMI(Join, DL, TII.get(CPU6::BZ)).addMBB(Exit);
+
+  Register BitsPhi = VReg();
+  Register BitsDec = VReg();
+  Phi(Bit, BitsPhi, Bits, Join, BitsDec, Bit);
+
+  // Carry travels low to high on a left shift and high to low on a right
+  // shift. RL clears Link so the end word shifts a zero in. An arithmetic
+  // step sign-fills that word with SRR, which also plants its old low bit
+  // in Link for the RRR that follows.
+  if (!Arith)
+    BuildMI(Bit, DL, TII.get(CPU6::RL));
+  if (Left) {
+    for (unsigned I = 0; I != N; ++I)
+      BuildMI(Bit, DL, TII.get(CPU6::RLR), BNext[I]).addReg(BCur[I]).addImm(0);
+  } else {
+    unsigned Top = N - 1;
+    BuildMI(Bit, DL, TII.get(Arith ? CPU6::SRR : CPU6::RRR), BNext[Top])
+        .addReg(BCur[Top])
+        .addImm(0);
+    for (unsigned I = Top; I-- > 0;)
+      BuildMI(Bit, DL, TII.get(CPU6::RRR), BNext[I]).addReg(BCur[I]).addImm(0);
+  }
+  BuildMI(Bit, DL, TII.get(CPU6::DCR), BitsDec).addReg(BitsPhi).addImm(0);
+  BuildMI(Bit, DL, TII.get(CPU6::TST)).addReg(BitsDec);
+  BuildMI(Bit, DL, TII.get(CPU6::BNZ)).addMBB(Bit);
+
   MI.eraseFromParent();
   return Exit;
 }

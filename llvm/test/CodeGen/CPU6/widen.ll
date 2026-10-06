@@ -12,10 +12,11 @@ define i16 @clz16(i16 %a) {
 }
 
 ; A variable i32 shift is two i16 halves. The bits that cross the boundary
-; are a one-bit loop, not a call to __ashlsi3.
+; rotate through Link, not a call to __ashlsi3.
 ; CHECK-LABEL: shl32v:
 ; CHECK-NOT: JSR
-; CHECK: SLA
+; CHECK: RL
+; CHECK: RLR
 ; CHECK: RSR
 define i32 @shl32v(i32 %a, i32 %n) {
   %v = shl i32 %a, %n

@@ -16,11 +16,11 @@ long land(long a, long b) { return a & b; }
 
 long ladd(long a, long b) { return a + b; }
 
-// TODO(cpu6): a variable shift of a long. The type legalizer emits shl_parts,
-// srl_parts, or sra_parts and nothing selects them ("Cannot select").
-// long lshl(long a, int n) { return a << n; }
-// unsigned long lshr(unsigned long a, int n) { return a >> n; }
-// long lsar(long a, int n) { return a >> n; }
+long lshl(long a, int n) { return a << n; }
+
+unsigned long lshr(unsigned long a, int n) { return a >> n; }
+
+long lsar(long a, int n) { return a >> n; }
 
 long lmul(long a, long b) { return a * b; }
 
@@ -47,6 +47,17 @@ int qcmp(long long a, long long b) { return a < b; }
 int qand(long long a, long long b) { return (int)(a & b); }
 
 int qmix(long long a, int b, long long c) { return (int)(a + b + c); }
+
+// A long long still cannot be returned (see below). The shift itself is one
+// loop over the four words; these keep every word live by storing it.
+long long qs;
+unsigned long long qu;
+
+void qshl_store(unsigned long long a, int n) { qu = a << n; }
+
+void qlshr_store(unsigned long long a, int n) { qu = a >> n; }
+
+void qasr_store(long long a, int n) { qs = a >> n; }
 
 // TODO(cpu6): returning a long long. An i64 is four words and RetCC_CPU6 only
 // assigns A and B, so lowering reports "unable to allocate function return #2".
