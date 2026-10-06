@@ -27,6 +27,13 @@
 // a word store has no alignment requirement. These offsets are where the
 // caller writes, relative to S just before JSR. JSR then pushes X, so the
 // callee sees the same word at incoming S + offset + 2.
+//
+// A variadic call is the same assignment, after LowerCall and
+// LowerFormalArguments have reserved an 8-byte home (one word per argument
+// register) with CCState::AllocateStack. The first stack word is then at
+// offset 8, immediately after Z's home, and va_arg walks that run. A
+// non-variadic call does not reserve the home, so its fifth word stays at
+// offset 0.
 def CC_CPU6 : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i16>>,
   CCIfType<[i16], CCAssignToReg<[rA, rB, rY, rZ]>>,

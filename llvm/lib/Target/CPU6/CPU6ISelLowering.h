@@ -203,6 +203,14 @@ private:
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,
                           const SDLoc &DL, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
+
+  // Store the address of the first variadic word into the va_list.
+  SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+
+  // Spill the argument registers the named parameters did not take into the
+  // homes the caller reserved. Records the frame index of the first one.
+  SDValue spillVarArgRegs(SDValue Chain, CCState &CCInfo, const SDLoc &DL,
+                          SelectionDAG &DAG) const;
 };
 
 } // namespace llvm

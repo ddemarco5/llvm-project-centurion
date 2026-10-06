@@ -12,6 +12,7 @@
 
 #include "CPU6TargetMachine.h"
 #include "CPU6.h"
+#include "CPU6MachineFunctionInfo.h"
 #include "TargetInfo/CPU6TargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -58,6 +59,12 @@ public:
 
 TargetPassConfig *CPU6TargetMachine::createPassConfig(PassManagerBase &PM) {
   return new CPU6PassConfig(*this, PM);
+}
+
+MachineFunctionInfo *CPU6TargetMachine::createMachineFunctionInfo(
+    BumpPtrAllocator &Allocator, const Function &F,
+    const TargetSubtargetInfo *STI) const {
+  return CPU6FunctionInfo::create<CPU6FunctionInfo>(Allocator, F, STI);
 }
 
 bool CPU6PassConfig::addInstSelector() {

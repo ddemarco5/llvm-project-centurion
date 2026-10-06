@@ -8,9 +8,11 @@
 
 #include "CPU6ISelLowering.h"
 #include "CPU6InstrInfo.h"
+#include "CPU6MachineFunctionInfo.h"
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/MC/MCRegister.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
@@ -28,6 +30,19 @@ using namespace llvm;
 
 // CC_CPU6 promotes an i8 to i16. LocInfo says how, and the register or the
 // stack slot is the widened value.
+
+// Argument registers, in the order CC_CPU6 assigns them. A variadic call
+// reserves one word of the outgoing area for each, ahead of any stack
+// argument, so the words va_arg walks are contiguous: A's home, then B, Y,
+// Z, then the first stack word.
+static const MCPhysReg CPU6ArgRegs[] = {CPU6::rA, CPU6::rB, CPU6::rY, CPU6::rZ};
+static constexpr unsigned CPU6ArgRegBytes = 2;
+// JSR pushes X. The caller's offset N is the callee's incoming S + N + 2.
+static constexpr int CPU6IncomingArgBias = 2;
+
+static void reserveVarArgHomes(CCState &CCInfo) {
+  CCInfo.AllocateStack(std::size(CPU6ArgRegs) * CPU6ArgRegBytes, Align(1));
+}
 static SDValue extendToLoc(SelectionDAG &DAG, const SDLoc &DL, SDValue Val,
                            const CCValAssign &VA) {
   switch (VA.getLocInfo()) {
@@ -160,6 +175,12 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // stackrestore copy S.
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
   setOperationAction({ISD::STACKSAVE, ISD::STACKRESTORE}, MVT::Other, Expand);
+  // va_list is a pointer. va_start stores the address of the first variadic
+  // word; va_arg and va_copy are the ordinary load, add, and store.
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction(ISD::VAARG, MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setOperationAction(ISD::VAEND, MVT::Other, Expand);
 
   // One load and store pair moves up to two bytes. From three bytes on, one
   // MVF or FIL (CPU6SelectionDAGInfo) is shorter and about as fast.
@@ -519,10 +540,9 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   // A function with no arguments still has to hand the entry chain back.
-  // `ret void` and `ret i16 42` both land here with Ins empty.
-  if (IsVarArg)
-    report_fatal_error("CPU6 varargs are not supported");
-  if (Ins.empty())
+  // `ret void` and `ret i16 42` both land here with Ins empty. A variadic
+  // function with no named arguments still spills A, B, Y, and Z.
+  if (Ins.empty() && !IsVarArg)
     return Chain;
 
   // assign each incoming value and push one SDValue per argument
@@ -531,6 +551,10 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   SmallVector<CCValAssign, 8> ArgLocs;
   CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  // The caller reserved the same 8 bytes. Named stack arguments, and the
+  // first variadic stack word, therefore start at offset 8.
+  if (IsVarArg)
+    reserveVarArgHomes(CCInfo);
   CCInfo.AnalyzeFormalArguments(Ins, CC_CPU6);
 
   SmallVector<SDValue, 4> LoadChains;
@@ -563,11 +587,68 @@ SDValue CPU6TargetLowering::LowerFormalArguments(
     // about the upper half, then take the low byte.
     InVals.push_back(narrowFromLoc(DAG, DL, Arg, VA));
   }
+  if (IsVarArg)
+    if (SDValue Spilled = spillVarArgRegs(Chain, CCInfo, DL, DAG))
+      LoadChains.push_back(Spilled);
   if (!LoadChains.empty()) {
     LoadChains.push_back(Chain);
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, LoadChains);
   }
   return Chain;
+}
+
+// Homes sit in the caller's frame, one word per argument register, in
+// CC_CPU6 order. Named arguments already consumed a prefix of those
+// registers, so only the rest are spilled. The first variadic word is that
+// first spilled home, or the next stack slot once A, B, Y, and Z are all
+// named. va_arg loads through a pointer, so the object is marked aliased.
+SDValue CPU6TargetLowering::spillVarArgRegs(SDValue Chain, CCState &CCInfo,
+                                            const SDLoc &DL,
+                                            SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  unsigned First = CCInfo.getFirstUnallocated(CPU6ArgRegs);
+  unsigned CallerOff = First * CPU6ArgRegBytes;
+  if (First == std::size(CPU6ArgRegs))
+    CallerOff = CCInfo.getStackSize();
+  unsigned NWords = std::size(CPU6ArgRegs) - First;
+  unsigned ObjSize = NWords ? NWords * CPU6ArgRegBytes : CPU6ArgRegBytes;
+  int FI = MFI.CreateFixedObject(ObjSize, CallerOff + CPU6IncomingArgBias,
+                                 /*IsImmutable=*/false, /*isAliased=*/true);
+  MF.getInfo<CPU6FunctionInfo>()->setVarArgsFrameIndex(FI);
+
+  if (!NWords)
+    return SDValue();
+
+  SDValue Base = DAG.getFrameIndex(FI, MVT::i16);
+  SmallVector<SDValue, 4> Stores;
+  for (unsigned I = First; I != std::size(CPU6ArgRegs); ++I) {
+    Register VReg = MF.addLiveIn(CPU6ArgRegs[I], &CPU6::GPRRegClass);
+    SDValue Val = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i16);
+    unsigned Disp = (I - First) * CPU6ArgRegBytes;
+    SDValue Ptr = Disp ? DAG.getNode(ISD::ADD, DL, MVT::i16, Base,
+                                    DAG.getConstant(Disp, DL, MVT::i16))
+                       : Base;
+    Stores.push_back(DAG.getStore(
+        Val.getValue(1), DL, Val, Ptr,
+        MachinePointerInfo::getFixedStack(MF, FI, Disp)));
+  }
+  if (Stores.size() == 1)
+    return Stores[0];
+  return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
+}
+
+SDValue CPU6TargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  CPU6FunctionInfo *FuncInfo = MF.getInfo<CPU6FunctionInfo>();
+  if (!FuncInfo->hasVarArgsFrameIndex())
+    report_fatal_error("CPU6 va_start in a function that is not variadic");
+  int FI = FuncInfo->getVarArgsFrameIndex();
+  SDLoc DL(Op);
+  SDValue Addr = DAG.getFrameIndex(FI, MVT::i16);
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), DL, Addr, Op.getOperand(1),
+                      MachinePointerInfo(SV));
 }
 
 SDValue CPU6TargetLowering::LowerReturn(
@@ -724,8 +805,11 @@ CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CLI.CallConv, CLI.IsVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
+  // Same 8-byte home LowerFormalArguments reserves. A call with no stack
+  // argument still reserves it: the callee spills B, Y, and Z there when
+  // only A is named.
   if (CLI.IsVarArg)
-    report_fatal_error("CPU6 varargs are not supported");
+    reserveVarArgHomes(CCInfo);
   CCInfo.AnalyzeCallOperands(CLI.Outs, CC_CPU6);
 
   bool Tail = isEligibleForTailCall(*this, CLI, CCInfo, ArgLocs);
@@ -1120,6 +1204,8 @@ SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
                        Op.getOperand(2), Op.getOperand(3),
                        DAG.getTargetConstant(Opc, DL, MVT::i16), Glue);
   }
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   }
   llvm_unreachable("unexpected custom lowering");
 }
