@@ -58,8 +58,7 @@ class CenturionInst40<dag outs, dag ins, string opstr, string argstr>
     let Size = 5;
 }
 
-// Six-byte instruction. The 0x47 stub is an opcode plus five
-// uninterpreted bytes. The emitter writes Inst big-endian.
+// Six-byte instruction. The emitter writes Inst big-endian.
 class CenturionInst48<dag outs, dag ins, string opstr, string argstr>
       : CenturionInst<outs, ins, opstr, argstr> {
 

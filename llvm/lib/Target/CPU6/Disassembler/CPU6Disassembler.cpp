@@ -65,8 +65,6 @@ static DecodeStatus DecodeGPRRegisterClass(MCInst &Inst, uint64_t RegNo,
     // Our main register index should NEVER be an odd number
     if (RegNo % 2) { return MCDisassembler::Fail; }
 
-    // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
-    // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
     regtable[0] = CPU6::rA;
     regtable[2] = CPU6::rB;
@@ -77,7 +75,6 @@ static DecodeStatus DecodeGPRRegisterClass(MCInst &Inst, uint64_t RegNo,
     regtable[12] = CPU6::rC;
     regtable[14] = CPU6::rP;
     LLVM_DEBUG(dbgs() << "DecodeGPR " << RegNo << "\n");
-    //MCRegister Reg = CPU6::A + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
     return MCDisassembler::Success;
 }
@@ -92,8 +89,6 @@ static DecodeStatus DecodeGPRhiRegisterClass(MCInst &Inst, uint64_t RegNo,
     // Our high register index should NEVER be an odd number
     if (RegNo % 2) { return MCDisassembler::Fail; }
 
-    // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
-    // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
     regtable[0] = CPU6::rAU;
     regtable[2] = CPU6::rBU;
@@ -104,7 +99,6 @@ static DecodeStatus DecodeGPRhiRegisterClass(MCInst &Inst, uint64_t RegNo,
     regtable[12] = CPU6::rCU;
     regtable[14] = CPU6::rPU;
     LLVM_DEBUG(dbgs() << "DecodeGPRhi " << RegNo << "\n");
-    //MCRegister Reg = CPU6::AU + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
     return MCDisassembler::Success;
 }
@@ -119,8 +113,6 @@ static DecodeStatus DecodeGPRloRegisterClass(MCInst &Inst, uint64_t RegNo,
     // Our high register index should NEVER be an even number
     if (!(RegNo % 2)) { return MCDisassembler::Fail; }
 
-    // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
-    // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
     regtable[1] = CPU6::rAL;
     regtable[3] = CPU6::rBL;
@@ -131,7 +123,6 @@ static DecodeStatus DecodeGPRloRegisterClass(MCInst &Inst, uint64_t RegNo,
     regtable[13] = CPU6::rCL;
     regtable[15] = CPU6::rPL;
     LLVM_DEBUG(dbgs() << "DecodeGPRlo " << RegNo << "\n");
-    //MCRegister Reg = CPU6::AU + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
     return MCDisassembler::Success;
 }
@@ -144,8 +135,6 @@ static DecodeStatus DecodeGPRBRegisterClass(MCInst &Inst, uint64_t RegNo,
     // our registers only go up to index 15
     if (RegNo > 15) { return MCDisassembler::Fail; }
 
-    // TODO: THIS IS BAD! Shouldn't redefine. But the tablegen is in flux rn
-    // because I haven't touched codegen, so we just define register tables here for now
     std::map<uint64_t, uint16_t> regtable;
     regtable[1] = CPU6::rAL;
     regtable[3] = CPU6::rBL;
@@ -164,7 +153,6 @@ static DecodeStatus DecodeGPRBRegisterClass(MCInst &Inst, uint64_t RegNo,
     regtable[12] = CPU6::rCU;
     regtable[14] = CPU6::rPU;
     LLVM_DEBUG(dbgs() << "DecodeGPRB " << RegNo << "\n");
-    //MCRegister Reg = CPU6::AU + RegNo;
     Inst.addOperand(MCOperand::createReg(regtable[RegNo]));
     return MCDisassembler::Success;
 }
@@ -256,7 +244,7 @@ DecodeStatus CPU6Disassembler::getInstruction(MCInst &MI, uint64_t &Size,
             return Result;
         }
     }
-    // 0x47 stub is 6 bytes. Try it only when the whole instruction is present.
+    // Six-byte instructions (DecoderTable48). Need the full encoding present.
     if (Bytes.size() >= 6) {
         uint64_t Wide6 = 0;
         for (unsigned I = 0; I < 6; ++I)

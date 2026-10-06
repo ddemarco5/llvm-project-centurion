@@ -249,11 +249,8 @@ public:
         return Op;
     }
 
-    // TODO: I believe this is a portion that evaulates expressions? Like (A + B), but revisit to be sure
     void addExpr(MCInst &Inst, const MCExpr *Expr) const {
         assert(Expr && "Expr shouldn't be null!");
-        // TODO: Below is an ugly check to see if the expression is a const.
-        // see if we can do better
         if (auto *CE = dyn_cast<MCConstantExpr>(Expr))
             Inst.addOperand(MCOperand::createImm(CE->getValue()));
         else
@@ -458,10 +455,8 @@ ParseStatus CPU6AsmParser::parseDirect(OperandVector &Operands) {
 
 
 }
-// Parse an indirect operand, e.g. ((something))
-// syntactically, this is just a direct in a direct
-// TODO: Currently ((r),disp) is not a used parse-able, but it could be in the future and I did
-// all this damn work before realizing I didn't need to so I'm keepig it in
+// Parse an indirect operand, e.g. ((something)) or ((PC),disp).
+// Syntactically this is a direct operand nested in another direct.
 ParseStatus CPU6AsmParser::parseIndirect(OperandVector &Operands) {
 
     ParseStatus result = ParseStatus::Failure;

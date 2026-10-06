@@ -1219,22 +1219,18 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 // Block move
 //===----------------------------------------------------------------------===//
 
-// 0x47 mode 0xC and 0x67 mode 0xA. These are the WIPL sites and the
-// load7 lines with the same shape. Other 47/67 lengths stay unimplemented:
-// load7 also has 4-, 5-, and 7-byte 0x47 and 4-, 5-, and 6-byte 0x67.
+// Opcode families 0x47 (immediate count-1) and 0x67 (count in AL). The
+// Mem47*/Mem67*/Fil47*/Fil67* classes below cover the addressing-mode
+// matrix (4- through 7-byte encodings). WIPL / load7 reference forms:
+//   `47 4c 00 ff 02 65`  MVF (1)=0xFF, /0x0265   (mode 0xC, lit + abs)
+//   `47 9c 09 a0 03 65`  FIL (10)=0xA0, /0x0365
+//   `67 4a 86`           MVFR -Z,-Y              (mode 0xA, two regs)
+//   `67 4a 64`           memcpy AL, [Y], [X]
 //
-// MVF is selector 4, FIL is selector 9. Both use mode nibble 0xC:
-// count-1, a literal byte, then a big-endian direct address.
-// WIPL `47 4c 00 ff 02 65` is MVF (1)=0xFF, /0x0265.
-// WIPL `47 9c 09 a0 03 65` is FIL (10)=0xA0, /0x0365.
-// MVFR is selector 4, mode nibble 0xA, then source and destination
-// registers. The length is AL and is not in the instruction.
-// WIPL `67 4a 86` is MVFR -Z,-Y. load7 `67 4a 64` is memcpy AL, [Y], [X].
-//
-// MVF copies a run of bytes and FIL fills one. A 0x47 length is the
-// immediate count-1, so at most 256 bytes. MVFR and FILR are the 0x67 forms
-// and take that length in AL. CPU6SelectionDAGInfo selects MVF_RR, FIL_R,
-// and MVFR for memcpy and memset.
+// MVF is selector 4, FIL is 9, CPF is 8. A 0x47 length is immediate
+// count-1 (at most 256 bytes); MVFR/FILR/CPFR take that length in AL.
+// Codegen selects MVF_RR, FIL_R, and MVFR for memcpy and memset; the
+// other layouts are for the assembler and disassembler.
 //
 // Run in the CenREE microcode simulator: the copy goes one byte at a time
 // from the lowest address up, so a destination one byte above its source
