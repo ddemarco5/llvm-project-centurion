@@ -157,6 +157,9 @@ private:
   // variable shift is left for the one-bit loop in EmitShift.
   SDValue LowerShift(SDValue Op, SelectionDAG &DAG) const;
 
+  // Variable shift of a value wider than a word, already split into halves.
+  SDValue LowerShiftParts(SDValue Op, SelectionDAG &DAG) const;
+
   // Signed i16 quotient and remainder. DIV is unsigned, so both are
   // magnitudes, one DIV, then the sign is put back.
   SDValue LowerDivRem(SDValue Op, SelectionDAG &DAG) const;

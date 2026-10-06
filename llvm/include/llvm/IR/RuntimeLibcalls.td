@@ -2589,7 +2589,9 @@ def AVRSystemLibrary
 //===----------------------------------------------------------------------===//
 
 // No FPU. The legalizer softens f32 and f64, and these are the compiler-rt
-// names it calls (__addsf3 and the rest of the default set).
+// names it calls (__addsf3 and the rest of the default set). Calls that
+// would return an i64 are dropped in CPU6Subtarget::initLibcallLoweringInfo:
+// a return only has A and B.
 def isCPU6 : RuntimeLibcallPredicate<"TT.getArch() == Triple::cpu6">;
 
 def CPU6SystemLibrary

@@ -132,7 +132,16 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
     // place. A variable count has no instruction; the pseudo it matches is
     // a one-bit loop. Expanding a scalar shift is not available here.
     setOperationAction({ISD::SHL, ISD::SRA, ISD::SRL}, VT, Custom);
+    // No count-leading-zeros or popcount opcode. Both expand to shifts and
+    // adds. Soft-float counts leading zeros of a word and of a widened
+    // integer, so leaving either Legal is a node nothing selects.
+    setOperationAction({ISD::CTLZ, ISD::CTTZ, ISD::CTPOP}, VT, Expand);
   }
+  // A variable shift of an i32 is two i16 halves. There is no parts opcode.
+  // Lowering them to funnel shifts reuses the word shifts above. Left at
+  // the default Legal, isel dies on shl_parts.
+  setOperationAction({ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS}, MVT::i16,
+                     Custom);
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
   // Nothing selects a jump table, so a switch is a tree of compares.
   setMinimumJumpTableEntries(UINT_MAX);
@@ -886,6 +895,16 @@ SDValue CPU6TargetLowering::LowerShift(SDValue Op, SelectionDAG &DAG) const {
   return Op;
 }
 
+// i32 variable shift, already split into i16 halves. expandShiftParts turns
+// that into word shifts and a funnel shift, and the funnel shift expands to
+// the same word shifts.
+SDValue CPU6TargetLowering::LowerShiftParts(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  SDValue Lo, Hi;
+  expandShiftParts(Op.getNode(), Lo, Hi, DAG);
+  return DAG.getMergeValues({Lo, Hi}, SDLoc(Op));
+}
+
 // C division truncates toward zero, and the remainder takes the dividend's
 // sign. DIV is unsigned. Magnitudes use an unsigned negate so that INT16_MIN
 // (0x8000) becomes 32768, which still fits in the word; a signed negate of
@@ -946,6 +965,10 @@ SDValue CPU6TargetLowering::LowerOperation(SDValue Op,
   case ISD::SRA:
   case ISD::SRL:
     return LowerShift(Op, DAG);
+  case ISD::SHL_PARTS:
+  case ISD::SRL_PARTS:
+  case ISD::SRA_PARTS:
+    return LowerShiftParts(Op, DAG);
   case ISD::SDIV:
   case ISD::SREM:
     return LowerDivRem(Op, DAG);

@@ -42,10 +42,22 @@ CPU6Subtarget::~CPU6Subtarget() = default;
 // loops, so they reach CPU6SelectionDAGInfo, which expands them inline. No
 // call to these three symbols is emitted. Soft-float operations use the
 // other calls in that set.
+//
+// A returned value occupies A and B, two words. Anything the default set
+// would return as an i64 is four words and has nowhere to land, so the
+// legalizer must expand it instead of calling out.
 void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);
   Info.setLibcallImpl(RTLIB::MEMSET, RTLIB::impl_memset);
+
+  for (RTLIB::Libcall LC :
+       {RTLIB::SHL_I64, RTLIB::SRL_I64, RTLIB::SRA_I64, RTLIB::MUL_I64,
+        RTLIB::SDIV_I64, RTLIB::UDIV_I64, RTLIB::SREM_I64, RTLIB::UREM_I64,
+        RTLIB::NEG_I64, RTLIB::MULO_I64, RTLIB::FPTOSINT_F32_I64,
+        RTLIB::FPTOSINT_F64_I64, RTLIB::FPTOUINT_F32_I64,
+        RTLIB::FPTOUINT_F64_I64})
+    Info.setLibcallImpl(LC, RTLIB::Unsupported);
 }
 
 const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
