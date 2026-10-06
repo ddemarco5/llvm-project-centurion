@@ -8,6 +8,7 @@
 
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/CodeGen/LibcallLoweringInfo.h"
 
 #define DEBUG_TYPE "cpu6-subtarget"
 
@@ -35,6 +36,16 @@ CPU6Subtarget::CPU6Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
       TLInfo(TM, *this) {}
 
 CPU6Subtarget::~CPU6Subtarget() = default;
+
+// There is no runtime library. Naming memcpy, memmove, and memset keeps
+// PreISelIntrinsicLowering from rewriting them as IR loops, so they reach
+// CPU6SelectionDAGInfo, which always expands them inline. No call to these
+// symbols is ever emitted.
+void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
+  Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
+  Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);
+  Info.setLibcallImpl(RTLIB::MEMSET, RTLIB::impl_memset);
+}
 
 const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
@@ -72,6 +83,16 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::BN_DRM";
   case CPU6ISD::BN_CMP:
     return "CPU6ISD::BN_CMP";
+  case CPU6ISD::BLK_COPY:
+    return "CPU6ISD::BLK_COPY";
+  case CPU6ISD::BLK_FILL:
+    return "CPU6ISD::BLK_FILL";
+  case CPU6ISD::MEMCPY_LOOP:
+    return "CPU6ISD::MEMCPY_LOOP";
+  case CPU6ISD::MEMMOVE_LOOP:
+    return "CPU6ISD::MEMMOVE_LOOP";
+  case CPU6ISD::MEMSET_LOOP:
+    return "CPU6ISD::MEMSET_LOOP";
   }
   return nullptr;
 }

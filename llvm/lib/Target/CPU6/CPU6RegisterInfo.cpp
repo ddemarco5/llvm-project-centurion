@@ -77,9 +77,10 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
   // base operand. The default getFrameIndexReference returns the object
   // offset plus the frame size: the distance from S once the prologue has
   // reserved the frame. An incoming stack argument in a realigned function
-  // is addressed from X instead. Debug info asks the same hook.
+  // is addressed from X instead, and so is every slot of a function with a
+  // variable-sized object. Debug info asks the same hook. Only that second
+  // kind of function moves S around a call, and X does not move.
   (void)RS;
-  assert(SPAdj == 0 && "mid-function S adjustment is not handled");
   MachineFunction &MF = *MI->getParent()->getParent();
   MachineOperand &Disp = MI->getOperand(FIOperandNum + 1);
   Register FrameReg;
@@ -89,6 +90,8 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                            MF, MI->getOperand(FIOperandNum).getIndex(), FrameReg)
                        .getFixed() +
                    Disp.getImm();
+  assert((SPAdj == 0 || FrameReg == CPU6::rX) &&
+         "a slot addressed from S while S is adjusted for a call");
 
   // XFR, STR, and ADD take a word. The others take a signed byte. A word
   // LDA/STA out of that range is the XFR/STR indexed form instead: same
@@ -142,9 +145,22 @@ bool CPU6RegisterInfo::shouldCoalesce(MachineInstr *MI,
   return true;
 }
 
-Register CPU6RegisterInfo::getFrameRegister(const MachineFunction &) const {
+Register CPU6RegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   // Every slot is addressed from S, including in a realigned function: there
   // X only remembers S for the epilogue, and the distance from X to a slot
-  // depends on how far the prologue rounded S down.
-  return CPU6::rS;
+  // depends on how far the prologue rounded S down. A variable-sized object
+  // moves S at run time, so then every slot is addressed from X.
+  return MF.getFrameInfo().hasVarSizedObjects() ? CPU6::rX : CPU6::rS;
+}
+
+bool CPU6RegisterInfo::shouldRealignStack(const MachineFunction &MF) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  if (!MFI.hasVarSizedObjects())
+    return TargetRegisterInfo::shouldRealignStack(MF);
+  Align StackAlign = MF.getSubtarget().getFrameLowering()->getStackAlign();
+  for (int FI = 0, E = MFI.getObjectIndexEnd(); FI != E; ++FI)
+    if (!MFI.isDeadObjectIndex(FI) && !MFI.isVariableSizedObjectIndex(FI) &&
+        MFI.getObjectAlign(FI) > StackAlign)
+      return true;
+  return false;
 }

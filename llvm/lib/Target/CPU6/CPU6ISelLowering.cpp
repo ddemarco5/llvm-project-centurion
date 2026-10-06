@@ -16,6 +16,8 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/SelectionDAGAddressAnalysis.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
+#include <algorithm>
 #include <optional>
 
 using namespace llvm;
@@ -137,6 +139,19 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // S is the stack pointer the prologue adjusts. Callee-saved spills go
   // through it via STK and POP.
   setStackPointerRegisterToSaveRestore(CPU6::rS);
+  // A variable-sized alloca is S -= size, then an AND with the negated
+  // alignment when that is above one byte; the result is the new S. Slots
+  // are then addressed from X (CPU6FrameLowering::getFrameIndexReference),
+  // and each call lowers S for its own arguments. stacksave and
+  // stackrestore copy S.
+  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
+  setOperationAction({ISD::STACKSAVE, ISD::STACKRESTORE}, MVT::Other, Expand);
+
+  // One load and store pair moves up to two bytes. From three bytes on, one
+  // MVF or FIL (CPU6SelectionDAGInfo) is shorter and about as fast.
+  MaxStoresPerMemcpy = MaxStoresPerMemcpyOptSize = 1;
+  MaxStoresPerMemmove = MaxStoresPerMemmoveOptSize = 1;
+  MaxStoresPerMemset = MaxStoresPerMemsetOptSize = 1;
 
   // No atomic instructions and no atomic libcalls. Keep the default of 0
   // explicit so a later change cannot silently grow inline atomics.
@@ -1032,6 +1047,10 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     return EmitDiv(MI, BB);
   case CPU6::MULlohi:
     return EmitMulLoHi(MI, BB);
+  case CPU6::MEMCPYLOOP:
+  case CPU6::MEMMOVELOOP:
+  case CPU6::MEMSETLOOP:
+    return EmitMemLoop(MI, BB);
   default:
     return EmitShift(MI, BB);
   }
@@ -1140,6 +1159,329 @@ CPU6TargetLowering::EmitMulLoHi(MachineInstr &MI,
 
   MI.eraseFromParent();
   return BB;
+}
+
+// memcpy, memmove, and memset. A constant size is one MVF or FIL per 256
+// bytes. A run-time size, or a constant past MaxBlocks of them, is the
+// MEMCPY_LOOP or MEMSET_LOOP pseudo (EmitMemLoop). Copies of one or two bytes
+// never get here: MaxStoresPerMemcpy and friends leave them to a load and a
+// store.
+
+// MVF and FIL take count-1 in a byte.
+static constexpr uint64_t BlockBytes = 256;
+// Each MVF is four bytes and FIL five, plus an ADD to form each address past
+// the first block. The loop is about 30 bytes.
+static constexpr uint64_t MaxBlocks = 4;
+
+static bool fitsInBlocks(uint64_t Size) {
+  return Size <= MaxBlocks * BlockBytes;
+}
+
+// The copy runs from the lowest address up, one byte at a time, so a
+// destination one byte above the source repeats the first byte. memset
+// depends on that.
+static SDValue copyBlocks(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                          SDValue Src, SDValue Dst, uint64_t Size) {
+  for (uint64_t Off = 0; Off < Size; Off += BlockBytes) {
+    uint64_t N = std::min(BlockBytes, Size - Off);
+    SDValue S = DAG.getMemBasePlusOffset(Src, TypeSize::getFixed(Off), DL);
+    SDValue D = DAG.getMemBasePlusOffset(Dst, TypeSize::getFixed(Off), DL);
+    Chain = DAG.getNode(CPU6ISD::BLK_COPY, DL, MVT::Other, Chain, S, D,
+                        DAG.getTargetConstant(N - 1, DL, MVT::i8));
+  }
+  return Chain;
+}
+
+static SDValue fillBlocks(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                          uint8_t Byte, SDValue Dst, uint64_t Size) {
+  for (uint64_t Off = 0; Off < Size; Off += BlockBytes) {
+    uint64_t N = std::min(BlockBytes, Size - Off);
+    SDValue D = DAG.getMemBasePlusOffset(Dst, TypeSize::getFixed(Off), DL);
+    Chain = DAG.getNode(CPU6ISD::BLK_FILL, DL, MVT::Other, Chain,
+                        DAG.getTargetConstant(Byte, DL, MVT::i8), D,
+                        DAG.getTargetConstant(N - 1, DL, MVT::i8));
+  }
+  return Chain;
+}
+
+SDValue CPU6SelectionDAGInfo::EmitTargetCodeForMemcpy(
+    SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Dst,
+    SDValue Src, SDValue Size, Align, Align, bool, bool, MachinePointerInfo,
+    MachinePointerInfo) const {
+  if (auto *C = dyn_cast<ConstantSDNode>(Size))
+    if (fitsInBlocks(C->getZExtValue()))
+      return copyBlocks(DAG, DL, Chain, Src, Dst, C->getZExtValue());
+  return DAG.getNode(CPU6ISD::MEMCPY_LOOP, DL, MVT::Other, Chain, Src, Dst,
+                     DAG.getZExtOrTrunc(Size, DL, MVT::i16));
+}
+
+// A pointer as a base and a constant offset from it.
+static std::pair<SDValue, int64_t> splitConstantOffset(SDValue Ptr,
+                                                       SelectionDAG &DAG) {
+  int64_t Off = 0;
+  while (DAG.isBaseWithConstantOffset(Ptr)) {
+    Off += cast<ConstantSDNode>(Ptr.getOperand(1))->getSExtValue();
+    Ptr = Ptr.getOperand(0);
+  }
+  return {Ptr, Off};
+}
+
+// Two different stack slots, or two different global variables, never
+// share a byte.
+static bool distinctObjects(SDValue A, SDValue B) {
+  if (auto *FA = dyn_cast<FrameIndexSDNode>(A))
+    if (auto *FB = dyn_cast<FrameIndexSDNode>(B))
+      return FA->getIndex() != FB->getIndex();
+  auto *GA = dyn_cast<GlobalAddressSDNode>(A);
+  auto *GB = dyn_cast<GlobalAddressSDNode>(B);
+  return GA && GB && GA->getGlobal() != GB->getGlobal() &&
+         isa<GlobalVariable>(GA->getGlobal()) &&
+         isa<GlobalVariable>(GB->getGlobal());
+}
+
+// An ascending copy is a memmove when the destination does not start above
+// the source inside it: the same base with the destination at or below the
+// source, or two objects that cannot overlap. Otherwise MEMMOVE_LOOP picks
+// the direction at run time. There is no memmove to call.
+SDValue CPU6SelectionDAGInfo::EmitTargetCodeForMemmove(
+    SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Dst,
+    SDValue Src, SDValue Size, Align DstAlign, Align SrcAlign,
+    bool IsVolatile, MachinePointerInfo DstPtrInfo,
+    MachinePointerInfo SrcPtrInfo) const {
+  auto [DstBase, DstOff] = splitConstantOffset(Dst, DAG);
+  auto [SrcBase, SrcOff] = splitConstantOffset(Src, DAG);
+  bool Forward = DstBase == SrcBase ? DstOff <= SrcOff
+                                    : distinctObjects(DstBase, SrcBase);
+  if (!Forward)
+    return DAG.getNode(CPU6ISD::MEMMOVE_LOOP, DL, MVT::Other, Chain, Src, Dst,
+                       DAG.getZExtOrTrunc(Size, DL, MVT::i16));
+  return EmitTargetCodeForMemcpy(DAG, DL, Chain, Dst, Src, Size, DstAlign,
+                                 SrcAlign, IsVolatile, /*AlwaysInline=*/false,
+                                 DstPtrInfo, SrcPtrInfo);
+}
+
+// A constant byte is FIL. Otherwise the byte is stored at Dst and copied
+// forward from Dst to Dst + 1.
+SDValue CPU6SelectionDAGInfo::EmitTargetCodeForMemset(
+    SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Dst,
+    SDValue Val, SDValue Size, Align, bool, bool,
+    MachinePointerInfo DstPtrInfo) const {
+  Val = DAG.getZExtOrTrunc(Val, DL, MVT::i8);
+  auto *C = dyn_cast<ConstantSDNode>(Size);
+  if (!C || !fitsInBlocks(C->getZExtValue()))
+    return DAG.getNode(CPU6ISD::MEMSET_LOOP, DL, MVT::Other, Chain, Dst, Val,
+                       DAG.getZExtOrTrunc(Size, DL, MVT::i16));
+  uint64_t N = C->getZExtValue();
+  if (auto *B = dyn_cast<ConstantSDNode>(Val))
+    return fillBlocks(DAG, DL, Chain, B->getZExtValue(), Dst, N);
+  Chain = DAG.getStore(Chain, DL, Val, Dst, DstPtrInfo);
+  if (N == 1)
+    return Chain;
+  SDValue Next = DAG.getMemBasePlusOffset(Dst, TypeSize::getFixed(1), DL);
+  return copyBlocks(DAG, DL, Chain, Dst, Next, N - 1);
+}
+
+// Copies N bytes from Src to Dst, lowest address first, between Pre and Exit.
+// Pre ends with the zero test. MVFR copies AL + 1 bytes and leaves its
+// registers alone, so each pass sets AL, then steps both pointers by 256:
+//
+//   Pre:  TST n; BZ Exit
+//   Loop: SUB n,256 (flags of 256 - n); BL Last
+//   Big:  AL = 255; MVFR s,d; s += 256; d += 256; n -= 256; JMP Loop
+//   Last: AL = n - 1; MVFR s,d
+//
+// Under optsize it is a byte loop instead, about 12 bytes against 30, at
+// roughly 73 microcycles a byte against 8:
+//
+//   Pre:  TST n; BZ Exit
+//   Loop: LDAB_I (s); STAB_I (d); DCR n; TST n; BNZ Loop
+//
+// TestZero is false when the caller already knows n is not zero.
+static void emitCopyLoop(MachineBasicBlock *Pre, MachineBasicBlock *Exit,
+                         Register Src, Register Dst, Register N,
+                         const DebugLoc &DL, bool TestZero = true) {
+  MachineFunction *MF = Pre->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  auto NewReg = [&] { return MRI.createVirtualRegister(&CPU6::GPRRegClass); };
+  auto NewBlock = [&] {
+    MachineBasicBlock *B = MF->CreateMachineBasicBlock(Pre->getBasicBlock());
+    MF->insert(Exit->getIterator(), B);
+    return B;
+  };
+
+  // TST is a terminator, so a later copy cannot land between it and the branch.
+  if (TestZero) {
+    BuildMI(Pre, DL, TII.get(CPU6::TST)).addReg(N);
+    BuildMI(Pre, DL, TII.get(CPU6::BZ)).addMBB(Exit);
+    Pre->addSuccessor(Exit);
+  }
+  MachineBasicBlock *Loop = NewBlock();
+  Pre->addSuccessor(Loop);
+  Register S = NewReg(), D = NewReg(), M = NewReg();
+
+  if (MF->getFunction().hasOptSize()) {
+    Register S2 = NewReg(), D2 = NewReg(), M2 = NewReg();
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), S)
+        .addReg(Src).addMBB(Pre).addReg(S2).addMBB(Loop);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), D)
+        .addReg(Dst).addMBB(Pre).addReg(D2).addMBB(Loop);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), M)
+        .addReg(N).addMBB(Pre).addReg(M2).addMBB(Loop);
+    BuildMI(Loop, DL, TII.get(CPU6::LDAB_5_1), S2).addReg(S);
+    BuildMI(Loop, DL, TII.get(CPU6::STAB_5_1), D2).addReg(D);
+    BuildMI(Loop, DL, TII.get(CPU6::DCR), M2).addReg(M).addImm(0);
+    BuildMI(Loop, DL, TII.get(CPU6::TST)).addReg(M2);
+    BuildMI(Loop, DL, TII.get(CPU6::BNZ)).addMBB(Loop);
+    Loop->addSuccessor(Loop);
+    Loop->addSuccessor(Exit);
+    return;
+  }
+
+  MachineBasicBlock *Big = NewBlock();
+  MachineBasicBlock *Last = NewBlock();
+  Register S2 = NewReg(), D2 = NewReg(), M2 = NewReg();
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), S)
+      .addReg(Src).addMBB(Pre).addReg(S2).addMBB(Big);
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), D)
+      .addReg(Dst).addMBB(Pre).addReg(D2).addMBB(Big);
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), M)
+      .addReg(N).addMBB(Pre).addReg(M2).addMBB(Big);
+  // Link set is no borrow: n <= 256 fits in one MVFR.
+  BuildMI(Loop, DL, TII.get(CPU6::CMPimm), NewReg()).addReg(M).addImm(256);
+  BuildMI(Loop, DL, TII.get(CPU6::BL)).addMBB(Last);
+  Loop->addSuccessor(Big);
+  Loop->addSuccessor(Last);
+
+  Register Full = NewReg();
+  BuildMI(Big, DL, TII.get(CPU6::XFRimm), Full).addImm(255);
+  BuildMI(Big, DL, TII.get(TargetOpcode::COPY), CPU6::rA).addReg(Full);
+  BuildMI(Big, DL, TII.get(CPU6::MVFR)).addReg(S).addReg(D);
+  BuildMI(Big, DL, TII.get(CPU6::ADDimm), S2).addReg(S).addImm(256);
+  BuildMI(Big, DL, TII.get(CPU6::ADDimm), D2).addReg(D).addImm(256);
+  BuildMI(Big, DL, TII.get(CPU6::ADDimm), M2).addReg(M).addImm(-256);
+  BuildMI(Big, DL, TII.get(CPU6::JMP_3)).addMBB(Loop);
+  Big->addSuccessor(Loop);
+
+  Register Count = NewReg();
+  BuildMI(Last, DL, TII.get(CPU6::ADDimm), Count).addReg(M).addImm(-1);
+  BuildMI(Last, DL, TII.get(TargetOpcode::COPY), CPU6::rA).addReg(Count);
+  BuildMI(Last, DL, TII.get(CPU6::MVFR)).addReg(S).addReg(D);
+  Last->addSuccessor(Exit);
+}
+
+// A memmove whose destination may start inside the source, above it:
+//
+//   BB:   TST n; BZ Exit
+//   Dir:  CMP s,d; BL Fwd (s >= d)
+//   Bwd:  s += n; d += n
+//   Back: LDAB_D (s); STAB_D (d); DCR n; TST n; BNZ Back; JMP Exit
+//   Fwd:  the copy loop
+static void emitMoveLoop(MachineBasicBlock *BB, MachineBasicBlock *Exit,
+                         Register Src, Register Dst, Register N,
+                         const DebugLoc &DL) {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  auto NewReg = [&] { return MRI.createVirtualRegister(&CPU6::GPRRegClass); };
+  auto NewBlock = [&] {
+    MachineBasicBlock *B = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+    MF->insert(Exit->getIterator(), B);
+    return B;
+  };
+  MachineBasicBlock *Dir = NewBlock();
+  MachineBasicBlock *Bwd = NewBlock();
+  MachineBasicBlock *Back = NewBlock();
+  MachineBasicBlock *Fwd = NewBlock();
+
+  BuildMI(BB, DL, TII.get(CPU6::TST)).addReg(N);
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Exit);
+  BB->addSuccessor(Dir);
+  BB->addSuccessor(Exit);
+
+  // Link set is no borrow: s >= d, so the ascending copy reads every byte
+  // before it is overwritten.
+  BuildMI(Dir, DL, TII.get(CPU6::CMP), NewReg()).addReg(Src).addReg(Dst);
+  BuildMI(Dir, DL, TII.get(CPU6::BL)).addMBB(Fwd);
+  Dir->addSuccessor(Bwd);
+  Dir->addSuccessor(Fwd);
+
+  Register SEnd = NewReg(), DEnd = NewReg();
+  BuildMI(Bwd, DL, TII.get(CPU6::ADD), SEnd).addReg(N).addReg(Src);
+  BuildMI(Bwd, DL, TII.get(CPU6::ADD), DEnd).addReg(N).addReg(Dst);
+  Bwd->addSuccessor(Back);
+
+  Register S = NewReg(), D = NewReg(), M = NewReg();
+  Register S2 = NewReg(), D2 = NewReg(), M2 = NewReg();
+  BuildMI(Back, DL, TII.get(TargetOpcode::PHI), S)
+      .addReg(SEnd).addMBB(Bwd).addReg(S2).addMBB(Back);
+  BuildMI(Back, DL, TII.get(TargetOpcode::PHI), D)
+      .addReg(DEnd).addMBB(Bwd).addReg(D2).addMBB(Back);
+  BuildMI(Back, DL, TII.get(TargetOpcode::PHI), M)
+      .addReg(N).addMBB(Bwd).addReg(M2).addMBB(Back);
+  BuildMI(Back, DL, TII.get(CPU6::LDAB_5_2), S2).addReg(S);
+  BuildMI(Back, DL, TII.get(CPU6::STAB_5_2), D2).addReg(D);
+  BuildMI(Back, DL, TII.get(CPU6::DCR), M2).addReg(M).addImm(0);
+  BuildMI(Back, DL, TII.get(CPU6::TST)).addReg(M2);
+  BuildMI(Back, DL, TII.get(CPU6::BNZ)).addMBB(Back);
+  BuildMI(Back, DL, TII.get(CPU6::JMP_3)).addMBB(Exit);
+  Back->addSuccessor(Back);
+  Back->addSuccessor(Exit);
+
+  emitCopyLoop(Fwd, Exit, Src, Dst, N, DL, /*TestZero=*/false);
+}
+
+// MEMCPYLOOP src,dst,n, MEMMOVELOOP src,dst,n, and MEMSETLOOP dst,byte,n.
+// memset with n != 0 stores the byte at dst, then copies n - 1 bytes from dst
+// to dst + 1: the copy reads each byte after it was written, so the first one
+// repeats.
+MachineBasicBlock *
+CPU6TargetLowering::EmitMemLoop(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+
+  MachineBasicBlock *Exit = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(std::next(BB->getIterator()), Exit);
+  Exit->splice(Exit->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Exit->transferSuccessorsAndUpdatePHIs(BB);
+
+  if (MI.getOpcode() != CPU6::MEMSETLOOP) {
+    Register Src = MI.getOperand(0).getReg();
+    Register Dst = MI.getOperand(1).getReg();
+    Register N = MI.getOperand(2).getReg();
+    if (MI.getOpcode() == CPU6::MEMCPYLOOP)
+      emitCopyLoop(BB, Exit, Src, Dst, N, DL);
+    else
+      emitMoveLoop(BB, Exit, Src, Dst, N, DL);
+    MI.eraseFromParent();
+    return Exit;
+  }
+
+  Register Dst = MI.getOperand(0).getReg();
+  Register N = MI.getOperand(2).getReg();
+  BuildMI(BB, DL, TII.get(CPU6::TST)).addReg(N);
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Exit);
+  MachineBasicBlock *Head = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(Exit->getIterator(), Head);
+  BB->addSuccessor(Head);
+  BB->addSuccessor(Exit);
+
+  Register Byte = MRI.createVirtualRegister(&CPU6::AccBRegClass);
+  BuildMI(Head, DL, TII.get(TargetOpcode::COPY), Byte)
+      .addReg(MI.getOperand(1).getReg());
+  BuildMI(Head, DL, TII.get(CPU6::STABfi))
+      .addReg(Byte)
+      .addReg(Dst)
+      .addImm(0);
+  Register Next = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  Register Rest = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  BuildMI(Head, DL, TII.get(CPU6::ADDimm), Next).addReg(Dst).addImm(1);
+  BuildMI(Head, DL, TII.get(CPU6::ADDimm), Rest).addReg(N).addImm(-1);
+  emitCopyLoop(Head, Exit, Dst, Next, Rest, DL);
+  MI.eraseFromParent();
+  return Exit;
 }
 
 // A variable shift. The count is a nibble in the instruction, so SLR, SRR,

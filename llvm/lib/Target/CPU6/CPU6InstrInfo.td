@@ -1231,10 +1231,17 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 // registers. The length is AL and is not in the instruction.
 // WIPL `67 4a 86` is MVFR -Z,-Y. load7 `67 4a 64` is memcpy AL, [Y], [X].
 //
-// TODO(cpu6): nothing selects these. MVF copies a run of bytes and FIL fills
-// one. A 0x47 length is the immediate count-1, so at most 256 bytes. MVFR and
-// FILR are the 0x67 forms and take that length in AL. memcpy and memset can
-// emit them from CPU6SelectionDAGInfo.
+// MVF copies a run of bytes and FIL fills one. A 0x47 length is the
+// immediate count-1, so at most 256 bytes. MVFR and FILR are the 0x67 forms
+// and take that length in AL. CPU6SelectionDAGInfo selects MVF_RR, FIL_R,
+// and MVFR for memcpy and memset.
+//
+// Run in the CenREE microcode simulator: the copy goes one byte at a time
+// from the lowest address up, so a destination one byte above its source
+// repeats the first byte. Register operands are only read. MVFR ignores AU.
+// MVF and MVFR set Minus and Value from the bytes copied. FIL left both
+// flags as they were. Each costs about 60 microcycles plus 8 per byte copied
+// or 5 per byte filled.
 class BlockLit48<bits<4> sel, string name>
       : CenturionInst48<(outs),
           (ins uimm8:$count, i8imm:$byte, i16imm:$addr),
@@ -1266,7 +1273,8 @@ class MVFR24
   let Inst{7-4} = src;
   let Inst{3-0} = dst;
 }
-let Defs = [rM, rV] in
+let Uses = [rAL], Defs = [rM, rV], mayLoad = 1, mayStore = 1,
+    hasSideEffects = 0 in
 def MVFR : MVFR24;
 
 // webCenREE (Meisaka) operand widths.
@@ -1883,7 +1891,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_RR : Mem47RR<OP.Sel, OP.Name>;
 }
 
@@ -1970,7 +1979,7 @@ foreach OP = [
 foreach OP = [
     OpSel<"FIL", 9>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 0, mayStore = 1, hasSideEffects = 0 in
   def OP.Name#_R : Fil47R<OP.Sel, OP.Name>;
 }
 

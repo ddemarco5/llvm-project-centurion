@@ -49,6 +49,8 @@ public:
     return &TSInfo;
   }
 
+  void initLibcallLoweringInfo(LibcallLoweringInfo &Info) const override;
+
 private:
   // Field name is fixed by FeatureCPU6 in CPU6Devices.td.
   bool m_isCPU6 = false;

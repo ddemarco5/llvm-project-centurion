@@ -57,16 +57,44 @@ enum NodeType : unsigned {
   // DRM: also takes the remainder's address in A, as glue from a CopyToReg.
   BN_DRM,
   BN_CMP, // BNC — sets flags; no store
+  // 0x47 block ops. Chain in, chain out. BLK_COPY is src, dst, count-1 (MVF);
+  // BLK_FILL is the byte, dst, count-1 (FIL). count-1 is an i8 target
+  // constant, so one node moves at most 256 bytes.
+  BLK_COPY,
+  BLK_FILL,
+  // A run-time length. MEMCPY_LOOP and MEMMOVE_LOOP are src, dst, n.
+  // MEMSET_LOOP is dst, the byte, n. See EmitMemLoop.
+  MEMCPY_LOOP,
+  MEMMOVE_LOOP,
+  MEMSET_LOOP,
 };
 } // namespace CPU6ISD
 
+// memcpy, memmove, and memset on the 0x47 and 0x67 block ops. See the Block
+// move section of CPU6InstrInfo.td.
 class CPU6SelectionDAGInfo : public SelectionDAGTargetInfo {
 public:
   const char *getTargetNodeName(unsigned Opcode) const override;
 
-  // TODO(cpu6): EmitTargetCodeForMemcpy and EmitTargetCodeForMemset. The
-  // 0x47 block moves (MVF, FIL, MVFR, FILR) are the copy and the fill. See
-  // the Block move section of CPU6InstrInfo.td.
+  SDValue EmitTargetCodeForMemcpy(SelectionDAG &DAG, const SDLoc &DL,
+                                  SDValue Chain, SDValue Dst, SDValue Src,
+                                  SDValue Size, Align DstAlign, Align SrcAlign,
+                                  bool IsVolatile, bool AlwaysInline,
+                                  MachinePointerInfo DstPtrInfo,
+                                  MachinePointerInfo SrcPtrInfo) const override;
+
+  SDValue EmitTargetCodeForMemmove(SelectionDAG &DAG, const SDLoc &DL,
+                                   SDValue Chain, SDValue Dst, SDValue Src,
+                                   SDValue Size, Align DstAlign,
+                                   Align SrcAlign, bool IsVolatile,
+                                   MachinePointerInfo DstPtrInfo,
+                                   MachinePointerInfo SrcPtrInfo) const override;
+
+  SDValue EmitTargetCodeForMemset(SelectionDAG &DAG, const SDLoc &DL,
+                                  SDValue Chain, SDValue Dst, SDValue Val,
+                                  SDValue Size, Align Alignment,
+                                  bool IsVolatile, bool AlwaysInline,
+                                  MachinePointerInfo DstPtrInfo) const override;
 };
 
 class CPU6TargetLowering : public TargetLowering {
@@ -140,6 +168,7 @@ private:
   MachineBasicBlock *EmitDiv(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulLoHi(MachineInstr &MI,
                                  MachineBasicBlock *BB) const;
+  MachineBasicBlock *EmitMemLoop(MachineInstr &MI, MachineBasicBlock *BB) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,

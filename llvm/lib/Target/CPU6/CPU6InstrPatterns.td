@@ -114,6 +114,36 @@ def CPU6bncmp : SDNode<"CPU6ISD::BN_CMP",
                        [SDNPHasChain, SDNPOutGlue, SDNPMayLoad,
                         SDNPMemOperand]>;
 
+// Block copy and fill (0x47). CPU6SelectionDAGInfo builds these for a
+// constant-size memcpy, memmove, or memset. $cnt is the byte count minus one.
+def CPU6blkcopy : SDNode<"CPU6ISD::BLK_COPY",
+                         SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                              SDTCisVT<1, iPTR>,
+                                              SDTCisVT<2, i8>]>,
+                         [SDNPHasChain, SDNPMayLoad, SDNPMayStore]>;
+def CPU6blkfill : SDNode<"CPU6ISD::BLK_FILL",
+                         SDTypeProfile<0, 3, [SDTCisVT<0, i8>,
+                                              SDTCisVT<1, iPTR>,
+                                              SDTCisVT<2, i8>]>,
+                         [SDNPHasChain, SDNPMayStore]>;
+// A copy or fill of a run-time length: the operands are src, dst, and the
+// byte count (memcpy), or dst, the byte, and the count (memset).
+def CPU6memcpyloop : SDNode<"CPU6ISD::MEMCPY_LOOP",
+                            SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                                 SDTCisVT<1, iPTR>,
+                                                 SDTCisVT<2, i16>]>,
+                            [SDNPHasChain, SDNPMayLoad, SDNPMayStore]>;
+def CPU6memmoveloop : SDNode<"CPU6ISD::MEMMOVE_LOOP",
+                             SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                                  SDTCisVT<1, iPTR>,
+                                                  SDTCisVT<2, i16>]>,
+                             [SDNPHasChain, SDNPMayLoad, SDNPMayStore]>;
+def CPU6memsetloop : SDNode<"CPU6ISD::MEMSET_LOOP",
+                            SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                                 SDTCisVT<1, i8>,
+                                                 SDTCisVT<2, i16>]>,
+                            [SDNPHasChain, SDNPMayLoad, SDNPMayStore]>;
+
 //===----------------------------------------------------------------------===//
 // Predicates and transforms
 //===----------------------------------------------------------------------===//
@@ -553,6 +583,40 @@ let mayLoad = 1, mayStore = 0 in
 def RELOADB : CenturionInst<(outs GPRB:$dst), (ins GPR:$r, i16imm:$arg),
                             "#RELOADB", "(${r}),$dst,$arg">;
 }
+
+//===----------------------------------------------------------------------===//
+// Block memory
+//===----------------------------------------------------------------------===//
+
+// MVF count,src,dst and FIL count,lit,dst with both addresses in registers.
+def : Pat<(CPU6blkcopy GPR:$src, GPR:$dst, (i8 timm:$cnt)),
+          (MVF_RR timm:$cnt, GPR:$src, GPR:$dst)>;
+def : Pat<(CPU6blkfill (i8 timm:$byte), GPR:$dst, (i8 timm:$cnt)),
+          (FIL_R timm:$cnt, timm:$byte, GPR:$dst)>;
+
+// A run-time length (CPU6TargetLowering::EmitMemLoop). A zero count skips
+// the copy. Otherwise it is MVFR with count-1 in AL, 256 bytes at a time,
+// or under optsize a byte loop through AL with post-incremented pointers.
+// MEMMOVELOOP compares the pointers first: a destination above the source
+// copies from the top down, a byte at a time with pre-decremented pointers.
+// MEMSETLOOP stores the byte at dst and copies forward from dst to dst+1,
+// which repeats it. A is the count or the byte in flight.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, mayLoad = 1, mayStore = 1,
+    Defs = [rA, rF, rL, rM, rV] in {
+def MEMCPYLOOP : CenturionInst<(outs), (ins GPR:$src, GPR:$dst, GPR:$n),
+                               "#MEMCPYLOOP", "$src,$dst,$n">;
+def MEMMOVELOOP : CenturionInst<(outs), (ins GPR:$src, GPR:$dst, GPR:$n),
+                                "#MEMMOVELOOP", "$src,$dst,$n">;
+def MEMSETLOOP : CenturionInst<(outs), (ins GPR:$dst, GPRB:$byte, GPR:$n),
+                               "#MEMSETLOOP", "$dst,$byte,$n">;
+}
+def : Pat<(CPU6memcpyloop GPR:$src, GPR:$dst, GPR:$n),
+          (MEMCPYLOOP GPR:$src, GPR:$dst, GPR:$n)>;
+def : Pat<(CPU6memmoveloop GPR:$src, GPR:$dst, GPR:$n),
+          (MEMMOVELOOP GPR:$src, GPR:$dst, GPR:$n)>;
+def : Pat<(CPU6memsetloop GPR:$dst, GPRB:$byte, GPR:$n),
+          (MEMSETLOOP GPR:$dst, GPRB:$byte, GPR:$n)>;
 
 //===----------------------------------------------------------------------===//
 // Calls

@@ -43,7 +43,8 @@ public:
       const TargetRegisterInfo *TRI) const override;
 
   // The outgoing argument area is part of the frame, including when X is the
-  // frame pointer. ADJCALLSTACKDOWN/UP therefore collapse to nothing.
+  // frame pointer, and ADJCALLSTACKDOWN/UP collapse to nothing. A function
+  // with a variable-sized object has no reserved area: each call moves S.
   bool hasReservedCallFrame(const MachineFunction &MF) const override;
 
   MachineBasicBlock::iterator
@@ -52,6 +53,7 @@ public:
 
   // Incoming stack arguments sit above the S that JSR left behind. In a
   // realigned function that S is in X; every other slot stays relative to S.
+  // With a variable-sized object every slot is relative to X.
   StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
                                      Register &FrameReg) const override;
 

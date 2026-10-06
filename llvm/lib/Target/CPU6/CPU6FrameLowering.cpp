@@ -71,8 +71,11 @@ static void buildCopy(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
 // A slot aligned above the one-byte stack alignment means the prologue
 // rounds S down. How far depends on S at run time, so the epilogue cannot
 // undo it with a constant. X keeps S from just after the callee-saved pushes.
+// A variable-sized object moves S after the prologue, by a run-time amount,
+// so X is also what the epilogue restores S from.
 bool CPU6FrameLowering::hasFPImpl(const MachineFunction &MF) const {
-  return MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
+  return MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF) ||
+         MF.getFrameInfo().hasVarSizedObjects();
 }
 
 void CPU6FrameLowering::determineCalleeSaves(MachineFunction &MF,
@@ -92,8 +95,8 @@ void CPU6FrameLowering::emitPrologue(MachineFunction &MF,
   MachineBasicBlock::iterator MBBI = MBB.begin();
   while (MBBI != MBB.end() && MBBI->getFlag(MachineInstr::FrameSetup))
     ++MBBI;
-  bool Realign = hasFP(MF);
-  if (Realign) {
+  bool Realign = MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF);
+  if (hasFP(MF)) {
     if (!MF.getRegInfo().isReserved(CPU6::rX))
       report_fatal_error("CPU6 frame pointer X was not reserved");
     buildCopy(MBB, MBBI, CPU6::rX, CPU6::rS, MachineInstr::FrameSetup);
@@ -135,19 +138,27 @@ bool CPU6FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   // Outgoing stack arguments are stored at the live S. Reserving the area in
   // the prologue keeps locals above those stores, and ADJCALLSTACKDOWN/UP
   // delete instead of moving S, so a frame index never sees a non-zero SPAdj.
-  // A variable-sized alloca would move S after the prologue; nothing selects
-  // that yet.
-  if (MF.getFrameInfo().hasVarSizedObjects())
-    report_fatal_error("CPU6 variable-sized stack objects are not supported");
-  return true;
+  // After a variable-sized alloca the live S is the bottom of that object,
+  // not of the reserved area, so each call lowers S for its own arguments.
+  // Slots are then addressed from X, which the calls do not move.
+  return !MF.getFrameInfo().hasVarSizedObjects();
 }
 
 MachineBasicBlock::iterator CPU6FrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MI) const {
-  // JSR pushes the caller's X on its own and RSR pops it. The argument words
-  // above that push are the reserved area, so the pseudos have nothing to do.
-  (void)MF;
+  // JSR pushes the caller's X on its own and RSR pops it. With a reserved
+  // call frame the argument words above that push are already in the frame,
+  // so the pseudos have nothing to do. Otherwise they move S by the size of
+  // the outgoing arguments.
+  if (!hasReservedCallFrame(MF)) {
+    int64_t Amount = MI->getOperand(0).getImm();
+    if (Amount) {
+      bool Down = MI->getOpcode() == CPU6::ADJCALLSTACKDOWN;
+      buildStackPointerOp(MBB, MI, CPU6::ADDimm, Down ? -Amount : Amount,
+                          MachineInstr::NoFlags);
+    }
+  }
   return MBB.erase(MI);
 }
 
@@ -158,8 +169,17 @@ CPU6FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
   // JSR leaves S pointing at the saved X. An incoming argument is a positive
   // offset from that S. After a realignment the epilogue's X is the only
   // register that still holds it: X was copied just after the pushes, and the
-  // AND may have lowered S by a runtime amount.
-  if (hasFP(MF) && MFI.isFixedObjectIndex(FI) && MFI.getObjectOffset(FI) >= 0) {
+  // AND may have lowered S by a runtime amount. With a variable-sized object
+  // every slot is addressed from X, since S moves at run time. The two
+  // together would need a third register: one for the slots S was rounded
+  // under and one for the incoming arguments.
+  bool VarSized = MFI.hasVarSizedObjects();
+  if (VarSized &&
+      MF.getSubtarget().getRegisterInfo()->hasStackRealignment(MF))
+    report_fatal_error(
+        "CPU6 cannot realign a frame that has variable-sized objects");
+  if (hasFP(MF) && (VarSized || (MFI.isFixedObjectIndex(FI) &&
+                                 MFI.getObjectOffset(FI) >= 0))) {
     FrameReg = CPU6::rX;
     return StackOffset::getFixed(MFI.getObjectOffset(FI) +
                                  static_cast<int64_t>(calleeSavedBytes(MF)));
@@ -333,6 +353,8 @@ void CPU6FrameLowering::orderFrameObjects(
   // and land nearest it. A folded index of at most 127 stays inside the
   // byte field when those objects themselves fit there. The outgoing
   // argument area, if any, sits below them and uses part of the same field.
+  // With a variable-sized object the slots are addressed from X, at the top
+  // of the frame, so those objects go first instead.
   SmallSet<int, 16> ByteObjs;
   for (const MachineBasicBlock &MBB : MF)
     for (const MachineInstr &MI : MBB) {
@@ -342,6 +364,7 @@ void CPU6FrameLowering::orderFrameObjects(
         if (MO.isFI())
           ByteObjs.insert(MO.getIndex());
     }
+  bool FromX = MF.getFrameInfo().hasVarSizedObjects();
   std::stable_partition(ObjectsToAllocate.begin(), ObjectsToAllocate.end(),
-                        [&](int FI) { return !ByteObjs.count(FI); });
+                        [&](int FI) { return ByteObjs.count(FI) == FromX; });
 }

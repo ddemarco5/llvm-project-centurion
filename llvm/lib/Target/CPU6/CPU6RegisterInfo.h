@@ -32,6 +32,10 @@ struct CPU6RegisterInfo : public CPU6GenRegisterInfo {
 
   Register getFrameRegister(const MachineFunction &MF) const override;
 
+  // A variable-sized object is aligned where it is allocated, by an AND on
+  // the lowered S. Only the fixed-size slots need the prologue to round S.
+  bool shouldRealignStack(const MachineFunction &MF) const override;
+
   bool shouldCoalesce(MachineInstr *MI, const TargetRegisterClass *SrcRC,
                       unsigned SubReg, const TargetRegisterClass *DstRC,
                       unsigned DstSubReg, const TargetRegisterClass *NewRC,
