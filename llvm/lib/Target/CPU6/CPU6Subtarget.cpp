@@ -37,10 +37,11 @@ CPU6Subtarget::CPU6Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
 
 CPU6Subtarget::~CPU6Subtarget() = default;
 
-// There is no runtime library. Naming memcpy, memmove, and memset keeps
-// PreISelIntrinsicLowering from rewriting them as IR loops, so they reach
-// CPU6SelectionDAGInfo, which always expands them inline. No call to these
-// symbols is ever emitted.
+// memcpy, memmove, and memset are part of the CPU6 runtime libcall set.
+// Naming them here keeps PreISelIntrinsicLowering from rewriting them as IR
+// loops, so they reach CPU6SelectionDAGInfo, which expands them inline. No
+// call to these three symbols is emitted. Soft-float operations use the
+// other calls in that set.
 void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);

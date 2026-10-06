@@ -2585,6 +2585,17 @@ def AVRSystemLibrary
               avr_sin, avr_cos)>;
 
 //===----------------------------------------------------------------------===//
+// CPU6 Runtime Libcalls
+//===----------------------------------------------------------------------===//
+
+// No FPU. The legalizer softens f32 and f64, and these are the compiler-rt
+// names it calls (__addsf3 and the rest of the default set).
+def isCPU6 : RuntimeLibcallPredicate<"TT.getArch() == Triple::cpu6">;
+
+def CPU6SystemLibrary
+    : SystemRuntimeLibrary<isCPU6, (add DefaultRuntimeLibcallImpls)>;
+
+//===----------------------------------------------------------------------===//
 // DXIL Runtime Libcalls
 //===----------------------------------------------------------------------===//
 

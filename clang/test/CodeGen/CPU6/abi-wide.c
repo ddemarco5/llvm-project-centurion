@@ -24,10 +24,9 @@ long ladd(long a, long b) { return a + b; }
 
 long lmul(long a, long b) { return a * b; }
 
-// TODO(cpu6): long divide and remainder. These become a compiler-rt call and
-// the backend reports "unsupported library call operation".
-// long ldiv(long a, long b) { return a / b; }
-// long lmod(long a, long b) { return a % b; }
+long ldiv(long a, long b) { return a / b; }
+
+long lmod(long a, long b) { return a % b; }
 
 int lcmp(long a, long b) { return a < b; }
 
@@ -56,11 +55,9 @@ int qmix(long long a, int b, long long c) { return (int)(a + b + c); }
 // long long qzext(unsigned int a) { return a; }
 // long long qsext(int a) { return a; }
 
-// TODO(cpu6): float arithmetic. Soft-float lowering emits a compiler-rt call
-// and the backend reports "unsupported library call operation".
-// float fadd(float a, float b) { return a + b; }
+float fadd(float a, float b) { return a + b; }
 
-// TODO(cpu6): double arithmetic. A double is four words, so the return is
-// rejected with "unable to allocate function return #2" before the soft-float
-// helper would be called.
+// TODO(cpu6): double arithmetic. A double softens to i64, four words, and
+// RetCC_CPU6 only assigns A and B, so the return is rejected with
+// "unable to allocate function return #2".
 // double dadd(double a, double b) { return a + b; }
