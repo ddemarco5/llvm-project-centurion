@@ -18,6 +18,7 @@
 #include "CPU6TargetMachine.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace llvm;
@@ -36,6 +37,10 @@ private:
 #include "CPU6GenDAGISel.inc"
 
   void Select(SDNode *Node) override;
+
+  bool SelectInlineAsmMemoryOperand(const SDValue &Op,
+                                    InlineAsm::ConstraintCode ConstraintID,
+                                    std::vector<SDValue> &OutOps) override;
 
   void splitBaseOffset(SDValue N, SDValue &Base, SDValue &Disp, unsigned Bits);
   bool SelectAddr(SDValue N, SDValue &Base, SDValue &Disp);
@@ -85,6 +90,26 @@ void CPU6DAGToDAGISel::Select(SDNode *Node) {
     return;
   }
   SelectCode(Node);
+}
+
+// "m" uses the same address match as a load. A symbol is `(addr)`. Anything
+// else is SelectAddr's `(r),disp`, and eliminateFrameIndex fills in a slot.
+bool CPU6DAGToDAGISel::SelectInlineAsmMemoryOperand(
+    const SDValue &Op, InlineAsm::ConstraintCode ConstraintID,
+    std::vector<SDValue> &OutOps) {
+  if (ConstraintID != InlineAsm::ConstraintCode::m &&
+      ConstraintID != InlineAsm::ConstraintCode::o)
+    return true;
+
+  SDValue Base, Disp;
+  if (SelectAbsAddr(Op, Base)) {
+    OutOps.push_back(Base);
+    return false;
+  }
+  SelectAddr(Op, Base, Disp);
+  OutOps.push_back(Base);
+  OutOps.push_back(Disp);
+  return false;
 }
 
 // Base plus a constant that fits in Bits. A constant that does not fit stays

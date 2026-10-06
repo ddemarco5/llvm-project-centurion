@@ -8,6 +8,7 @@
 
 #include "CPU6RegisterInfo.h"
 #include "CPU6FrameLowering.h"
+#include "MCTargetDesc/CPU6InstPrinter.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/CodeGen/LiveIntervals.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -26,6 +27,10 @@ using namespace llvm;
 // address. JSR pushes the caller's X, then puts the return address in X.
 // RSR copies X into the program counter, then pops the caller's X back.
 CPU6RegisterInfo::CPU6RegisterInfo() : CPU6GenRegisterInfo(CPU6::rX) {}
+
+StringRef CPU6RegisterInfo::getRegAsmName(MCRegister Reg) const {
+  return CPU6InstPrinter::getRegisterName(Reg);
+}
 
 const MCPhysReg *
 CPU6RegisterInfo::getCalleeSavedRegs(const MachineFunction *) const {

@@ -12,6 +12,7 @@
 
 #include "CPU6AsmPrinter.h"
 #include "CPU6MCInstLower.h"
+#include "MCTargetDesc/CPU6InstPrinter.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "TargetInfo/CPU6TargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
@@ -33,6 +34,17 @@ public:
   StringRef getPassName() const override { return "CPU6 Assembly Printer"; }
 
   void emitInstruction(const MachineInstr *MI) override;
+
+  // $0 in inline asm. A register prints as its assembly name, an immediate
+  // as a number, a symbol as the symbol.
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       const char *ExtraCode, raw_ostream &O) override;
+
+  // An "m" operand, in the shape LDA and STA parse: `(addr)` or `(r),disp`.
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                             const char *ExtraCode, raw_ostream &O) override;
+
+  bool printAsmOp(const MachineOperand &MO, raw_ostream &O);
 };
 
 } // namespace
@@ -63,6 +75,67 @@ static bool shrinkAddImm(MCInst &Out, const MCInst &MI) {
   Out.addOperand(MI.getOperand(0));
   Out.addOperand(MCOperand::createImm(N));
   return true;
+}
+
+bool CPU6AsmPrinter::printAsmOp(const MachineOperand &MO, raw_ostream &O) {
+  switch (MO.getType()) {
+  case MachineOperand::MO_Register:
+    if (!MO.getReg())
+      return true;
+    O << CPU6InstPrinter::getRegisterName(MO.getReg());
+    return false;
+  case MachineOperand::MO_Immediate:
+    O << MO.getImm();
+    return false;
+  case MachineOperand::MO_GlobalAddress:
+    PrintSymbolOperand(MO, O);
+    return false;
+  case MachineOperand::MO_ExternalSymbol:
+    GetExternalSymbolSymbol(MO.getSymbolName())->print(O, MAI);
+    return false;
+  case MachineOperand::MO_MachineBasicBlock:
+    MO.getMBB()->getSymbol()->print(O, MAI);
+    return false;
+  case MachineOperand::MO_BlockAddress:
+    GetBlockAddressSymbol(MO.getBlockAddress())->print(O, MAI);
+    return false;
+  default:
+    return true;
+  }
+}
+
+bool CPU6AsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                     const char *ExtraCode, raw_ostream &O) {
+  // 'c' and 'n' are the generic modifiers. Anything else is unknown.
+  if (ExtraCode && ExtraCode[0])
+    return AsmPrinter::PrintAsmOperand(MI, OpNo, ExtraCode, O);
+  return printAsmOp(MI->getOperand(OpNo), O);
+}
+
+bool CPU6AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                           unsigned OpNo, const char *ExtraCode,
+                                           raw_ostream &O) {
+  if (ExtraCode && ExtraCode[0])
+    return true;
+  const MachineOperand &Base = MI->getOperand(OpNo);
+  // `(addr)`: a symbol or a number, one operand.
+  if (!Base.isReg()) {
+    O << '(';
+    if (printAsmOp(Base, O))
+      return true;
+    O << ')';
+    return false;
+  }
+  // `(r)` or `(r),disp`. disp 0 is `LDA (r)`, which the assembler accepts.
+  O << '(';
+  printAsmOp(Base, O);
+  O << ')';
+  const MachineOperand &Disp = MI->getOperand(OpNo + 1);
+  if (!Disp.isImm())
+    return true;
+  if (Disp.getImm() != 0)
+    O << ',' << Disp.getImm();
+  return false;
 }
 
 void CPU6AsmPrinter::emitInstruction(const MachineInstr *MI) {

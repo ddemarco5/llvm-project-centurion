@@ -170,6 +170,21 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   setTargetDAGCombine({ISD::ADD, ISD::SUB});
 }
 
+// The base class only resolves a brace name such as "{A}". "r" has to name
+// a class or the allocator has nothing to put %0 in. A byte is a byte
+// register; a wider value is one GPR per word.
+std::pair<unsigned, const TargetRegisterClass *>
+CPU6TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                 StringRef Constraint,
+                                                 MVT VT) const {
+  if (Constraint.size() == 1 && Constraint[0] == 'r') {
+    if (VT == MVT::i8 || VT == MVT::i1)
+      return std::make_pair(0U, &CPU6::GPRBRegClass);
+    return std::make_pair(0U, &CPU6::GPRRegClass);
+  }
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
+}
+
 namespace {
 
 // Length-1 nibble for a bignum operand. Only i32 and i64 are folded today.

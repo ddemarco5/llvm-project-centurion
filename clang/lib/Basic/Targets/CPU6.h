@@ -87,6 +87,8 @@ public:
     return {};
   }
 
+  // r, m, i, n, g, and X are accepted by TargetInfo. A register is named
+  // directly ({A}, {AL}). No CPU6-specific letter.
   bool validateAsmConstraint(const char *&,
                              TargetInfo::ConstraintInfo &) const override {
     return false;

@@ -788,6 +788,23 @@ StringRef TargetInfo::getNormalizedGCCRegisterName(StringRef Name,
   return Name;
 }
 
+// {reg} is the hard-register constraint from LangRef and GCC. Name points at
+// '{'. On success it points at '}' and the operand may live in a register.
+static bool acceptRegisterNameConstraint(const TargetInfo &TI, const char *&Name,
+                                         TargetInfo::ConstraintInfo &Info) {
+  const char *Start = Name + 1;
+  const char *End = Start;
+  while (*End && *End != '}')
+    ++End;
+  if (End == Start || *End != '}')
+    return false;
+  if (!TI.isValidGCCRegisterName(StringRef(Start, End - Start)))
+    return false;
+  Info.setAllowsRegister();
+  Name = End;
+  return true;
+}
+
 bool TargetInfo::validateOutputConstraint(ConstraintInfo &Info) const {
   const char *Name = Info.getConstraintStr().c_str();
   // An output constraint must start with '=' or '+'
@@ -816,6 +833,10 @@ bool TargetInfo::validateOutputConstraint(ConstraintInfo &Info) const {
       break;
     case 'r': // general register.
       Info.setAllowsRegister();
+      break;
+    case '{':
+      if (!acceptRegisterNameConstraint(*this, Name, Info))
+        return false;
       break;
     case 'm': // memory operand.
     case 'o': // offsetable memory operand.
@@ -968,6 +989,10 @@ bool TargetInfo::validateInputConstraint(
     case 'r': // general register.
       Info.setAllowsRegister();
       break;
+    case '{':
+      if (!acceptRegisterNameConstraint(*this, Name, Info))
+        return false;
+      break;
     case 'm': // memory operand.
     case 'o': // offsettable memory operand.
     case 'V': // non-offsettable memory operand.
@@ -1107,6 +1132,17 @@ TargetInfo::simplifyConstraint(StringRef Constraint,
       break;
     case 'g':
       Result += "imr";
+      break;
+    case '{': // Hard register. Copy {name} through; do not rewrite the letters.
+      Result += *I;
+      while (I + 1 != E && I[1] != '}') {
+        ++I;
+        Result += *I;
+      }
+      if (I + 1 != E) {
+        ++I;
+        Result += *I;
+      }
       break;
     case '[': {
       assert(OutCons &&

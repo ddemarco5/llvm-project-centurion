@@ -32,6 +32,9 @@ struct CPU6RegisterInfo : public CPU6GenRegisterInfo {
 
   Register getFrameRegister(const MachineFunction &MF) const override;
 
+  // TableGen names are rA, rAL, and so on. The assembler and "{A}" use A, AL.
+  StringRef getRegAsmName(MCRegister Reg) const override;
+
   // A variable-sized object is aligned where it is allocated, by an AND on
   // the lowered S. Only the fixed-size slots need the prologue to round S.
   bool shouldRealignStack(const MachineFunction &MF) const override;

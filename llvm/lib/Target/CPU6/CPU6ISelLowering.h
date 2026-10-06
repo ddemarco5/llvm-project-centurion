@@ -131,6 +131,11 @@ public:
   // No floating-point hardware. f32/f64 stay SoftenFloat via libcalls.
   bool useSoftFloat() const override { return true; }
 
+  // "r" picks a GPR. "{A}" and the other names go through the base class.
+  std::pair<unsigned, const TargetRegisterClass *>
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               StringRef Constraint, MVT VT) const override;
+
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
