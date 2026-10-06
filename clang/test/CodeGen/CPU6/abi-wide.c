@@ -1,9 +1,9 @@
-// long is 32 bits (two words) and long long is 64 bits (four). Words are
-// big-endian: the high word of a long is A and the low word is B. A second
-// long takes Y and Z the same way. A long long fills A, B, Y, and Z from
-// high to low. RetCC_CPU6 only has A and B, so a function here never returns
-// a long long; it returns the low word or a compare result. The check is
-// that -O0 and -O2 both compile. Cases codegen rejects stay commented out.
+// long is 32 bits (two words) and long long / double are 64 bits (four).
+// Words are big-endian: the high word is A and the low word is B. A second
+// long takes Y and Z the same way. A long long or a double fills A, B, Y,
+// and Z from high to low. There is no FPU, so each double operation is a
+// compiler-rt libcall (__adddf3 and the rest) that returns in those four
+// registers. The check is that -O0 and -O2 both compile.
 //
 // REQUIRES: cpu6-registered-target
 // RUN: %clang -target cpu6 -ffreestanding -O0 -S -mllvm -verify-machineinstrs -o %t %s
@@ -48,8 +48,8 @@ int qand(long long a, long long b) { return (int)(a & b); }
 
 int qmix(long long a, int b, long long c) { return (int)(a + b + c); }
 
-// A long long still cannot be returned (see below). The shift itself is one
-// loop over the four words; these keep every word live by storing it.
+// The shift is one loop over the four words. Storing the result keeps every
+// word live without going through the return registers.
 long long qs;
 unsigned long long qu;
 
@@ -59,16 +59,34 @@ void qlshr_store(unsigned long long a, int n) { qu = a >> n; }
 
 void qasr_store(long long a, int n) { qs = a >> n; }
 
-// TODO(cpu6): returning a long long. An i64 is four words and RetCC_CPU6 only
-// assigns A and B, so lowering reports "unable to allocate function return #2".
-// The same return path rejects a widening cast to long long.
-// long long qadd(long long a, long long b) { return a + b; }
-// long long qzext(unsigned int a) { return a; }
-// long long qsext(int a) { return a; }
+long long qadd(long long a, long long b) { return a + b; }
+
+long long qzext(unsigned int a) { return a; }
+
+long long qsext(int a) { return a; }
 
 float fadd(float a, float b) { return a + b; }
 
-// TODO(cpu6): double arithmetic. A double softens to i64, four words, and
-// RetCC_CPU6 only assigns A and B, so the return is rejected with
-// "unable to allocate function return #2".
-// double dadd(double a, double b) { return a + b; }
+double dadd(double a, double b) { return a + b; }
+
+double dsub(double a, double b) { return a - b; }
+
+double dmul(double a, double b) { return a * b; }
+
+double ddiv(double a, double b) { return a / b; }
+
+double dneg(double a) { return -a; }
+
+int dlt(double a, double b) { return a < b; }
+
+int deq(double a, double b) { return a == b; }
+
+int dtoi(double a) { return (int)a; }
+
+double itod(int a) { return (double)a; }
+
+double ftod(float a) { return a; }
+
+float dtof(double a) { return (float)a; }
+
+double dmix(double a, double b, double c) { return a * b + c; }

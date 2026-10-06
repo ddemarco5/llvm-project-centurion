@@ -43,9 +43,9 @@ CPU6Subtarget::~CPU6Subtarget() = default;
 // call to these three symbols is emitted. Soft-float operations use the
 // other calls in that set.
 //
-// A returned value occupies A and B, two words. Anything the default set
-// would return as an i64 is four words and has nowhere to land, so the
-// legalizer must expand it instead of calling out.
+// Shifts, multiply, divide, and the conversions to i64 expand in the
+// legalizer. Leaving the libcall in place would emit a call that itself
+// returns an i64, which is the routine the legalizer is trying to build.
 void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);

@@ -18,6 +18,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include <algorithm>
+#include <cstring>
 #include <optional>
 
 using namespace llvm;
@@ -592,6 +593,12 @@ SDValue CPU6TargetLowering::LowerReturn(
     for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
       CCValAssign &VA = RVLocs[I];
       assert(VA.isRegLoc() && "return value needs a register in RetCC_CPU6");
+      // Y and Z are callee-saved. The epilogue POP is inserted in front of
+      // RSR, after these copies, so a function that returns in Y or Z must
+      // not restore it. A and B are not in the save list; disabling them
+      // changes nothing.
+      DAG.getMachineFunction().getRegInfo().disableCalleeSavedRegister(
+          VA.getLocReg());
       SDValue Val = OutVals[I];
       switch (VA.getLocInfo()) {
       case CCValAssign::Full:
@@ -637,6 +644,43 @@ SDValue CPU6TargetLowering::LowerCallResult(
     InVals.push_back(narrowFromLoc(DAG, DL, Ret, VA));
   }
   return Chain;
+}
+
+// Preserved registers for this call. Y and Z are callee-saved, and they are
+// also the third and fourth return words. A call that returns in one of them
+// has to clobber it, or the caller keeps the value it held before the call
+// and reads that as the result. The static mask stays as it is for a return
+// of two words or fewer. A, B, and C are already clear in that mask.
+static const uint32_t *
+callPreservedMask(SelectionDAG &DAG, CallingConv::ID CallConv, bool IsVarArg,
+                  const SmallVectorImpl<ISD::InputArg> &Ins) {
+  MachineFunction &MF = DAG.getMachineFunction();
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  const uint32_t *Mask = TRI->getCallPreservedMask(MF, CallConv);
+
+  SmallVector<CCValAssign, 4> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
+  CCInfo.AnalyzeCallResult(Ins, RetCC_CPU6);
+
+  bool ClobbersSaved = false;
+  for (const CCValAssign &VA : RVLocs) {
+    if (VA.isRegLoc() && !MachineOperand::clobbersPhysReg(Mask, VA.getLocReg()))
+      ClobbersSaved = true;
+  }
+  if (!ClobbersSaved)
+    return Mask;
+
+  uint32_t *Adjusted = MF.allocateRegMask();
+  unsigned Bytes =
+      MachineOperand::getRegMaskSize(TRI->getNumRegs()) * sizeof(uint32_t);
+  memcpy(Adjusted, Mask, Bytes);
+  for (const CCValAssign &VA : RVLocs) {
+    if (!VA.isRegLoc())
+      continue;
+    for (MCPhysReg Sub : TRI->subregs_inclusive(VA.getLocReg()))
+      Adjusted[Sub / 32] &= ~(1u << (Sub % 32));
+  }
+  return Adjusted;
 }
 
 // A direct call whose arguments fit in A, B, Y, and Z. JMP leaves X holding
@@ -756,9 +800,8 @@ CPU6TargetLowering::LowerCall(CallLoweringInfo &CLI,
       Ops.push_back(Glue);
     return DAG.getNode(CPU6ISD::TC_RETURN, DL, MVT::Other, Ops);
   }
-  const TargetRegisterInfo *TRI = DAG.getSubtarget().getRegisterInfo();
   Ops.push_back(DAG.getRegisterMask(
-      TRI->getCallPreservedMask(DAG.getMachineFunction(), CLI.CallConv)));
+      callPreservedMask(DAG, CLI.CallConv, CLI.IsVarArg, CLI.Ins)));
   if (Glue)
     Ops.push_back(Glue);
 

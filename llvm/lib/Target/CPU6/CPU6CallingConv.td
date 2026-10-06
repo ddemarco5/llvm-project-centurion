@@ -34,13 +34,22 @@ def CC_CPU6 : CallingConv<[
 ]>;
 
 // Where `ret` places its value. A returned byte is promoted to a word.
-// An i16 uses A. An i32 is split into two i16 parts before this list is
-// consulted: the high half goes in A and the low half in B, which is the
-// big-endian order of the data layout.
+// An i16 uses A. Wider values are split into i16 parts before this list is
+// consulted, high half first: an i32 is A:B, an i64 (and a softened f64) is
+// A, B, Y, Z. That is the big-endian order of the data layout.
+//
+// Y and Z are also callee-saved, below. A function that returns in one of
+// them drops it from its save list, and a call that receives it clears it
+// in that call's preserved mask. Otherwise the epilogue POP, or a caller
+// that kept a value in Y, overwrites the result. A and B are caller-saved,
+// which is why a two-word return needs none of this. MSP430, ARC, and
+// Xtensa keep their return registers out of the callee-saved list entirely.
+// CPU6 has no spare caller-saved GPR besides C, so Y and Z stay callee-saved
+// for every function that does not return in them.
 
 def RetCC_CPU6 : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i16>>,
-  CCIfType<[i16], CCAssignToReg<[rA, rB]>>,
+  CCIfType<[i16], CCAssignToReg<[rA, rB, rY, rZ]>>,
 ]>;
 
 // Registers a callee must hand back unchanged. X, Y, and Z sit next to each

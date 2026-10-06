@@ -13,14 +13,16 @@
 using namespace clang;
 using namespace clang::CodeGen;
 
-// CPU6 has four word argument registers (A, B, Y, Z) and two word return
-// registers (A, B). An aggregate is passed and returned as that many i16s
-// when the whole value fits in the registers still free. CC_CPU6 already
-// assigns those i16s. A value that does not fit is one pointer to memory the
-// caller owns: ByVal stays off, so the backend does not copy it into the
-// outgoing argument area. The same rule, with a budget of two, covers
-// returns. A return that does not fit is the usual sret pointer and spends
-// A before the user's arguments are counted.
+// CPU6 has four word argument registers (A, B, Y, Z). A scalar return is
+// direct: the backend puts an i16 in A, an i32 in A:B, and an i64 or a
+// softened double in A, B, Y, Z. An aggregate is passed and returned as that
+// many i16s when the whole value fits in the registers still free. CC_CPU6
+// already assigns the argument words. A value that does not fit is one
+// pointer to memory the caller owns: ByVal stays off, so the backend does
+// not copy it into the outgoing argument area. Aggregates use a budget of
+// two return words. A return that does not fit is the usual sret pointer
+// and spends A before the user's arguments are counted. Raising that budget
+// would start returning three- and four-word structs in Y and Z.
 namespace {
 
 class CPU6ABIInfo : public DefaultABIInfo {
