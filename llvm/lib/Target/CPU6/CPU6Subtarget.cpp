@@ -98,6 +98,12 @@ const char *CPU6SelectionDAGInfo::getTargetNodeName(unsigned Opcode) const {
     return "CPU6ISD::BN_DRM";
   case CPU6ISD::BN_CMP:
     return "CPU6ISD::BN_CMP";
+  case CPU6ISD::BN_ADD_LIT:
+    return "CPU6ISD::BN_ADD_LIT";
+  case CPU6ISD::BN_SUB_LIT:
+    return "CPU6ISD::BN_SUB_LIT";
+  case CPU6ISD::BN_CMP_LIT:
+    return "CPU6ISD::BN_CMP_LIT";
   case CPU6ISD::BLK_COPY:
     return "CPU6ISD::BLK_COPY";
   case CPU6ISD::BLK_FILL:

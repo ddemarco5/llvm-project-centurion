@@ -2384,7 +2384,7 @@ foreach OP = BigOps in {
 }
 
 class BN6LitD<bits<4> sel, string name>
-      : CenturionInst48<(outs), (ins uimm4:$k, i8imm:$lit, i16imm:$addr),
+      : CenturionInst48<(outs), (ins uimm4:$k, i8imm:$lit, abs16:$addr),
         name, "$k,$lit,(${addr})"> {
   bits<4> k;
   bits<8> lit;
@@ -2457,6 +2457,10 @@ class BN6LitI16<bits<4> sel, string name>
 }
 
 // Literal source (mode 3, one inline byte) into each destination mode.
+// CenREE sign-extends that byte and adds it at the low byte: 0xFF into a
+// zero i32 is -1, and 0x000000FF + 1 carries to 0x100. The address word is
+// the last two bytes, so its relocation is abs16 (tail 0). A number still
+// assembles: BNA 1,255,(613).
 foreach OP = BigOps in {
   let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "BNC"),
       Uses = !if(!eq(OP.Name, "DRM"), [rA], []<Register>) in {

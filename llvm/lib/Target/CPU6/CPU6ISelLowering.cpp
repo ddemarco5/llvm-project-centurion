@@ -211,7 +211,9 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // the same way, through a stack slot, instead of a libcall or a schoolbook
   // expansion. An i128 add, subtract, or negate is too, because eight words
   // of carry is longer than one bignum instruction. i32 and i64 adds stay a
-  // word carry chain unless the store tree above already matched.
+  // word carry chain unless the store tree above already matched. An in-place
+  // add or subtract of a constant that fits in a signed byte is the literal
+  // form of that instruction.
   setTargetDAGCombine(ISD::STORE);
   setTargetDAGCombine(ISD::SETCC);
   // A carry or borrow added to a word becomes a conditional INR or DCR.
@@ -395,6 +397,57 @@ unsigned bnOpcode(unsigned Op) {
 
 bool bnCommutes(unsigned Op) { return Op == ISD::ADD || Op == ISD::MUL; }
 
+// The one-byte literal is sign-extended and applied at the low byte. CenREE:
+// 0x000000FF + 1 carries to 0x100, 0 + 0xFF is -1, and 0 - 0xFF is 1. A
+// constant outside -128..127 is a different value, so it stays the carry
+// chain. The returned byte is the encoding of that signed value.
+std::optional<unsigned> literalByte(SDValue V) {
+  auto *C = dyn_cast<ConstantSDNode>(V);
+  if (!C)
+    return std::nullopt;
+  int64_t S = C->getSExtValue();
+  if (S < -128 || S > 127)
+    return std::nullopt;
+  return static_cast<unsigned>(static_cast<uint8_t>(S));
+}
+
+// store (add/sub (load P), C), P with C in -128..127. Add commutes. Subtract
+// does not: C - P is not one in-place instruction. i32 and i64 only; the
+// caller has already rejected i128 and the multiply/divide slot path.
+SDValue foldLiteralBignum(StoreSDNode *St, SelectionDAG &DAG, unsigned Op,
+                          SDValue LHS, SDValue RHS, unsigned Len) {
+  if (Op != ISD::ADD && Op != ISD::SUB)
+    return SDValue();
+  EVT VT = St->getMemoryVT();
+  LoadSDNode *Ld = nullptr;
+  std::optional<unsigned> Byte;
+  if (Op == ISD::ADD) {
+    if (LoadSDNode *L = getBignumLoad(LHS, VT)) {
+      Ld = L;
+      Byte = literalByte(RHS);
+    }
+    if (!Byte) {
+      if (LoadSDNode *L = getBignumLoad(RHS, VT)) {
+        Ld = L;
+        Byte = literalByte(LHS);
+      }
+    }
+  } else {
+    Ld = getBignumLoad(LHS, VT);
+    Byte = literalByte(RHS);
+  }
+  if (!Ld || !Byte || addressDelta(Ld, St, DAG) != 0)
+    return SDValue();
+  if (!onlyLoadsJoinChain(St->getChain(), Ld->getChain()) ||
+      classifyOverlap(Ld, St, DAG) == Overlap::Partial)
+    return SDValue();
+  unsigned Opc = Op == ISD::ADD ? CPU6ISD::BN_ADD_LIT : CPU6ISD::BN_SUB_LIT;
+  SDLoc DL(St);
+  return DAG.getNode(Opc, DL, MVT::Other, St->getChain(),
+                     DAG.getTargetConstant(*Byte, DL, MVT::i8),
+                     St->getBasePtr(), DAG.getTargetConstant(Len, DL, MVT::i8));
+}
+
 // Dest := Dest op Right, after an optional copy of Left into Dest.
 SDValue emitBinary(SelectionDAG &DAG, const SDLoc &DL, unsigned Opc,
                    SDValue Chain, SDValue Left, SDValue Right, SDValue Dest,
@@ -495,7 +548,8 @@ SDValue lowerBignumValue(SDNode *N, SelectionDAG &DAG) {
 // A multiply, signed divide, or remainder whose operands are not loads, and
 // an i128 add or subtract in the same shape, still uses the slot: the
 // alternative is a libcall or a long carry chain. An i32 or i64 add of two
-// registers stays the word carry chain.
+// registers stays the word carry chain. An in-place add or subtract of a
+// constant in -128..127 is the literal form: the byte is sign-extended.
 SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
                                                SelectionDAG &DAG) const {
   EVT VT = St->getMemoryVT();
@@ -566,8 +620,12 @@ SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
     return emitViaSlot(DAG, DL, Opc, VT, St->getChain(), L0->getBasePtr(),
                        L1->getBasePtr(), Dest, *Len);
   }
-  if (!WideArith)
+  if (!WideArith) {
+    // i32/i64 only. A constant the literal cannot encode stays the carry chain.
+    if (SDValue Lit = foldLiteralBignum(St, DAG, Op, LHS, RHS, *Len))
+      return Lit;
     return SDValue();
+  }
   OpMem L = spillOp(DAG, DL, St->getChain(), LHS);
   OpMem R = spillOp(DAG, DL, St->getChain(), RHS);
   return emitViaSlot(DAG, DL, bnOpcode(Op), VT, joinChain(DAG, DL, L.Chain, R.Chain),
@@ -615,6 +673,85 @@ SDValue CPU6TargetLowering::combineBignumRem(StoreSDNode *St,
 // BNC src,dest sets the flags of Dest - Src, and Link set means no borrow. So
 // Dest is the left operand of >= and <, and the right operand of > and <=,
 // which are the same tests with the operands swapped. == and != read V.
+// A literal can only be the source, so uge/ult fold when the constant is on
+// the right and in 0..127 (the non-negative signed bytes). Equality also
+// accepts -128..-1, which the sign-extended byte really is. Signed relational
+// compares stay as they are. InstCombine turns uge X, C into ugt X, C-1, so
+// ugt of a non-negative C folds when C+1 still fits in that byte. ule arrives
+// as ult of C+1 and folds the same way. Past 127 there is no such byte.
+SDValue foldLiteralCompare(SDNode *N, SelectionDAG &DAG, unsigned Len) {
+  if (Len != 3 && Len != 7)
+    return SDValue();
+  EVT VT = N->getOperand(0).getValueType();
+  ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+  SDValue LV = N->getOperand(0);
+  SDValue CV = N->getOperand(1);
+  // ugt X, C is uge X, C+1. The +1 is the literal, and only when it is still
+  // a non-negative signed byte. ugt X, 127 would need 128, which is -128.
+  bool Ugt = false;
+  switch (CC) {
+  case ISD::SETEQ:
+  case ISD::SETNE:
+    if (!getBignumLoad(LV, VT))
+      std::swap(LV, CV);
+    break;
+  case ISD::SETUGE:
+  case ISD::SETULT:
+    break;
+  case ISD::SETUGT:
+    Ugt = true;
+    break;
+  default:
+    return SDValue();
+  }
+  LoadSDNode *Ld = getBignumLoad(LV, VT);
+  auto *Const = dyn_cast<ConstantSDNode>(CV);
+  if (!Ld || !Const)
+    return SDValue();
+  int64_t S = Const->getSExtValue();
+  if (Ugt) {
+    if (S < 0 || S > 126)
+      return SDValue();
+    ++S;
+    CC = ISD::SETUGE;
+  }
+  if (S < -128 || S > 127)
+    return SDValue();
+  unsigned Br;
+  switch (CC) {
+  case ISD::SETEQ:
+    Br = CPU6::BZ;
+    break;
+  case ISD::SETNE:
+    Br = CPU6::BNZ;
+    break;
+  case ISD::SETUGE:
+  case ISD::SETULT:
+    // A negative byte is not the unsigned constant of the same bits.
+    if (S < 0)
+      return SDValue();
+    Br = CC == ISD::SETUGE ? CPU6::BL : CPU6::BNL;
+    break;
+  default:
+    return SDValue();
+  }
+  unsigned Byte = static_cast<unsigned>(static_cast<uint8_t>(S));
+
+  SDLoc DL(N);
+  SDValue Cmp = DAG.getNode(
+      CPU6ISD::BN_CMP_LIT, DL, DAG.getVTList(MVT::Other, MVT::Glue),
+      Ld->getChain(), DAG.getTargetConstant(Byte, DL, MVT::i8),
+      Ld->getBasePtr(), DAG.getTargetConstant(Len, DL, MVT::i8));
+  DAG.ReplaceAllUsesOfValueWith(SDValue(Ld, 1), Cmp.getValue(0));
+  SDValue Sel =
+      DAG.getNode(CPU6ISD::SELECT_CC, DL, MVT::i16,
+                  DAG.getConstant(1, DL, MVT::i16),
+                  DAG.getConstant(0, DL, MVT::i16),
+                  DAG.getTargetConstant(Br, DL, MVT::i16), Cmp.getValue(1));
+  EVT ResVT = N->getValueType(0);
+  return ResVT == MVT::i16 ? Sel : DAG.getNode(ISD::TRUNCATE, DL, ResVT, Sel);
+}
+
 SDValue CPU6TargetLowering::combineBignumSetCC(SDNode *N,
                                                SelectionDAG &DAG) const {
   EVT VT = N->getOperand(0).getValueType();
@@ -623,8 +760,8 @@ SDValue CPU6TargetLowering::combineBignumSetCC(SDNode *N,
     return SDValue();
   LoadSDNode *LHS = getBignumLoad(N->getOperand(0), VT);
   LoadSDNode *RHS = getBignumLoad(N->getOperand(1), VT);
-  if (!LHS || !RHS || !loadsShareMemoryState({LHS, RHS}))
-    return SDValue();
+  if (!(LHS && RHS && loadsShareMemoryState({LHS, RHS})))
+    return foldLiteralCompare(N, DAG, *Len);
 
   LoadSDNode *Dest = LHS, *Src = RHS;
   unsigned Br;

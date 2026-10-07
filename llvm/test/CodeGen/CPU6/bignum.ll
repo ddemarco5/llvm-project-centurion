@@ -11,6 +11,8 @@
 @dst32 = global i32 2
 @src64 = global i64 1
 @dst64 = global i64 2
+@lit32 = global i32 0
+@lit64 = global i64 0
 
 ;===----------------------------------------------------------------------===;
 ; ZAD: Dest := Src
@@ -861,4 +863,398 @@ define void @far_word() nounwind {
   %c = add i32 %a, %b
   store i32 %c, ptr %d, align 1
   ret void
+}
+
+;===----------------------------------------------------------------------===;
+; Literal source. CenREE sign-extends the inline byte and adds it at the low
+; byte, so the constant has to fit in -128..127. 255 is -1, not 255. i16 is
+; already one word. A constant outside the byte stays the carry chain.
+;===----------------------------------------------------------------------===;
+
+; CHECK-LABEL: lit_add32_1:
+; CHECK:       BNA 3,1,A
+; CHECK-NEXT:  RSR
+define void @lit_add32_1(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 1
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add32_5:
+; CHECK:       BNA 3,5,A
+; CHECK-NEXT:  RSR
+define void @lit_add32_5(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; The constant may be the left operand. Addition commutes.
+; CHECK-LABEL: lit_add32_5_commuted:
+; CHECK:       BNA 3,5,A
+; CHECK-NEXT:  RSR
+define void @lit_add32_5_commuted(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 5, %a
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_sub32_5:
+; CHECK:       BNS 3,5,A
+; CHECK-NEXT:  RSR
+define void @lit_sub32_5(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = sub i32 %a, 5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; -1 and -128 are the sign-extended bytes 0xFF and 0x80. -5 subtracts as
+; that byte, which adds 5.
+; CHECK-LABEL: lit_add32_m1:
+; CHECK:       BNA 3,-1,A
+; CHECK-NEXT:  RSR
+define void @lit_add32_m1(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, -1
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add32_m128:
+; CHECK:       BNA 3,-128,A
+; CHECK-NEXT:  RSR
+define void @lit_add32_m128(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, -128
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_sub32_m5:
+; CHECK:       BNS 3,-5,A
+; CHECK-NEXT:  RSR
+define void @lit_sub32_m5(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = sub i32 %a, -5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add64_1:
+; CHECK:       BNA 7,1,A
+; CHECK-NEXT:  RSR
+define void @lit_add64_1(ptr %p) nounwind {
+  %a = load i64, ptr %p, align 1
+  %c = add i64 %a, 1
+  store i64 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add64_5:
+; CHECK:       BNA 7,5,A
+; CHECK-NEXT:  RSR
+define void @lit_add64_5(ptr %p) nounwind {
+  %a = load i64, ptr %p, align 1
+  %c = add i64 %a, 5
+  store i64 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_sub64_5:
+; CHECK:       BNS 7,5,A
+; CHECK-NEXT:  RSR
+define void @lit_sub64_5(ptr %p) nounwind {
+  %a = load i64, ptr %p, align 1
+  %c = sub i64 %a, 5
+  store i64 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_g32_5:
+; CHECK:       BNA 3,5,(lit32)
+; CHECK-NEXT:  RSR
+define void @lit_g32_5() nounwind {
+  %a = load i32, ptr @lit32, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr @lit32, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_g64_5:
+; CHECK:       BNA 7,5,(lit64)
+; CHECK-NEXT:  RSR
+define void @lit_g64_5() nounwind {
+  %a = load i64, ptr @lit64, align 1
+  %c = add i64 %a, 5
+  store i64 %c, ptr @lit64, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_idx32:
+; CHECK:       BNA 3,5,(A),4
+; CHECK-NEXT:  RSR
+define void @lit_idx32(ptr %p) nounwind {
+  %q = getelementptr i8, ptr %p, i16 4
+  %a = load i32, ptr %q, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr %q, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_local32:
+; CHECK:       DCR S,3
+; CHECK-NEXT:  BNA 3,5,(S),0
+; CHECK-NEXT:  INR S,3
+; CHECK-NEXT:  RSR
+define void @lit_local32() nounwind {
+  %p = alloca i32, align 1
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; The byte object sits nearest S. The i32 is 200 bytes further, past a signed
+; byte, so the indexed literal widens to the 16-bit displacement.
+; CHECK-LABEL: lit_far32:
+; CHECK:       BNA 3,5,(S),(200)
+; CHECK:       RSR
+define void @lit_far32() nounwind {
+  %big = alloca [200 x i8], align 1
+  %p = alloca i32, align 1
+  store i8 1, ptr %big, align 1
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_far_sub:
+; CHECK:       BNS 3,5,(S),(200)
+; CHECK:       RSR
+define void @lit_far_sub() nounwind {
+  %big = alloca [200 x i8], align 1
+  %p = alloca i32, align 1
+  store i8 1, ptr %big, align 1
+  %a = load i32, ptr %p, align 1
+  %c = sub i32 %a, 5
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; The value 5 is not materialized. The flag select moves 0 and 1.
+; CHECK-LABEL: lit_eq32:
+; CHECK:       BNC 3,5,{{[A-Z]}}
+; CHECK:       BZ
+; CHECK-NOT:   XFR {{[A-Z]}},5
+; CHECK:       RSR
+define i1 @lit_eq32(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp eq i32 %a, 5
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_ne32:
+; CHECK:       BNC 3,5,{{[A-Z]}}
+; CHECK:       BNZ
+; CHECK:       RSR
+define i1 @lit_ne32(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp ne i32 %a, 5
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_ult32:
+; CHECK:       BNC 3,5,{{[A-Z]}}
+; CHECK:       BNL
+; CHECK:       RSR
+define i1 @lit_ult32(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp ult i32 %a, 5
+  ret i1 %c
+}
+
+; icmp uge X, 5 is canonicalized to icmp ugt X, 4. That is BNC of 5: Link set
+; means Dest >= 5.
+; CHECK-LABEL: lit_uge32:
+; CHECK:       BNC 3,5,{{[A-Z]}}
+; CHECK:       BL
+; CHECK:       RSR
+define i1 @lit_uge32(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp uge i32 %a, 5
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_eq64:
+; CHECK:       BNC 7,5,{{[A-Z]}}
+; CHECK:       BZ
+; CHECK:       RSR
+define i1 @lit_eq64(ptr %p) nounwind {
+  %a = load i64, ptr %p, align 1
+  %c = icmp eq i64 %a, 5
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_ult64:
+; CHECK:       BNC 7,5,{{[A-Z]}}
+; CHECK:       BNL
+; CHECK:       RSR
+define i1 @lit_ult64(ptr %p) nounwind {
+  %a = load i64, ptr %p, align 1
+  %c = icmp ult i64 %a, 5
+  ret i1 %c
+}
+
+; -1 compares equal through the sign-extended byte. 255 does not: that byte
+; is -1, so an unsigned 255 stays the word compare.
+; CHECK-LABEL: lit_eq32_m1:
+; CHECK:       BNC 3,-1,{{[A-Z]}}
+; CHECK:       BZ
+; CHECK:       RSR
+define i1 @lit_eq32_m1(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp eq i32 %a, -1
+  ret i1 %c
+}
+
+; The compare's frame slot is past a signed byte, so BNC widens too.
+; CHECK-LABEL: lit_far_eq:
+; CHECK:       BNC 3,5,(S),(
+; CHECK:       RSR
+define i1 @lit_far_eq() nounwind {
+  %big = alloca [200 x i8], align 1
+  %p = alloca i32, align 1
+  store i8 1, ptr %big, align 1
+  %a = load i32, ptr %p, align 1
+  %c = icmp eq i32 %a, 5
+  ret i1 %c
+}
+
+; Stored somewhere else. The literal form only updates its destination.
+; CHECK-LABEL: lit_not_inplace:
+; CHECK-NOT:   BNA
+; CHECK:       RSR
+define void @lit_not_inplace(ptr %p, ptr %q) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 5
+  store i32 %c, ptr %q, align 1
+  ret void
+}
+
+; 300 and 255 do not fit in a signed byte. 255 would add -1.
+; CHECK-LABEL: lit_add32_300:
+; CHECK:       ADD X,C,300
+; CHECK:       SUB C,X
+; CHECK:       BL
+; CHECK:       INR B,0
+; CHECK:       RSR
+define void @lit_add32_300(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 300
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add32_255:
+; CHECK:       ADD X,C,255
+; CHECK-NOT:   BNA
+; CHECK:       RSR
+define void @lit_add32_255(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, 255
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add32_m256:
+; CHECK:       ADD X,C,-256
+; CHECK:       DCR B,0
+; CHECK-NOT:   BNA
+; CHECK:       RSR
+define void @lit_add32_m256(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = add i32 %a, -256
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add16_5:
+; CHECK:       XFR (A),B,0
+; CHECK-NEXT:  INR B,4
+; CHECK-NEXT:  STR B,(A),0
+; CHECK-NEXT:  RSR
+define void @lit_add16_5(ptr %p) nounwind {
+  %a = load i16, ptr %p, align 1
+  %c = add i16 %a, 5
+  store i16 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_add16_1:
+; CHECK:       XFR (A),B,0
+; CHECK-NEXT:  INR B,0
+; CHECK-NEXT:  STR B,(A),0
+; CHECK-NEXT:  RSR
+define void @lit_add16_1(ptr %p) nounwind {
+  %a = load i16, ptr %p, align 1
+  %c = add i16 %a, 1
+  store i16 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: lit_eq32_300:
+; CHECK:       ORE A,C,300
+; CHECK-NOT:   BNC
+; CHECK:       RSR
+define i1 @lit_eq32_300(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp eq i32 %a, 300
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_ult32_200:
+; CHECK:       SUB X,X,199
+; CHECK-NOT:   BNC
+; CHECK:       RSR
+define i1 @lit_ult32_200(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp ult i32 %a, 200
+  ret i1 %c
+}
+
+; ugt 127 would be uge 128, and that byte is -128. Both stay the word compare.
+; CHECK-LABEL: lit_ugt127:
+; CHECK-NOT:   BNC
+; CHECK:       SUB
+; CHECK:       RSR
+define i1 @lit_ugt127(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp ugt i32 %a, 127
+  ret i1 %c
+}
+
+; CHECK-LABEL: lit_ule127:
+; CHECK-NOT:   BNC
+; CHECK:       SUB
+; CHECK:       RSR
+define i1 @lit_ule127(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp ule i32 %a, 127
+  ret i1 %c
+}
+
+; Signed order does not read the flags the same way.
+; CHECK-LABEL: lit_slt32:
+; CHECK-NOT:   BNC
+; CHECK:       SUB
+; CHECK:       RSR
+define i1 @lit_slt32(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %c = icmp slt i32 %a, 5
+  ret i1 %c
 }

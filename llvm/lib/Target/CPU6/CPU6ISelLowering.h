@@ -56,6 +56,13 @@ enum NodeType : unsigned {
   // DRM: also takes the remainder's address in A, as glue from a CopyToReg.
   BN_DRM,
   BN_CMP, // BNC — sets flags; no store
+  // Literal source. The inline byte is sign-extended and applied at the low
+  // byte, so the constant is -128..127. Operands are that byte, the
+  // destination pointer, and the destination length-1. The source-length
+  // nibble in the encoding is 0.
+  BN_ADD_LIT, // BNA
+  BN_SUB_LIT, // BNS
+  BN_CMP_LIT, // BNC — sets flags; glue out; no store
   // 0x47 block ops. Chain in, chain out. BLK_COPY is src, dst, count-1 (MVF);
   // BLK_FILL is the byte, dst, count-1 (FIL). count-1 is an i8 target
   // constant, so one node moves at most 256 bytes.
@@ -166,7 +173,8 @@ private:
   // ReplaceNodeResults.
   SDValue combineBignumStore(StoreSDNode *St, SelectionDAG &DAG) const;
   SDValue combineBignumRem(StoreSDNode *St, SelectionDAG &DAG) const;
-  // Fold setcc(load,load) on i32/i64/i128 into BNC plus a flag reader.
+  // Fold setcc(load,load) on i32/i64/i128 into BNC plus a flag reader, and
+  // setcc(load, signed-byte constant) on i32/i64 into the literal form.
   SDValue combineBignumSetCC(SDNode *N, SelectionDAG &DAG) const;
   // add/sub x, (select_cc 1, 0): a carry or borrow added to a word.
   SDValue combineCarryStep(SDNode *N, SelectionDAG &DAG) const;

@@ -113,6 +113,19 @@ def CPU6bncmp : SDNode<"CPU6ISD::BN_CMP",
                                             SDTCisVT<2, i8>]>,
                        [SDNPHasChain, SDNPOutGlue, SDNPMayLoad,
                         SDNPMemOperand]>;
+// Literal source: the sign-extended byte, the destination pointer, and the
+// destination length-1. The source length is fixed at one byte in the encoding.
+def SDT_CPU6BignumLit : SDTypeProfile<0, 3,
+    [SDTCisVT<0, i8>, SDTCisVT<1, iPTR>, SDTCisVT<2, i8>]>;
+def CPU6bnaddlit : SDNode<"CPU6ISD::BN_ADD_LIT", SDT_CPU6BignumLit,
+                          [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                           SDNPMemOperand]>;
+def CPU6bnsublit : SDNode<"CPU6ISD::BN_SUB_LIT", SDT_CPU6BignumLit,
+                          [SDNPHasChain, SDNPMayLoad, SDNPMayStore,
+                           SDNPMemOperand]>;
+def CPU6bncmplit : SDNode<"CPU6ISD::BN_CMP_LIT", SDT_CPU6BignumLit,
+                          [SDNPHasChain, SDNPOutGlue, SDNPMayLoad,
+                           SDNPMemOperand]>;
 
 // Block copy and fill (0x47). CPU6SelectionDAGInfo builds these for a
 // constant-size memcpy, memmove, or memset. $cnt is the byte count minus one.
@@ -793,3 +806,26 @@ defm : BNPats<CPU6bnmul, "M">;
 defm : BNPats<CPU6bndiv, "D">;
 defm : BNPats<CPU6bndrm, "DRM">;
 defm : BNPats<CPU6bncmp, "BNC">;
+
+// Literal source, i32 and i64 only. The folded address forms are more complex
+// than the register form, so a single-use global or frame index is not first
+// materialized. A constant outside a signed byte is not this node.
+multiclass BNLitPats<SDPatternOperator op, string inst> {
+  foreach len = [3, 7] in {
+    let AddedComplexity = 8 in {
+      def : Pat<(op (i8 timm:$lit), (bnabs abs16:$dst), (i8 len)),
+                (!cast<Instruction>(inst # "_LitD") (i8 len), timm:$lit,
+                 abs16:$dst)>;
+      def : Pat<(op (i8 timm:$lit), (bnaddr GPR:$db, simm8:$dd), (i8 len)),
+                (!cast<Instruction>(inst # "_LitI8") (i8 len), timm:$lit,
+                 GPR:$db, simm8:$dd)>;
+    }
+    def : Pat<(op (i8 timm:$lit), GPR:$dst, (i8 len)),
+              (!cast<Instruction>(inst # "_LitR") (i8 len), timm:$lit,
+               GPR:$dst)>;
+  }
+}
+
+defm : BNLitPats<CPU6bnaddlit, "BNA">;
+defm : BNLitPats<CPU6bnsublit, "BNS">;
+defm : BNLitPats<CPU6bncmplit, "BNC">;
