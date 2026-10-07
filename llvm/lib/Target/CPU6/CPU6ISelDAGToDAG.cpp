@@ -51,6 +51,7 @@ private:
   bool SelectBlkFrame(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectFrameAddr(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectAbsAddr(SDValue N, SDValue &Addr);
+  bool selectIndexedMem(SDNode *Node);
 };
 
 class CPU6DAGToDAGISelLegacy : public SelectionDAGISelLegacy {
@@ -106,8 +107,73 @@ void CPU6DAGToDAGISel::Select(SDNode *Node) {
     CurDAG->SelectNodeTo(Node, Opc, CurDAG->getVTList(VTs), Ops);
     return;
   }
+  case ISD::LOAD:
+  case ISD::STORE:
+    if (selectIndexedMem(Node))
+      return;
+    break;
   }
   SelectCode(Node);
+}
+
+// POST_INC / PRE_DEC became a load or store whose offset is the access size.
+// The data register is chosen after register allocation; the pseudo only
+// names it. An indexed node that is not one of those strides is a bug in the
+// address hook, and SelectCode then reports it.
+bool CPU6DAGToDAGISel::selectIndexedMem(SDNode *Node) {
+  const LSBaseSDNode *Mem = dyn_cast<LSBaseSDNode>(Node);
+  if (!Mem || !Mem->isIndexed())
+    return false;
+  ISD::MemIndexedMode AM = Mem->getAddressingMode();
+  if (AM != ISD::POST_INC && AM != ISD::PRE_DEC)
+    return false;
+
+  const auto *Off = dyn_cast<ConstantSDNode>(Mem->getOffset());
+  if (!Off)
+    return false;
+  const int64_t Step = Off->getSExtValue();
+  const bool Pre = AM == ISD::PRE_DEC;
+  const EVT VT = Mem->getMemoryVT();
+
+  unsigned Opc = 0;
+  if (auto *LD = dyn_cast<LoadSDNode>(Node)) {
+    if (LD->getExtensionType() != ISD::NON_EXTLOAD)
+      return false;
+    if (VT == MVT::i16 && Step == (Pre ? -2 : 2))
+      Opc = Pre ? CPU6::LDW_PRE : CPU6::LDW_POST;
+    else if (VT == MVT::i8 && Step == (Pre ? -1 : 1))
+      Opc = Pre ? CPU6::LDB_PRE : CPU6::LDB_POST;
+    else
+      return false;
+    SDNode *Res = CurDAG->getMachineNode(Opc, SDLoc(LD), LD->getValueType(0),
+                                         MVT::i16, MVT::Other, LD->getBasePtr(),
+                                         LD->getChain());
+    MachineMemOperand *MMO = LD->getMemOperand();
+    CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {MMO});
+    Res->setNodeId(-1);
+    ReplaceUses(LD, Res);
+    CurDAG->RemoveDeadNode(LD);
+    return true;
+  }
+
+  auto *ST = cast<StoreSDNode>(Node);
+  if (ST->isTruncatingStore())
+    return false;
+  if (VT == MVT::i16 && Step == (Pre ? -2 : 2))
+    Opc = Pre ? CPU6::STW_PRE : CPU6::STW_POST;
+  else if (VT == MVT::i8 && Step == (Pre ? -1 : 1))
+    Opc = Pre ? CPU6::STB_PRE : CPU6::STB_POST;
+  else
+    return false;
+  SDNode *Res = CurDAG->getMachineNode(Opc, SDLoc(ST), MVT::i16, MVT::Other,
+                                       ST->getBasePtr(), ST->getValue(),
+                                       ST->getChain());
+  MachineMemOperand *MMO = ST->getMemOperand();
+  CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {MMO});
+  Res->setNodeId(-1);
+  ReplaceUses(ST, Res);
+  CurDAG->RemoveDeadNode(ST);
+  return true;
 }
 
 // "m" uses the same address match as a load. A symbol is `(addr)`. Anything

@@ -94,8 +94,9 @@ define void @set0(ptr %d) nounwind {
 }
 
 ; A non-constant byte is stored once and copied forward onto itself.
+; The store post-increments, so the copy starts at the next byte.
 ; CHECK-LABEL: setv:
-; CHECK: STAB
+; CHECK: {{STAB_I|STBB_I}}
 ; CHECK: MVF 8
 ; CHECK: RSR
 define void @setv(ptr %d, i8 %v) nounwind {

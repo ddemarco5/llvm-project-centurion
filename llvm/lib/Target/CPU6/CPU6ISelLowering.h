@@ -152,6 +152,14 @@ public:
     return true;
   }
 
+  // Post-increment and pre-decrement only, and only by the access size.
+  bool getPreIndexedAddressParts(SDNode *N, SDValue &Base, SDValue &Offset,
+                                 ISD::MemIndexedMode &AM,
+                                 SelectionDAG &DAG) const override;
+  bool getPostIndexedAddressParts(SDNode *N, SDNode *Op, SDValue &Base,
+                                  SDValue &Offset, ISD::MemIndexedMode &AM,
+                                  SelectionDAG &DAG) const override;
+
   // DIV is one instruction, so a constant divisor stays DIVimmLo.
   bool isIntDivCheap(EVT VT, AttributeList) const override {
     return VT == MVT::i16;

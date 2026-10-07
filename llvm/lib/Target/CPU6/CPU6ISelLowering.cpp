@@ -201,6 +201,16 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // explicit so a later change cannot silently grow inline atomics.
   setMaxAtomicSizeInBitsSupported(0);
 
+  // LDA_I / LDAB_I and the pre-decrement forms. The index is tied and steps
+  // by one byte or one word. Post-decrement and pre-increment are not modes.
+  static const MVT IdxVT[] = {MVT::i8, MVT::i16};
+  for (MVT VT : IdxVT) {
+    setIndexedLoadAction(ISD::POST_INC, VT, Legal);
+    setIndexedLoadAction(ISD::PRE_DEC, VT, Legal);
+    setIndexedStoreAction(ISD::POST_INC, VT, Legal);
+    setIndexedStoreAction(ISD::PRE_DEC, VT, Legal);
+  }
+
   setBooleanContents(ZeroOrOneBooleanContent);
   setBooleanVectorContents(ZeroOrOneBooleanContent);
   // Keep the scheduled order close to the IR while the patterns are new.
@@ -219,6 +229,93 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::SETCC);
   // A carry or borrow added to a word becomes a conditional INR or DCR.
   setTargetDAGCombine({ISD::ADD, ISD::SUB});
+}
+
+// +1 for a byte and +2 for a word, the only strides LDA_I / LDA_D implement.
+// SUB's constant is on the right; negating it turns `sub p, 2` into -2.
+static std::optional<int64_t> addrDelta(const SDNode *Op) {
+  if (Op->getOpcode() != ISD::ADD && Op->getOpcode() != ISD::SUB)
+    return std::nullopt;
+  const auto *C = dyn_cast<ConstantSDNode>(Op->getOperand(1));
+  if (!C)
+    return std::nullopt;
+  int64_t D = C->getSExtValue();
+  if (Op->getOpcode() == ISD::SUB)
+    D = -D;
+  return D;
+}
+
+static int accessStep(EVT VT) {
+  if (VT == MVT::i8)
+    return 1;
+  if (VT == MVT::i16)
+    return 2;
+  return 0;
+}
+
+// Plain (non-extending, non-truncating) load or store. The address expression
+// is Addr: the load/store base for a pre-decrement, the separate add for a
+// post-increment.
+static bool indexedAddr(SDNode *N, const SDNode *Addr, bool Pre, SDValue &Base,
+                        SDValue &Offset, ISD::MemIndexedMode &AM,
+                        SelectionDAG &DAG) {
+  EVT VT;
+  SDValue Ptr;
+  if (const auto *LD = dyn_cast<LoadSDNode>(N)) {
+    if (LD->isIndexed() || LD->getExtensionType() != ISD::NON_EXTLOAD)
+      return false;
+    VT = LD->getMemoryVT();
+    Ptr = LD->getBasePtr();
+  } else if (const auto *ST = dyn_cast<StoreSDNode>(N)) {
+    if (ST->isIndexed() || ST->isTruncatingStore())
+      return false;
+    VT = ST->getMemoryVT();
+    Ptr = ST->getBasePtr();
+  } else {
+    return false;
+  }
+
+  const int Step = accessStep(VT);
+  const std::optional<int64_t> Delta = addrDelta(Addr);
+  if (!Step || !Delta)
+    return false;
+  if (Pre ? *Delta != -Step : *Delta != Step)
+    return false;
+
+  SDValue Orig = Addr->getOperand(0);
+  // Stepping a frame index would update S. The combiner rejects a frame
+  // index as the memory base; this also rejects one buried under the add.
+  if (isa<FrameIndexSDNode>(Orig))
+    return false;
+  // Post-increment updates the register that was used as the address. An
+  // add of some other value is not that register.
+  if (!Pre && Ptr != Orig)
+    return false;
+
+  Base = Orig;
+  Offset = DAG.getSignedConstant(*Delta, SDLoc(N), MVT::i16);
+  AM = Pre ? ISD::PRE_DEC : ISD::POST_INC;
+  return true;
+}
+
+bool CPU6TargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
+                                                   SDValue &Offset,
+                                                   ISD::MemIndexedMode &AM,
+                                                   SelectionDAG &DAG) const {
+  const SDNode *Addr = nullptr;
+  if (const auto *LD = dyn_cast<LoadSDNode>(N))
+    Addr = LD->getBasePtr().getNode();
+  else if (const auto *ST = dyn_cast<StoreSDNode>(N))
+    Addr = ST->getBasePtr().getNode();
+  else
+    return false;
+  return indexedAddr(N, Addr, true, Base, Offset, AM, DAG);
+}
+
+bool CPU6TargetLowering::getPostIndexedAddressParts(
+    SDNode *N, SDNode *Op, SDValue &Base, SDValue &Offset,
+    ISD::MemIndexedMode &AM, SelectionDAG &DAG) const {
+  return indexedAddr(N, Op, false, Base, Offset, AM, DAG);
 }
 
 // The base class only resolves a brace name such as "{A}". "r" has to name

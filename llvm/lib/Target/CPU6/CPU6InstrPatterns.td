@@ -618,6 +618,51 @@ def LDBYTEabs : CenturionInst<(outs GPRB:$dst), (ins abs16:$addr),
                               "#LDBYTE", "(${addr}),$dst">;
 }
 }
+
+// Post-increment and pre-decrement load/store. The real opcodes write a fixed
+// accumulator and the index, so LDA_I (A) cannot carry both results. These
+// name the data register. expandPostRAPseudo picks LDA_I / LDB_I / LDX_I (or
+// the _D form) whose accumulator does not overlap the pointer, and falls back
+// to a plain load plus INR/DCR when every accumulator is busy.
+//
+// The pseudo claims Fault and Link as well as Minus and Value. A fallback INR
+// clobbers all four, and the selector must not keep a compare live across it.
+// After expansion the real opcode's descriptor (Minus and Value only) is what
+// later passes see. Size is the largest expansion, so a short branch relaxed
+// against the pseudo still reaches: a word fallback is XFR plus INR (6); a
+// byte both-live expansion parks the accumulator, does the opcode, and swaps
+// back (14).
+let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 0,
+    Defs = [rF, rL, rM, rV] in {
+let mayLoad = 1, mayStore = 0, Constraints = "$wb = $base,@earlyclobber $dst",
+    Size = 6 in {
+def LDW_POST : CenturionInst<(outs GPR:$dst, GPR:$wb), (ins GPR:$base),
+                             "#LDW_I", "$dst,(${base})">;
+def LDW_PRE : CenturionInst<(outs GPR:$dst, GPR:$wb), (ins GPR:$base),
+                            "#LDW_D", "$dst,(${base})">;
+}
+let mayLoad = 1, mayStore = 0, Constraints = "$wb = $base,@earlyclobber $dst",
+    Size = 14 in {
+def LDB_POST : CenturionInst<(outs GPRB:$dst, GPR:$wb), (ins GPR:$base),
+                             "#LDB_I", "$dst,(${base})">;
+def LDB_PRE : CenturionInst<(outs GPRB:$dst, GPR:$wb), (ins GPR:$base),
+                            "#LDB_D", "$dst,(${base})">;
+}
+let mayLoad = 0, mayStore = 1, Constraints = "$wb = $base,@earlyclobber $wb",
+    Size = 6 in {
+def STW_POST : CenturionInst<(outs GPR:$wb), (ins GPR:$base, GPR:$val),
+                             "#STW_I", "$val,(${base})">;
+def STW_PRE : CenturionInst<(outs GPR:$wb), (ins GPR:$base, GPR:$val),
+                            "#STW_D", "$val,(${base})">;
+}
+let mayLoad = 0, mayStore = 1, Constraints = "$wb = $base,@earlyclobber $wb",
+    Size = 14 in {
+def STB_POST : CenturionInst<(outs GPR:$wb), (ins GPR:$base, GPRB:$val),
+                             "#STB_I", "$val,(${base})">;
+def STB_PRE : CenturionInst<(outs GPR:$wb), (ins GPR:$base, GPRB:$val),
+                            "#STB_D", "$val,(${base})">;
+}
+}
 def : Pat<(i16 (load (absaddr abs16:$a))), (XFRabs abs16:$a)>;
 def : Pat<(store GPR:$src, (absaddr abs16:$a)),
           (STRmem GPR:$src, abs16:$a)>;

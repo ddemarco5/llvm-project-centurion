@@ -9,6 +9,7 @@
 #include "CPU6InstrInfo.h"
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -278,6 +279,152 @@ static bool expandByteLoad(const CPU6InstrInfo &TII, MachineInstr &MI) {
   return true;
 }
 
+// Writeback opcode for each pseudo. Columns are the A, B, and X forms.
+// A byte opcode has no X form. The data register of LDA_I and its twins is
+// implicit, so the pseudo exists until allocation has picked a register.
+struct IdxMem {
+  unsigned Pseudo;
+  unsigned A, B, X;
+  bool Store;
+  bool Pre;
+  bool Byte;
+};
+
+static const IdxMem IdxMems[] = {
+    {CPU6::LDW_POST, CPU6::LDA_5_1, CPU6::LDB_5_1, CPU6::LDX_5_1, false, false,
+     false},
+    {CPU6::LDW_PRE, CPU6::LDA_5_2, CPU6::LDB_5_2, CPU6::LDX_5_2, false, true,
+     false},
+    {CPU6::LDB_POST, CPU6::LDAB_5_1, CPU6::LDBB_5_1, 0, false, false, true},
+    {CPU6::LDB_PRE, CPU6::LDAB_5_2, CPU6::LDBB_5_2, 0, false, true, true},
+    {CPU6::STW_POST, CPU6::STA_5_1, CPU6::STB_5_1, CPU6::STX_5_1, true, false,
+     false},
+    {CPU6::STW_PRE, CPU6::STA_5_2, CPU6::STB_5_2, CPU6::STX_5_2, true, true,
+     false},
+    {CPU6::STB_POST, CPU6::STAB_5_1, CPU6::STBB_5_1, 0, true, false, true},
+    {CPU6::STB_PRE, CPU6::STAB_5_2, CPU6::STBB_5_2, 0, true, true, true},
+};
+
+static Register idxAcc(const IdxMem &M, unsigned Slot) {
+  if (M.Byte)
+    return Slot ? CPU6::rBL : CPU6::rAL;
+  return Slot == 0 ? CPU6::rA : Slot == 1 ? CPU6::rB : CPU6::rX;
+}
+
+static unsigned idxOpc(const IdxMem &M, unsigned Slot) {
+  return Slot == 0 ? M.A : Slot == 1 ? M.B : M.X;
+}
+
+// LDW_POST / LDB_POST and the store and pre-decrement twins. The accumulator
+// is the data register, or any other one LivePhysRegs::available reports
+// free (a live subregister counts: LDA_I writes all of A). A byte whose
+// accumulators are both live uses the same exchange as a byte spill. A word
+// with none free is a plain XFR/STR plus INR/DCR, the code before the fold.
+static bool expandIndexedMem(const CPU6InstrInfo &TII, MachineInstr &MI) {
+  const IdxMem *M = nullptr;
+  for (const IdxMem &E : IdxMems)
+    if (E.Pseudo == MI.getOpcode())
+      M = &E;
+  if (!M)
+    return false;
+
+  const TargetRegisterInfo &TRI = TII.getRegisterInfo();
+  MachineBasicBlock &MBB = *MI.getParent();
+  const DebugLoc &DL = MI.getDebugLoc();
+  // Load operands are dst, wb, base. Store operands are wb, base, val.
+  Register Data =
+      M->Store ? MI.getOperand(2).getReg() : MI.getOperand(0).getReg();
+  Register WB = MI.getOperand(M->Store ? 0 : 1).getReg();
+  Register Base = MI.getOperand(M->Store ? 1 : 2).getReg();
+  assert(WB == Base && "indexed writeback is tied to the base");
+  // earlyclobber keeps the data register off the pointer. LDA_I (A) would
+  // write both results to A.
+  if (TRI.regsOverlap(Data, Base))
+    report_fatal_error("CPU6 indexed operand overlaps the pointer");
+
+  const unsigned N = M->Byte ? 2 : 3;
+  auto xfer = [&](Register Dst, Register Src, bool Kill) {
+    BuildMI(MBB, MI, DL, TII.get(M->Byte ? CPU6::XFRB : CPU6::XFR), Dst)
+        .addReg(Src, getKillRegState(Kill));
+  };
+  auto emit = [&](unsigned Slot) {
+    BuildMI(MBB, MI, DL, TII.get(idxOpc(*M, Slot)), WB)
+        .addReg(Base)
+        .cloneMemRefs(MI);
+  };
+
+  for (unsigned Slot = 0; Slot < N; ++Slot) {
+    if (idxAcc(*M, Slot) != Data)
+      continue;
+    emit(Slot);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  LivePhysRegs Live(TRI);
+  Live.addLiveOuts(MBB);
+  for (MachineInstr &I : llvm::reverse(MBB)) {
+    if (&I == &MI)
+      break;
+    Live.stepBackward(I);
+  }
+  const MachineRegisterInfo &MRI = MI.getMF()->getRegInfo();
+  for (unsigned Slot = 0; Slot < N; ++Slot) {
+    Register Acc = idxAcc(*M, Slot);
+    if (TRI.regsOverlap(Acc, Base) || !Live.available(MRI, Acc))
+      continue;
+    if (M->Store)
+      xfer(Acc, Data, MI.getOperand(2).isKill());
+    emit(Slot);
+    if (!M->Store && !MI.getOperand(0).isDead())
+      xfer(Data, Acc, true);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  // Park the accumulator that is not the pointer. swapBytes restores it.
+  if (M->Byte) {
+    unsigned Slot = TRI.regsOverlap(Base, CPU6::rA) ? 1 : 0;
+    Register Acc = idxAcc(*M, Slot);
+    if (TRI.regsOverlap(Data, Acc))
+      report_fatal_error("CPU6 indexed byte op has no accumulator");
+    if (M->Store)
+      swapBytes(TII, MBB, MI, DL, Data, Acc);
+    else
+      xfer(Data, Acc, false);
+    emit(Slot);
+    swapBytes(TII, MBB, MI, DL, Data, Acc);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  // INR/DCR's count nibble is the distance minus one. A word steps by 2.
+  // Pre-decrement steps first so the access sees the new address. The data
+  // register is not the pointer, so the stored value survives the step.
+  auto step = [&](bool Pre) {
+    BuildMI(MBB, MI, DL, TII.get(Pre ? CPU6::DCR : CPU6::INR), WB)
+        .addReg(Base)
+        .addImm(1);
+  };
+  if (M->Pre)
+    step(true);
+  if (M->Store)
+    BuildMI(MBB, MI, DL, TII.get(CPU6::STRidx))
+        .addReg(Data, getKillRegState(MI.getOperand(2).isKill()))
+        .addReg(Base)
+        .addImm(0)
+        .cloneMemRefs(MI);
+  else
+    BuildMI(MBB, MI, DL, TII.get(CPU6::XFRidx), Data)
+        .addReg(Base)
+        .addImm(0)
+        .cloneMemRefs(MI);
+  if (!M->Pre)
+    step(false);
+  MI.eraseFromParent();
+  return true;
+}
+
 bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   // Frame indices are already displacements here; the prologue inserter ran
   // first. A byte load result is any byte register (LDBYTE). A spill still
@@ -285,6 +432,8 @@ bool CPU6InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   unsigned Opc = MI.getOpcode();
   if (Opc == CPU6::LDBYTEfi || Opc == CPU6::LDBYTEabs)
     return expandByteLoad(*this, MI);
+  if (expandIndexedMem(*this, MI))
+    return true;
   if (Opc != CPU6::SPILLB && Opc != CPU6::RELOADB)
     return false;
 
