@@ -11,6 +11,7 @@
 #include "CPU6MachineFunctionInfo.h"
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/MC/MCRegister.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -855,6 +856,35 @@ SDValue CPU6TargetLowering::combineCarryStep(SDNode *N,
                      Sel.getOperand(3));
 }
 
+// CPF's equality result is select_cc 0, 1, BZ: 0 when the buffers match.
+// icmp eq of that with 0 is 1 when they match, which is the same compare
+// with the constants swapped, so the test does not become a second compare.
+static SDValue combineMemcmpTest(SDNode *N, SelectionDAG &DAG) {
+  SDValue X = N->getOperand(0);
+  if (X.getOpcode() != CPU6ISD::SELECT_CC || !isNullConstant(N->getOperand(1)))
+    return SDValue();
+  auto *True = dyn_cast<ConstantSDNode>(X.getOperand(0));
+  auto *False = dyn_cast<ConstantSDNode>(X.getOperand(1));
+  auto *Br = dyn_cast<ConstantSDNode>(X.getOperand(2));
+  if (!True || !False || !Br || !True->isZero() || False->getZExtValue() != 1 ||
+      Br->getZExtValue() != CPU6::BZ)
+    return SDValue();
+  ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+  SDLoc DL(N);
+  SDValue Sel;
+  if (CC == ISD::SETEQ)
+    Sel = DAG.getNode(CPU6ISD::SELECT_CC, DL, MVT::i16,
+                      DAG.getConstant(1, DL, MVT::i16),
+                      DAG.getConstant(0, DL, MVT::i16), X.getOperand(2),
+                      X.getOperand(3));
+  else if (CC == ISD::SETNE)
+    Sel = X;
+  else
+    return SDValue();
+  EVT ResVT = N->getValueType(0);
+  return ResVT == MVT::i16 ? Sel : DAG.getNode(ISD::TRUNCATE, DL, ResVT, Sel);
+}
+
 SDValue CPU6TargetLowering::PerformDAGCombine(SDNode *N,
                                               DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -862,7 +892,9 @@ SDValue CPU6TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::STORE:
     return combineBignumStore(cast<StoreSDNode>(N), DAG);
   case ISD::SETCC:
-    return combineBignumSetCC(N, DAG);
+    if (SDValue R = combineBignumSetCC(N, DAG))
+      return R;
+    return combineMemcmpTest(N, DAG);
   case ISD::ADD:
   case ISD::SUB:
     return combineCarryStep(N, DAG);
@@ -1649,6 +1681,10 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case CPU6::MEMMOVELOOP:
   case CPU6::MEMSETLOOP:
     return EmitMemLoop(MI, BB);
+  case CPU6::CMPRES:
+    return EmitCmpRes(MI, BB);
+  case CPU6::MEMCMPLOOP:
+    return EmitMemCmpLoop(MI, BB);
   case CPU6::WSHIFT2:
   case CPU6::WSHIFT4:
   case CPU6::WSHIFT8:
@@ -1883,6 +1919,108 @@ SDValue CPU6SelectionDAGInfo::EmitTargetCodeForMemset(
   return copyBlocks(DAG, DL, Chain, Dst, Next, N - 1);
 }
 
+// memcmp. A constant 2 or 4 bytes compared only with zero is left to the
+// builder, which already emits one word compare or BNC 3,3. Eight bytes
+// compared only with zero is the same BNC 7,7 the bignum setcc fold emits.
+// Any other constant length up to 256 is one CPF. A longer or run-time
+// length is the CPFR loop.
+//
+// CenREE: CPF sets V when every byte matches and Minus when the
+// destination's first differing byte is unsigned-less than the source.
+// Link stays clear. BNC and SUB do use Link (set means no borrow), so the
+// less-than branch is BM after CPF and BNL after BNC or SUB. The returned
+// order is -1, 0, or 1. An equality test wants 0 when the buffers match,
+// and the icmp eq 0 of that folds back onto the same flags.
+
+static SDValue loadBytes(SelectionDAG &DAG, const SDLoc &DL, EVT VT,
+                         SDValue Chain, SDValue Ptr) {
+  return DAG.getLoad(VT, DL, Chain, Ptr, MachinePointerInfo(), Align(1));
+}
+
+static std::pair<SDValue, SDValue>
+emitWideEquality(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Lhs,
+                 SDValue Rhs) {
+  SDValue L = loadBytes(DAG, DL, MVT::i64, Chain, Lhs);
+  SDValue R = loadBytes(DAG, DL, MVT::i64, Chain, Rhs);
+  SDValue Cmp = DAG.getSetCC(DL, MVT::i1, L, R, ISD::SETNE);
+  SDValue Out = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, L.getValue(1),
+                            R.getValue(1));
+  return {Cmp, Out};
+}
+
+// Flags of lhs - rhs, then -1/0/1. Two bytes are a word SUB. Four and eight
+// are BNC, whose operands are the source pointer then the destination.
+static std::pair<SDValue, SDValue>
+emitOrderedCompare(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                   SDValue Lhs, SDValue Rhs, uint64_t N) {
+  if (N == 2) {
+    SDValue L = loadBytes(DAG, DL, MVT::i16, Chain, Lhs);
+    SDValue R = loadBytes(DAG, DL, MVT::i16, Chain, Rhs);
+    SDValue Cmp = DAG.getNode(CPU6ISD::CMP, DL,
+                              DAG.getVTList(MVT::i16, MVT::Glue), L, R);
+    SDValue Res = DAG.getNode(
+        CPU6ISD::CMP_RES, DL, MVT::i16,
+        DAG.getTargetConstant(CPU6::BNL, DL, MVT::i16), Cmp.getValue(1));
+    SDValue Out = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, L.getValue(1),
+                              R.getValue(1));
+    return {Res, Out};
+  }
+  unsigned Len = N == 4 ? 3 : 7;
+  SDValue Cmp = DAG.getNode(CPU6ISD::BN_CMP, DL,
+                            DAG.getVTList(MVT::Other, MVT::Glue), Chain, Rhs,
+                            Lhs, DAG.getTargetConstant(Len, DL, MVT::i8));
+  SDValue Res = DAG.getNode(
+      CPU6ISD::CMP_RES, DL, MVT::i16,
+      DAG.getTargetConstant(CPU6::BNL, DL, MVT::i16), Cmp.getValue(1));
+  return {Res, Cmp};
+}
+
+static std::pair<SDValue, SDValue>
+emitBlockCompare(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Lhs,
+                 SDValue Rhs, uint64_t N, bool EqOnly) {
+  // CPF src,dst flags of dst - src at the first difference. dst is lhs.
+  SDValue Cmp = DAG.getNode(CPU6ISD::BLK_CMP, DL,
+                            DAG.getVTList(MVT::Other, MVT::Glue), Chain, Rhs,
+                            Lhs, DAG.getTargetConstant(N - 1, DL, MVT::i8));
+  SDValue Res;
+  if (EqOnly)
+    Res = DAG.getNode(CPU6ISD::SELECT_CC, DL, MVT::i16,
+                      DAG.getConstant(0, DL, MVT::i16),
+                      DAG.getConstant(1, DL, MVT::i16),
+                      DAG.getTargetConstant(CPU6::BZ, DL, MVT::i16),
+                      Cmp.getValue(1));
+  else
+    Res = DAG.getNode(CPU6ISD::CMP_RES, DL, MVT::i16,
+                      DAG.getTargetConstant(CPU6::BM, DL, MVT::i16),
+                      Cmp.getValue(1));
+  return {Res, Cmp};
+}
+
+std::pair<SDValue, SDValue> CPU6SelectionDAGInfo::EmitTargetCodeForMemcmp(
+    SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue Lhs, SDValue Rhs,
+    SDValue Size, const CallInst *CI) const {
+  bool EqOnly = CI && isOnlyUsedInZeroEqualityComparison(CI);
+  auto *C = dyn_cast<ConstantSDNode>(Size);
+  if (!C || C->getZExtValue() > 256) {
+    unsigned Kind = EqOnly ? 0 : 1;
+    SDValue Node = DAG.getNode(
+        CPU6ISD::MEMCMP_LOOP, DL, DAG.getVTList(MVT::i16, MVT::Other), Chain,
+        Lhs, Rhs, DAG.getZExtOrTrunc(Size, DL, MVT::i16),
+        DAG.getTargetConstant(Kind, DL, MVT::i16));
+    return {Node, Node.getValue(1)};
+  }
+  uint64_t N = C->getZExtValue();
+  if (N == 0)
+    return {DAG.getConstant(0, DL, MVT::i16), Chain};
+  if (EqOnly && (N == 2 || N == 4))
+    return {};
+  if (EqOnly && N == 8)
+    return emitWideEquality(DAG, DL, Chain, Lhs, Rhs);
+  if (N == 2 || N == 4 || N == 8)
+    return emitOrderedCompare(DAG, DL, Chain, Lhs, Rhs, N);
+  return emitBlockCompare(DAG, DL, Chain, Lhs, Rhs, N, EqOnly);
+}
+
 // Copies N bytes from Src to Dst, lowest address first, between Pre and Exit.
 // Pre ends with the zero test. MVFR copies AL + 1 bytes and leaves its
 // registers alone, so each pass sets AL, then steps both pointers by 256:
@@ -2084,6 +2222,218 @@ CPU6TargetLowering::EmitMemLoop(MachineInstr &MI, MachineBasicBlock *BB) const {
   emitCopyLoop(Head, Exit, Dst, Next, Rest, DL);
   MI.eraseFromParent();
   return Exit;
+}
+
+// The compare is already at the end of BB and its flags are live. BZ takes
+// the zero, $less (BNL or BM) takes the -1, and the fall-through is +1.
+// CLR and XFR land in those blocks: CLR clears Link, so it cannot run
+// while the flags are still needed.
+MachineBasicBlock *
+CPU6TargetLowering::EmitCmpRes(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+  unsigned Less = MI.getOperand(1).getImm();
+  auto VReg = [&] { return MRI.createVirtualRegister(&CPU6::GPRRegClass); };
+
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  auto Make = [&] {
+    MachineBasicBlock *B = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+    MF->insert(It, B);
+    return B;
+  };
+  MachineBasicBlock *Pos = Make();
+  MachineBasicBlock *Zero = Make();
+  MachineBasicBlock *Neg = Make();
+  MachineBasicBlock *Join = Make();
+  Join->splice(Join->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Join->transferSuccessorsAndUpdatePHIs(BB);
+
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Zero);
+  BuildMI(BB, DL, TII.get(Less)).addMBB(Neg);
+  BB->addSuccessor(Zero);
+  BB->addSuccessor(Neg);
+  BB->addSuccessor(Pos);
+
+  Register One = VReg();
+  BuildMI(Pos, DL, TII.get(CPU6::CLR), One).addImm(1);
+  BuildMI(Pos, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+  Pos->addSuccessor(Join);
+
+  Register Z = VReg();
+  BuildMI(Zero, DL, TII.get(CPU6::CLR), Z).addImm(0);
+  BuildMI(Zero, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+  Zero->addSuccessor(Join);
+
+  Register Minus = VReg();
+  BuildMI(Neg, DL, TII.get(CPU6::XFRimm), Minus).addImm(65535);
+  BuildMI(Neg, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+  Neg->addSuccessor(Join);
+
+  BuildMI(*Join, Join->begin(), DL, TII.get(TargetOpcode::PHI), Dst)
+      .addReg(One).addMBB(Pos)
+      .addReg(Z).addMBB(Zero)
+      .addReg(Minus).addMBB(Neg);
+  MI.eraseFromParent();
+  return Join;
+}
+
+// MEMCMPLOOP lhs,rhs,n,kind. kind 0 yields 0 or 1. kind 1 yields -1, 0, or 1.
+// n == 0 compares nothing and returns 0. Otherwise CPFR compares min(n, 256)
+// bytes with count-1 in AL and stops at the first difference. CPF's Minus
+// means lhs < rhs. Under optsize it is a byte loop, and that compare is a
+// SUBB, whose less-than flag is Link rather than Minus.
+MachineBasicBlock *
+CPU6TargetLowering::EmitMemCmpLoop(MachineInstr &MI,
+                                  MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  bool EqOnly = MI.getOperand(4).getImm() == 0;
+  Register Dst = MI.getOperand(0).getReg();
+  Register Lhs0 = MI.getOperand(1).getReg();
+  Register Rhs0 = MI.getOperand(2).getReg();
+  Register N0 = MI.getOperand(3).getReg();
+  auto VReg = [&] { return MRI.createVirtualRegister(&CPU6::GPRRegClass); };
+
+  MachineBasicBlock *Join = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(std::next(BB->getIterator()), Join);
+  Join->splice(Join->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Join->transferSuccessorsAndUpdatePHIs(BB);
+
+  auto NewBlock = [&] {
+    MachineBasicBlock *B = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+    MF->insert(Join->getIterator(), B);
+    return B;
+  };
+
+  // Loop is created first so BB falls through into it.
+  MachineBasicBlock *Loop = NewBlock();
+  MachineBasicBlock *Pos = NewBlock();
+  MachineBasicBlock *Zero = NewBlock();
+  MachineBasicBlock *Neg = EqOnly ? nullptr : NewBlock();
+
+  Register One = VReg();
+  BuildMI(Pos, DL, TII.get(CPU6::CLR), One).addImm(1);
+  BuildMI(Pos, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+  Pos->addSuccessor(Join);
+  Register Z = VReg();
+  BuildMI(Zero, DL, TII.get(CPU6::CLR), Z).addImm(0);
+  BuildMI(Zero, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+  Zero->addSuccessor(Join);
+  Register Minus;
+  if (!EqOnly) {
+    Minus = VReg();
+    BuildMI(Neg, DL, TII.get(CPU6::XFRimm), Minus).addImm(65535);
+    BuildMI(Neg, DL, TII.get(CPU6::JMP_3)).addMBB(Join);
+    Neg->addSuccessor(Join);
+  }
+
+  // Flags of the compare are live on entry. Equality is +1. An ordered
+  // compare reads Minus (CPFR) or Link (SUBB).
+  auto Differ = [&](MachineBasicBlock *From, unsigned Less) {
+    if (EqOnly) {
+      BuildMI(From, DL, TII.get(CPU6::JMP_3)).addMBB(Pos);
+      From->addSuccessor(Pos);
+      return;
+    }
+    BuildMI(From, DL, TII.get(Less)).addMBB(Neg);
+    BuildMI(From, DL, TII.get(CPU6::JMP_3)).addMBB(Pos);
+    From->addSuccessor(Neg);
+    From->addSuccessor(Pos);
+  };
+
+  BuildMI(BB, DL, TII.get(CPU6::TST)).addReg(N0);
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Zero);
+  BB->addSuccessor(Loop);
+  BB->addSuccessor(Zero);
+
+  if (MF->getFunction().hasOptSize()) {
+    MachineBasicBlock *Step = NewBlock();
+    MachineBasicBlock *Diff = NewBlock();
+    Register S = VReg(), D = VReg(), M = VReg();
+    Register S2 = VReg(), D2 = VReg(), M2 = VReg();
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), S)
+        .addReg(Lhs0).addMBB(BB).addReg(S2).addMBB(Step);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), D)
+        .addReg(Rhs0).addMBB(BB).addReg(D2).addMBB(Step);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), M)
+        .addReg(N0).addMBB(BB).addReg(M2).addMBB(Step);
+    BuildMI(Loop, DL, TII.get(CPU6::LDAB_5_1), S2).addReg(S);
+    BuildMI(Loop, DL, TII.get(CPU6::LDBB_5_1), D2).addReg(D);
+    // SUBB src,dst is dst = src - dst. Flags of AL - BL, and BL is dead.
+    BuildMI(Loop, DL, TII.get(CPU6::CMPB), CPU6::rBL)
+        .addReg(CPU6::rAL)
+        .addReg(CPU6::rBL);
+    BuildMI(Loop, DL, TII.get(CPU6::BNZ)).addMBB(Diff);
+    BuildMI(Loop, DL, TII.get(CPU6::JMP_3)).addMBB(Step);
+    Loop->addSuccessor(Diff);
+    Loop->addSuccessor(Step);
+    BuildMI(Step, DL, TII.get(CPU6::DCR), M2).addReg(M).addImm(0);
+    BuildMI(Step, DL, TII.get(CPU6::TST)).addReg(M2);
+    BuildMI(Step, DL, TII.get(CPU6::BNZ)).addMBB(Loop);
+    BuildMI(Step, DL, TII.get(CPU6::JMP_3)).addMBB(Zero);
+    Step->addSuccessor(Loop);
+    Step->addSuccessor(Zero);
+    Differ(Diff, CPU6::BNL);
+  } else {
+    MachineBasicBlock *Big = NewBlock();
+    MachineBasicBlock *Cont = NewBlock();
+    MachineBasicBlock *Last = NewBlock();
+    MachineBasicBlock *DiffBig = NewBlock();
+    MachineBasicBlock *DiffLast = NewBlock();
+    Register L = VReg(), R = VReg(), M = VReg();
+    Register L2 = VReg(), R2 = VReg(), M2 = VReg();
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), L)
+        .addReg(Lhs0).addMBB(BB).addReg(L2).addMBB(Cont);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), R)
+        .addReg(Rhs0).addMBB(BB).addReg(R2).addMBB(Cont);
+    BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), M)
+        .addReg(N0).addMBB(BB).addReg(M2).addMBB(Cont);
+    // Link set is no borrow: n <= 256 fits in one CPFR. Big is not the
+    // layout successor, so the other edge is a jump.
+    BuildMI(Loop, DL, TII.get(CPU6::CMPimm), VReg()).addReg(M).addImm(256);
+    BuildMI(Loop, DL, TII.get(CPU6::BL)).addMBB(Last);
+    BuildMI(Loop, DL, TII.get(CPU6::JMP_3)).addMBB(Big);
+    Loop->addSuccessor(Last);
+    Loop->addSuccessor(Big);
+
+    Register Full = VReg();
+    BuildMI(Big, DL, TII.get(CPU6::XFRimm), Full).addImm(255);
+    BuildMI(Big, DL, TII.get(TargetOpcode::COPY), CPU6::rA).addReg(Full);
+    BuildMI(Big, DL, TII.get(CPU6::CPFR_RR)).addReg(R).addReg(L);
+    BuildMI(Big, DL, TII.get(CPU6::BNZ)).addMBB(DiffBig);
+    BuildMI(Big, DL, TII.get(CPU6::JMP_3)).addMBB(Cont);
+    Big->addSuccessor(DiffBig);
+    Big->addSuccessor(Cont);
+    BuildMI(Cont, DL, TII.get(CPU6::ADDimm), L2).addReg(L).addImm(256);
+    BuildMI(Cont, DL, TII.get(CPU6::ADDimm), R2).addReg(R).addImm(256);
+    BuildMI(Cont, DL, TII.get(CPU6::ADDimm), M2).addReg(M).addImm(-256);
+    BuildMI(Cont, DL, TII.get(CPU6::JMP_3)).addMBB(Loop);
+    Cont->addSuccessor(Loop);
+    Differ(DiffBig, CPU6::BM);
+
+    Register Count = VReg();
+    BuildMI(Last, DL, TII.get(CPU6::ADDimm), Count).addReg(M).addImm(-1);
+    BuildMI(Last, DL, TII.get(TargetOpcode::COPY), CPU6::rA).addReg(Count);
+    BuildMI(Last, DL, TII.get(CPU6::CPFR_RR)).addReg(R).addReg(L);
+    BuildMI(Last, DL, TII.get(CPU6::BNZ)).addMBB(DiffLast);
+    BuildMI(Last, DL, TII.get(CPU6::JMP_3)).addMBB(Zero);
+    Last->addSuccessor(DiffLast);
+    Last->addSuccessor(Zero);
+    Differ(DiffLast, CPU6::BM);
+  }
+
+  auto Phi = BuildMI(*Join, Join->begin(), DL, TII.get(TargetOpcode::PHI), Dst)
+                 .addReg(One).addMBB(Pos)
+                 .addReg(Z).addMBB(Zero);
+  if (!EqOnly)
+    Phi.addReg(Minus).addMBB(Neg);
+  MI.eraseFromParent();
+  return Join;
 }
 
 // A variable shift of N words. N is the number of explicit defs, so an i32

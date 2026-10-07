@@ -73,6 +73,20 @@ enum NodeType : unsigned {
   MEMCPY_LOOP,
   MEMMOVE_LOOP,
   MEMSET_LOOP,
+  // CPF. Chain and glue out. Operands are the source pointer, the
+  // destination pointer, and count-1. CenREE sets V when every compared
+  // byte matches and Minus when the destination's first differing byte is
+  // unsigned-less than the source. Link stays clear: this is not BNC.
+  // CPFR is the same compare with count-1 in AL, and AU is ignored.
+  BLK_CMP,
+  // -1, 0, or 1 from the flags of the glued compare. The operand is the
+  // branch taken when the first buffer is less: BNL after SUB or BNC,
+  // BM after CPF.
+  CMP_RES,
+  // A run-time memcmp. Operands are the first buffer, the second, the
+  // byte count, and 0 for a 0/1 equality result or 1 for -1/0/1.
+  // See EmitMemCmpLoop.
+  MEMCMP_LOOP,
   // Variable shift of N i16 words, low word first. Operands are the N words,
   // the count, and a target constant for the direction (shl / lshr / ashr).
   // N is 2 for an i32, 4 for an i64, and 8 for an i128. See EmitWideShift.
@@ -105,6 +119,11 @@ public:
                                   SDValue Size, Align Alignment,
                                   bool IsVolatile, bool AlwaysInline,
                                   MachinePointerInfo DstPtrInfo) const override;
+
+  std::pair<SDValue, SDValue>
+  EmitTargetCodeForMemcmp(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain,
+                          SDValue Op1, SDValue Op2, SDValue Op3,
+                          const CallInst *CI) const override;
 };
 
 class CPU6TargetLowering : public TargetLowering {
@@ -206,6 +225,11 @@ private:
   MachineBasicBlock *EmitMulLoHi(MachineInstr &MI,
                                  MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMemLoop(MachineInstr &MI, MachineBasicBlock *BB) const;
+  // -1/0/1 from the flags of the compare glued to this pseudo.
+  MachineBasicBlock *EmitCmpRes(MachineInstr &MI, MachineBasicBlock *BB) const;
+  // CPF/CPFR loop for a memcmp whose length is not one immediate count.
+  MachineBasicBlock *EmitMemCmpLoop(MachineInstr &MI,
+                                    MachineBasicBlock *BB) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue, CallingConv::ID CallConv,
                           bool IsVarArg, const SmallVectorImpl<ISD::InputArg> &Ins,

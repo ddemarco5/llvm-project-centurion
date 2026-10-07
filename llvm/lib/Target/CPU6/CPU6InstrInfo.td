@@ -1230,7 +1230,9 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 // MVF is selector 4, FIL is 9, CPF is 8. A 0x47 length is immediate
 // count-1 (at most 256 bytes); MVFR/FILR/CPFR take that length in AL.
 // Codegen selects the register forms and, for a single-use address, the
-// absolute and indexed 0x47 forms. The 0x67 forms stay in the assembler.
+// absolute and indexed 0x47 forms. MVFR is the variable-length copy.
+// CPFR_RR is the variable-length compare; the other 0x67 compare forms
+// stay in the assembler.
 //
 // Run in the CenREE microcode simulator: the copy goes one byte at a time
 // from the lowest address up, so a destination one byte above its source
@@ -2005,10 +2007,13 @@ foreach OP = [
   def OP.Name#_I16 : Fil47I16<OP.Sel, OP.Name>;
 }
 
+// CenREE: AL is count-1, AU is ignored, and the flags match CPF (V equal,
+// Minus if dst's first differing byte is unsigned-less than src).
 foreach OP = [
-    OpSel<"CPFR", 8>
+    OpSel<"CPFR", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Uses = [rAL], Defs = OP.Flags, mayLoad = 1, mayStore = 0,
+      hasSideEffects = 0 in
   def OP.Name#_RR : Mem67RR<OP.Sel, OP.Name>;
 }
 
@@ -2229,6 +2234,61 @@ foreach OP = [
 // intermediate to hide it. The DRM alias above is different: that one is
 // understood, and the selector keeps the remainder off the quotient's
 // bytes. An uncharacterized wrong answer is not a selection failure.
+//
+// M (selector 5) is one of those, and the wrong part is Fault. Stepping
+// webCenREE's microcode (cpu.step; cen.ts does not implement this
+// selector) stored the low Dest bytes of the signed product on every
+// trial, big-endian two's complement. Trials: all 65536 one-byte pairs
+// with both operands in -128..127; the sign, zero, and power-of-two
+// corners at 2, 4, and 8 bytes, including unequal lengths, Src and Dest
+// at one address, and Fault both clear and set on entry; the same
+// corners at 3, 5, 6, 7, and 16 bytes, including a 1-byte operand
+// against a 16-byte one. Same-address operands were part of the 1, 2,
+// 4, and 8 byte runs. Operands were absolute addresses. Value was set
+// exactly when the stored bytes were zero, and Minus followed their
+// sign bit. A product of zero was stored as zeros with Value set, and so
+// was a product of exactly -(2^(8*DestLen)), whose low Dest bytes are zero.
+// The stored zero is the right truncation. Link was clear after every
+// multiply in those sweeps. M also cleared an incoming Link: ADD of
+// 0x8000 and 0x8000 leaves V, Fault, and Link set, and the following
+// one-byte M ended with Link clear for 2*3, for 0*-1, and for -128*2.
+//
+// Fault is computed and written. The bit on entry does not stick: RF
+// and SF before the same multiply produce the same Fault, and the
+// incoming Link test above had Fault set and a fitting 2*3 cleared it.
+// Two products write the wrong Fault. Both show up at every Dest length
+// tried, with the negative factor on either side. The width below is
+// the Dest length. A 1-byte Src against a 16-byte Dest, and a 16-byte
+// Src against a 1-byte Dest, followed these rules.
+//
+//   The product is 0 and either operand is negative. Fault is set.
+//   0*0, 0 times a positive, and a positive times 0 leave Fault clear.
+//   All 256 one-byte
+//   pairs of that shape set Fault, and no other one-byte pair whose
+//   product was 0 did. The bytes are zero and Value is set; only Fault is
+//   wrong. 0 is not negative, so a negative times a negative is not in
+//   this set.
+//
+//   The product is exactly -(2^(8*DestLen)). Fault is clear. The stored
+//   bytes are zero and Value is set, but the product does not fit in a
+//   signed Dest, so Fault should be set. On one byte the only such
+//   pairs are the twelve factorizations of -256 that fit in a signed
+//   byte: 2*-128, 4*-64, 8*-32, 16*-16, 32*-8, 64*-4, and each swap.
+//   Every other one-byte pair set Fault exactly when the product did
+//   not fit. The neighbors of this product do set Fault:
+//   +2^(8*DestLen) (the most negative Dest value times -2, and
+//   4*2^(8*DestLen-2)), -(2^(8*DestLen+1)) (that value times 4, and
+//   -8*2^(8*DestLen-2)), and the most negative Dest value times -1,
+//   which overflows to +2^(8*DestLen-1). The most negative value itself
+//   fits (times 1, and -2*2^(8*DestLen-2)) and Fault stays clear.
+//   A 16-byte most-negative value times a 1-byte 2 misses Fault. A
+//   1-byte 0 times a 16-byte -1 sets it.
+//
+// A branch on Fault after M therefore treats a negative times zero as
+// overflow, and treats an overflow to exactly -(2^(8*DestLen)) as a
+// zero result that fit. The stored bits and Value are still the low part
+// of the signed product. Selector, lengths, operand order, and
+// addresses are right. Leave M at the width of the IR value.
 
 // The prefix shared by every layout: opcode, lengths, selector, modes.
 class BNHead<bits<4> sel, bits<2> sm, bits<2> dm> {

@@ -139,6 +139,26 @@ def CPU6blkfill : SDNode<"CPU6ISD::BLK_FILL",
                                               SDTCisVT<1, iPTR>,
                                               SDTCisVT<2, i8>]>,
                          [SDNPHasChain, SDNPMayStore]>;
+// CPF. Same operands as a block copy: source, destination, count-1.
+// Glue carries V and Minus to the flag reader. Nothing is stored.
+def CPU6blkcmp : SDNode<"CPU6ISD::BLK_CMP",
+                        SDTypeProfile<0, 3, [SDTCisVT<0, iPTR>,
+                                             SDTCisVT<1, iPTR>,
+                                             SDTCisVT<2, i8>]>,
+                        [SDNPHasChain, SDNPOutGlue, SDNPMayLoad]>;
+// -1/0/1 from the glued compare. $less is BM or BNL.
+def CPU6cmpres : SDNode<"CPU6ISD::CMP_RES",
+                        SDTypeProfile<1, 1, [SDTCisVT<0, i16>,
+                                             SDTCisVT<1, i16>]>,
+                        [SDNPInGlue]>;
+// lhs, rhs, byte count, and 0 (equality) or 1 (signed order).
+def CPU6memcmploop : SDNode<"CPU6ISD::MEMCMP_LOOP",
+                            SDTypeProfile<1, 4, [SDTCisVT<0, i16>,
+                                                 SDTCisVT<1, iPTR>,
+                                                 SDTCisVT<2, iPTR>,
+                                                 SDTCisVT<3, i16>,
+                                                 SDTCisVT<4, i16>]>,
+                            [SDNPHasChain, SDNPMayLoad]>;
 // A copy or fill of a run-time length: the operands are src, dst, and the
 // byte count (memcpy), or dst, the byte, and the count (memset).
 def CPU6memcpyloop : SDNode<"CPU6ISD::MEMCPY_LOOP",
@@ -683,6 +703,40 @@ let AddedComplexity = 8 in {
             (FIL_I8 timm:$cnt, timm:$byte, GPR:$b, simm8:$d)>;
 }
 
+// CPF count,src,dst. The address folds are the MVF ones: a single-use
+// absolute or a register plus a signed byte. Two frame indexes stay RR.
+// count-1 is the immediate, so 4 bytes is CPF 3.
+def : Pat<(CPU6blkcmp GPR:$src, GPR:$dst, (i8 timm:$cnt)),
+          (CPF_RR timm:$cnt, GPR:$src, GPR:$dst)>;
+let AddedComplexity = 8 in {
+  def : Pat<(CPU6blkcmp (blkabs abs16:$src), (blkabs abs16:$dst),
+                         (i8 timm:$cnt)),
+            (CPF_DD timm:$cnt, abs16:$src, abs16:$dst)>;
+  def : Pat<(CPU6blkcmp (blkabs abs16:$src), GPR:$dst, (i8 timm:$cnt)),
+            (CPF_DR timm:$cnt, abs16:$src, GPR:$dst)>;
+  def : Pat<(CPU6blkcmp GPR:$src, (blkabs abs16:$dst), (i8 timm:$cnt)),
+            (CPF_RD timm:$cnt, GPR:$src, abs16:$dst)>;
+  def : Pat<(CPU6blkcmp (blkidx GPR:$sb, simm8:$sd),
+                        (blkidx GPR:$db, simm8:$dd), (i8 timm:$cnt)),
+            (CPF_I8I8 timm:$cnt, GPR:$sb, simm8:$sd, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcmp (blkidx GPR:$sb, simm8:$sd), GPR:$dst, (i8 timm:$cnt)),
+            (CPF_I8R timm:$cnt, GPR:$sb, simm8:$sd, GPR:$dst)>;
+  def : Pat<(CPU6blkcmp GPR:$src, (blkidx GPR:$db, simm8:$dd), (i8 timm:$cnt)),
+            (CPF_RI8 timm:$cnt, GPR:$src, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcmp (blkidx GPR:$sb, simm8:$sd), (blkabs abs16:$dst),
+                        (i8 timm:$cnt)),
+            (CPF_I8D timm:$cnt, GPR:$sb, simm8:$sd, abs16:$dst)>;
+  def : Pat<(CPU6blkcmp (blkabs abs16:$src), (blkidx GPR:$db, simm8:$dd),
+                        (i8 timm:$cnt)),
+            (CPF_DI8 timm:$cnt, abs16:$src, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcmp (blkframe GPR:$sb, simm8:$sd), GPR:$dst,
+                        (i8 timm:$cnt)),
+            (CPF_I8R timm:$cnt, GPR:$sb, simm8:$sd, GPR:$dst)>;
+  def : Pat<(CPU6blkcmp GPR:$src, (blkframe GPR:$db, simm8:$dd),
+                        (i8 timm:$cnt)),
+            (CPF_RI8 timm:$cnt, GPR:$src, GPR:$db, simm8:$dd)>;
+}
+
 // A run-time length (CPU6TargetLowering::EmitMemLoop). A zero count skips
 // the copy. Otherwise it is MVFR with count-1 in AL, 256 bytes at a time,
 // or under optsize a byte loop through AL with post-incremented pointers.
@@ -706,6 +760,25 @@ def : Pat<(CPU6memmoveloop GPR:$src, GPR:$dst, GPR:$n),
           (MEMMOVELOOP GPR:$src, GPR:$dst, GPR:$n)>;
 def : Pat<(CPU6memsetloop GPR:$dst, GPRB:$byte, GPR:$n),
           (MEMSETLOOP GPR:$dst, GPRB:$byte, GPR:$n)>;
+
+// -1/0/1 from the compare glued to this (EmitCmpRes). $less is the branch
+// taken when the first buffer is less. CLR of the result happens after
+// that branch: CLR itself clears Link.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, Uses = [rF, rL, rM, rV] in
+def CMPRES : CenturionInst<(outs GPR:$dst), (ins i16imm:$less),
+                           "#CMPRES", "$dst,$less">;
+def : Pat<(CPU6cmpres timm:$less), (CMPRES timm:$less)>;
+
+// EmitMemCmpLoop. Kind 0 is 0/1, kind 1 is -1/0/1. A holds the CPFR count.
+let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
+    hasSideEffects = 0, mayLoad = 1, mayStore = 0,
+    Defs = [rA, rF, rL, rM, rV] in
+def MEMCMPLOOP : CenturionInst<(outs GPR:$dst),
+                               (ins GPR:$lhs, GPR:$rhs, GPR:$n, i16imm:$kind),
+                               "#MEMCMPLOOP", "$lhs,$rhs,$n,$kind">;
+def : Pat<(CPU6memcmploop GPR:$lhs, GPR:$rhs, GPR:$n, timm:$kind),
+          (MEMCMPLOOP GPR:$lhs, GPR:$rhs, GPR:$n, timm:$kind)>;
 
 //===----------------------------------------------------------------------===//
 // Calls
