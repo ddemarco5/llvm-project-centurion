@@ -12,6 +12,7 @@
 
 #include "CPU6AsmPrinter.h"
 #include "CPU6MCInstLower.h"
+#include "CPU6RegisterInfo.h"
 #include "MCTargetDesc/CPU6InstPrinter.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "TargetInfo/CPU6TargetInfo.h"
@@ -27,6 +28,11 @@ using namespace llvm;
 namespace {
 
 class CPU6AsmPrinter : public AsmPrinter {
+  // In-place AND r,r,255 clears the high byte. CLRB of that byte is two
+  // bytes. A different destination stays the four-byte AND, which already
+  // writes the result without a copy. CLRB's flags describe the 0 it wrote.
+  bool emitClearHigh(const MachineInstr *MI);
+
 public:
   CPU6AsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)) {}
@@ -138,7 +144,45 @@ bool CPU6AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   return false;
 }
 
+static bool flagsDead(const MachineInstr &MI) {
+  bool SawFlag = false;
+  for (const MachineOperand &MO : MI.operands()) {
+    if (!MO.isReg() || !MO.isImplicit() || !MO.isDef())
+      continue;
+    SawFlag = true;
+    if (!MO.isDead())
+      return false;
+  }
+  return SawFlag;
+}
+
+bool CPU6AsmPrinter::emitClearHigh(const MachineInstr *MI) {
+  if (MI->getOpcode() != CPU6::ANDimm || !MI->getOperand(2).isImm() ||
+      MI->getOperand(2).getImm() != 255)
+    return false;
+  Register Dst = MI->getOperand(0).getReg();
+  if (!MI->getOperand(1).isReg() || MI->getOperand(1).getReg() != Dst)
+    return false;
+  if (!flagsDead(*MI))
+    return false;
+  const TargetRegisterInfo &TRI = *MF->getSubtarget().getRegisterInfo();
+  Register Hi = TRI.getSubReg(Dst, CPU6::sub_hi);
+  if (!Hi)
+    return false;
+  MCInst Clr;
+  Clr.setOpcode(CPU6::CLRB);
+  Clr.addOperand(MCOperand::createReg(Hi));
+  Clr.addOperand(MCOperand::createImm(0));
+  MCInst Folded;
+  if (compressInst(Folded, Clr, getSubtargetInfo()))
+    Clr = Folded;
+  OutStreamer->emitInstruction(Clr, getSubtargetInfo());
+  return true;
+}
+
 void CPU6AsmPrinter::emitInstruction(const MachineInstr *MI) {
+  if (emitClearHigh(MI))
+    return;
   CPU6MCInstLower Lower(OutContext, *this);
   MCInst TmpInst;
   Lower.lowerInstruction(MI, TmpInst);

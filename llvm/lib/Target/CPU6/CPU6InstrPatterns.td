@@ -343,13 +343,17 @@ def : Pat<(i8 imm8_0to15:$n), (CLRB imm:$n)>;
 def : Pat<(i16 (anyext GPRB:$src)), ByteInWord>;
 def : Pat<(i8 (trunc GPR:$src)), (EXTRACT_SUBREG GPR:$src, sub_lo)>;
 
-// No instruction extends a byte. zext clears the upper half with AND.
-// sext rebuilds bit 7 across the word: ((x & 0xff) ^ 0x80) - 0x80.
+// A byte in the low half sign-extends with a shift of 8 each way. SLR moves
+// bit 7 into bit 15 and the arithmetic SRR fills from it. The count nibble
+// is the distance minus one, so 7 shifts by 8. That is four bytes; the
+// AND/ORE/ADD sequence was twelve. Zero-extend stays AND with 255. When that
+// AND is already in place, the assembler printer clears the high byte with
+// CLRB instead: a copy plus CLRB is the same four bytes as the AND and adds
+// a live range. CLRB writes Value from the 0 it stored, so those flags are
+// not a test of the word. setcc expands to its own compare.
 def : Pat<(i16 (zext GPRB:$src)), (ANDimm ByteInWord, 255)>;
-def : Pat<(sext_inreg GPR:$src, i8),
-          (ADDimm (OREimm (ANDimm GPR:$src, 255), 128), -128)>;
-def : Pat<(i16 (sext GPRB:$src)),
-          (ADDimm (OREimm (ANDimm ByteInWord, 255), 128), -128)>;
+def : Pat<(sext_inreg GPR:$src, i8), (SRR (SLR GPR:$src, 7), 7)>;
+def : Pat<(i16 (sext GPRB:$src)), (SRR (SLR ByteInWord, 7), 7)>;
 
 //===----------------------------------------------------------------------===//
 // Word arithmetic

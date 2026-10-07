@@ -133,6 +133,16 @@ define i16 @lshr1(i16 %a) {
   ret i16 %v
 }
 
+; A shift of 8 sign-fills the whole high byte. CLRB clears that byte.
+; CHECK-LABEL: lshr8:
+; CHECK:      SRR A,7
+; CHECK-NEXT: CLRB AU,0
+; CHECK-NEXT: RSR
+define i16 @lshr8(i16 %a) {
+  %v = lshr i16 %a, 8
+  ret i16 %v
+}
+
 ; An i32 shift by a constant splits into i16 shifts. The low half's top bit
 ; reaches the high half through a logical shift of 15.
 ; CHECK-LABEL: shl32:

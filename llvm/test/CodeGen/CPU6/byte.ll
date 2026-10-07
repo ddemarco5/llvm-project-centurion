@@ -169,12 +169,12 @@ define void @trunc_store(i16 %a) {
 }
 
 ; An extending load is LDAB into AL plus an extension of A. zext clears the
-; upper half; sext is ((x & 0xff) ^ 0x80) - 0x80.
+; high byte with CLRB. sext is SLR by 8 then an arithmetic SRR by 8.
 ; CHECK-LABEL: zext_load:
 ; CHECK:      DCR S,0
 ; CHECK:      STAB (S),0
 ; CHECK-NEXT: LDAB (S),0
-; CHECK:      AND A,A,255
+; CHECK:      CLRB AU,0
 ; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define i16 @zext_load(i8 %a) {
@@ -189,9 +189,8 @@ define i16 @zext_load(i8 %a) {
 ; CHECK:      DCR S,0
 ; CHECK:      STAB (S),0
 ; CHECK-NEXT: LDAB (S),0
-; CHECK:      AND A,A,255
-; CHECK-NEXT: ORE A,A,128
-; CHECK-NEXT: ADD A,A,-128
+; CHECK:      SLR A,7
+; CHECK-NEXT: SRR A,7
 ; CHECK-NEXT: INR S,0
 ; CHECK-NEXT: RSR
 define i16 @sext_load(i8 %a) {
@@ -204,7 +203,7 @@ define i16 @sext_load(i8 %a) {
 
 ; zeroext on the result: the callee clears the upper half of A.
 ; CHECK-LABEL: zext_ret:
-; CHECK:      AND A,A,255
+; CHECK:      CLRB AU,0
 ; CHECK-NEXT: RSR
 define zeroext i8 @zext_ret(i8 %a) {
   ret i8 %a
