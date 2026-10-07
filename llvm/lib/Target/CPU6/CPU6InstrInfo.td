@@ -2148,7 +2148,8 @@ foreach OP = [
 // webCenREE decodes them (cen.ts ex_decode; decode_exmode prints them).
 //
 //   llll, kkkk  Source and destination length-1. 3 is a 4-byte operand (an
-//               i32) and 7 is 8 bytes (an i64). 1 to 16 bytes are valid.
+//               i32), 7 is 8 bytes (an i64), and 15 is 16 bytes (an i128).
+//               1 to 16 bytes are valid.
 //               Memory is big-endian: the address names the most significant
 //               byte.
 //   ssss        Selector, see BigOps below.
@@ -2201,6 +2202,20 @@ foreach OP = [
 // selector that computes lists all of F, L, M and V as clobbered. Codegen
 // reads V for == and !=, and Link for unsigned order, as it does after SUB:
 // Link set means no borrow.
+//
+// Microcode bugs. People who have reverse engineered this machine report
+// that the 0x46 arithmetic is wrong for some values, and that the bugs
+// show up more as the length grows (the hardware length goes to 16 bytes,
+// 128 bits). CPL's remedy is to run the operation at a higher length and
+// then narrow to the precision the program asked for. This backend does
+// not do that. combineBignumStore / combineBignumSetCC select the
+// operation at the width of the IR value. A wrong result from an
+// instruction whose selector, lengths, operand order, and addresses are
+// right is a microcode bug. Leave the instruction in place. Do not drop
+// the fold, retarget the operation at compiler-rt, or synthesize a wider
+// intermediate to hide it. The DRM alias above is different: that one is
+// understood, and the selector keeps the remainder off the quotient's
+// bytes. An uncharacterized wrong answer is not a selection failure.
 
 // The prefix shared by every layout: opcode, lengths, selector, modes.
 class BNHead<bits<4> sel, bits<2> sm, bits<2> dm> {

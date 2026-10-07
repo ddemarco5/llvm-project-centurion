@@ -19,10 +19,11 @@ using namespace clang::CodeGen;
 // many i16s when the whole value fits in the registers still free. CC_CPU6
 // already assigns the argument words. A value that does not fit is one
 // pointer to memory the caller owns: ByVal stays off, so the backend does
-// not copy it into the outgoing argument area. Aggregates use a budget of
-// two return words. A return that does not fit is the usual sret pointer
-// and spends A before the user's arguments are counted. Raising that budget
-// would start returning three- and four-word structs in Y and Z.
+// not copy it into the outgoing argument area. __int128 is eight words, so
+// it is that pointer, both as an argument and as a return. Aggregates use a
+// budget of two return words. A return that does not fit is the usual sret
+// pointer and spends A before the user's arguments are counted. Raising that
+// budget would start returning three- and four-word structs in Y and Z.
 namespace {
 
 class CPU6ABIInfo : public DefaultABIInfo {
@@ -100,6 +101,11 @@ class CPU6ABIInfo : public DefaultABIInfo {
       return passIndirect(Ty, Free);
     }
 
+    // Eight words do not fit in A, B, Y, and Z. __int128 is a pointer to
+    // the caller's memory, the same as an aggregate that does not fit.
+    if (wordCount(Ty) > 4)
+      return passIndirect(Ty, Free);
+
     ABIArgInfo Info = DefaultABIInfo::classifyArgumentType(Ty);
     if (Info.isIndirect())
       return passIndirect(Ty, Free);
@@ -122,6 +128,11 @@ class CPU6ABIInfo : public DefaultABIInfo {
                                      getDataLayout().getAllocaAddrSpace(),
                                      /*ByVal=*/false);
     }
+
+    if (wordCount(RetTy) > 4)
+      return getNaturalAlignIndirect(RetTy,
+                                     getDataLayout().getAllocaAddrSpace(),
+                                     /*ByVal=*/false);
 
     return DefaultABIInfo::classifyReturnType(RetTy);
   }

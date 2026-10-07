@@ -1,8 +1,9 @@
 ; RUN: llc -mtriple=cpu6 -O2 -verify-machineinstrs < %s | FileCheck %s
 
 ; Opcode 0x46 selection. The two length operands are length-1: 3 is a 4-byte
-; (i32) operand and 7 an 8-byte (i64) one. Globals select the address/address
-; form, pointer arguments the register/register form.
+; (i32) operand, 7 an 8-byte (i64) one, and 15 a 16-byte (i128) one. Globals
+; select the address/address form, pointer arguments the register/register
+; form.
 
 @src32 = global i32 1
 @dst32 = global i32 2
@@ -134,9 +135,12 @@ define void @bns32_rr(ptr %s, ptr %d) nounwind {
   ret void
 }
 
-; Src - Dest would need a reversed subtract, which BNS does not do.
+; Dest is the subtrahend, so one BNS cannot run there. The minuend is copied
+; into a slot, the subtract runs in the slot, and the slot is copied back.
 ; CHECK-LABEL: bns32_reversed:
-; CHECK-NOT:   BNS
+; CHECK:       ZAD 3,3,
+; CHECK:       BNS 3,3,
+; CHECK:       ZAD 3,3,
 ; CHECK:       RSR
 define void @bns32_reversed() nounwind {
   %a = load i32, ptr @src32, align 1
@@ -503,5 +507,169 @@ define void @zsu32_overlap(ptr %p) nounwind {
   %a = load i32, ptr %p, align 1
   %n = sub i32 0, %a
   store i32 %n, ptr %q, align 1
+  ret void
+}
+
+;===----------------------------------------------------------------------===;
+; i128 is the same selectors with length 15. A destination that is neither
+; operand, and is disjoint from both, is a copy of the left operand and then
+; the operation. A multiply of two registers is M, not a call to __multi3.
+;===----------------------------------------------------------------------===;
+
+@src128 = global i128 1
+@dst128 = global i128 2
+@a128 = global i128 3
+@b128 = global i128 4
+@c128 = global i128 5
+
+; CHECK-LABEL: zad128:
+; CHECK:       ZAD 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @zad128() nounwind {
+  %v = load i128, ptr @src128, align 1
+  store i128 %v, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: bna128:
+; CHECK:       BNA 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @bna128() nounwind {
+  %a = load i128, ptr @dst128, align 1
+  %b = load i128, ptr @src128, align 1
+  %c = add i128 %a, %b
+  store i128 %c, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: bns128:
+; CHECK:       BNS 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @bns128() nounwind {
+  %a = load i128, ptr @dst128, align 1
+  %b = load i128, ptr @src128, align 1
+  %c = sub i128 %a, %b
+  store i128 %c, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: zsu128:
+; CHECK:       ZSU 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @zsu128() nounwind {
+  %a = load i128, ptr @src128, align 1
+  %n = sub i128 0, %a
+  store i128 %n, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: m128:
+; CHECK:       M 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @m128() nounwind {
+  %a = load i128, ptr @dst128, align 1
+  %b = load i128, ptr @src128, align 1
+  %c = mul i128 %a, %b
+  store i128 %c, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: d128:
+; CHECK:       D 15,15,(src128),(dst128)
+; CHECK-NEXT:  RSR
+define void @d128() nounwind {
+  %a = load i128, ptr @dst128, align 1
+  %b = load i128, ptr @src128, align 1
+  %c = sdiv i128 %a, %b
+  store i128 %c, ptr @dst128, align 1
+  ret void
+}
+
+; CHECK-LABEL: drm128:
+; CHECK:       ZAD 15,15,{{[A-Z]+}},{{[A-Z]+}}
+; CHECK-NEXT:  XFR A,c128
+; CHECK-NEXT:  DRM 15,15,{{[B-Z]}},{{[B-Z]}}
+define void @drm128() nounwind {
+  %a = load i128, ptr @a128, align 1
+  %b = load i128, ptr @b128, align 1
+  %r = srem i128 %a, %b
+  store i128 %r, ptr @c128, align 1
+  ret void
+}
+
+; CHECK-LABEL: eq128:
+; CHECK:       BNC 15,15,(dst128),(src128)
+; CHECK-NEXT:  BZ
+define i1 @eq128() nounwind {
+  %a = load i128, ptr @src128, align 1
+  %b = load i128, ptr @dst128, align 1
+  %c = icmp eq i128 %a, %b
+  ret i1 %c
+}
+
+; CHECK-LABEL: ult128:
+; CHECK:       BNC 15,15,(dst128),(src128)
+; CHECK-NEXT:  BNL
+define i1 @ult128() nounwind {
+  %a = load i128, ptr @src128, align 1
+  %b = load i128, ptr @dst128, align 1
+  %c = icmp ult i128 %a, %b
+  ret i1 %c
+}
+
+; Signed order stays a word compare.
+; CHECK-LABEL: slt128:
+; CHECK-NOT:   BNC
+; CHECK:       RSR
+define i1 @slt128() nounwind {
+  %a = load i128, ptr @src128, align 1
+  %b = load i128, ptr @dst128, align 1
+  %c = icmp slt i128 %a, %b
+  ret i1 %c
+}
+
+; The store is neither operand, and the three pointers cannot alias.
+; CHECK-LABEL: m32_disjoint:
+; CHECK:       ZAD 3,3,A,Y
+; CHECK-NEXT:  M 3,3,B,Y
+; CHECK-NEXT:  RSR
+define void @m32_disjoint(ptr noalias %p, ptr noalias %q, ptr noalias %r) nounwind {
+  %a = load i32, ptr %p, align 1
+  %b = load i32, ptr %q, align 1
+  %c = mul i32 %a, %b
+  store i32 %c, ptr %r, align 1
+  ret void
+}
+
+; CHECK-LABEL: m128_disjoint:
+; CHECK:       ZAD 15,15,A,Y
+; CHECK-NEXT:  M 15,15,B,Y
+; CHECK-NEXT:  RSR
+define void @m128_disjoint(ptr noalias %p, ptr noalias %q, ptr noalias %r) nounwind {
+  %a = load i128, ptr %p, align 1
+  %b = load i128, ptr %q, align 1
+  %c = mul i128 %a, %b
+  store i128 %c, ptr %r, align 1
+  ret void
+}
+
+; CHECK-LABEL: mul128_rr:
+; CHECK-NOT:   JSR
+; CHECK:       M 15,15,
+; CHECK:       RSR
+define void @mul128_rr(i128 %a, i128 %b, ptr %p) nounwind {
+  %r = mul i128 %a, %b
+  store i128 %r, ptr %p, align 1
+  ret void
+}
+
+; Eight words of carry is a slot add, not the word chain.
+; CHECK-LABEL: add128_rr:
+; CHECK-NOT:   JSR
+; CHECK:       BNA 15,15,
+; CHECK:       RSR
+define void @add128_rr(i128 %a, i128 %b, ptr %p) nounwind {
+  %r = add i128 %a, %b
+  store i128 %r, ptr %p, align 1
   ret void
 }

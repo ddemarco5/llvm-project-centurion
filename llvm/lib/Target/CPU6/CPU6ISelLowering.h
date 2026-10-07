@@ -45,9 +45,8 @@ enum NodeType : unsigned {
   // compare. See combineCarryStep.
   STEP_CC,
   // Bignum mem ops (0x46). Chain in, chain out. Operands are src ptr, dest
-  // ptr, and a byte length-1 immediate (3 => i32, 7 => i64). See the Bignum
-  // section of CPU6InstrInfo.td and the TODO patterns in
-  // CPU6InstrPatterns.td.
+  // ptr, and a byte length-1 immediate (3 => i32, 7 => i64, 15 => i128). See
+  // the Bignum section of CPU6InstrInfo.td.
   BN_MOV, // ZAD
   BN_ADD, // BNA
   BN_SUB, // BNS
@@ -69,7 +68,7 @@ enum NodeType : unsigned {
   MEMSET_LOOP,
   // Variable shift of N i16 words, low word first. Operands are the N words,
   // the count, and a target constant for the direction (shl / lshr / ashr).
-  // N is 2 for an i32 and 4 for an i64. See EmitWideShift.
+  // N is 2 for an i32, 4 for an i64, and 8 for an i128. See EmitWideShift.
   WSHIFT,
 };
 } // namespace CPU6ISD
@@ -162,11 +161,12 @@ public:
                               MachineBasicBlock *BB) const override;
 
 private:
-  // Fold store(add/sub(load,load)) and store(load) into 0x46 bignum ops
-  // while the value type is still i32/i64.
+  // Fold a wide store or compare into a 0x46 bignum op while the type is
+  // still i32, i64, or i128. A value that is not that store is lowered in
+  // ReplaceNodeResults.
   SDValue combineBignumStore(StoreSDNode *St, SelectionDAG &DAG) const;
   SDValue combineBignumRem(StoreSDNode *St, SelectionDAG &DAG) const;
-  // Fold setcc(load,load) on i32/i64 into BNC plus a flag reader.
+  // Fold setcc(load,load) on i32/i64/i128 into BNC plus a flag reader.
   SDValue combineBignumSetCC(SDNode *N, SelectionDAG &DAG) const;
   // add/sub x, (select_cc 1, 0): a carry or borrow added to a word.
   SDValue combineCarryStep(SDNode *N, SelectionDAG &DAG) const;

@@ -475,7 +475,7 @@ def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
 
 // Variable shift of a value wider than a word. Words are low to high.
 // $k is 0 for left, 1 for logical right, 2 for arithmetic right.
-// EmitWideShift walks the defs, so the two widths share one loop.
+// EmitWideShift walks the defs, so every width shares one loop.
 let usesCustomInserter = 1, isPseudo = 1, isCodeGenOnly = 1,
     hasSideEffects = 0 in {
 def WSHIFT2 : CenturionInst<(outs GPR:$d0, GPR:$d1),
@@ -485,6 +485,12 @@ def WSHIFT4 : CenturionInst<(outs GPR:$d0, GPR:$d1, GPR:$d2, GPR:$d3),
                             (ins GPR:$s0, GPR:$s1, GPR:$s2, GPR:$s3, GPR:$c,
                                  i16imm:$k),
                             "#WSHIFT4", "">;
+def WSHIFT8 : CenturionInst<(outs GPR:$d0, GPR:$d1, GPR:$d2, GPR:$d3,
+                                  GPR:$d4, GPR:$d5, GPR:$d6, GPR:$d7),
+                            (ins GPR:$s0, GPR:$s1, GPR:$s2, GPR:$s3,
+                                 GPR:$s4, GPR:$s5, GPR:$s6, GPR:$s7,
+                                 GPR:$c, i16imm:$k),
+                            "#WSHIFT8", "">;
 }
 
 //===----------------------------------------------------------------------===//
@@ -659,14 +665,20 @@ def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
 // Bignum (0x46)
 //===----------------------------------------------------------------------===//
 //
-// Length-1 in the instruction: i32 → 3, i64 → 7. Addressing: *_AA is
-// two address words (globals) and *_RR is two registers (pointers). The
-// indexed layouts are assembler-only until an `addr` pattern selects them.
+// Length-1 in the instruction: i32 → 3, i64 → 7, i128 → 15. Addressing:
+// *_AA is two address words (globals) and *_RR is two registers (pointers
+// and stack slots). The indexed layouts are assembler-only until an `addr`
+// pattern selects them.
 //
-// Implemented (combineBignumStore/SetCC emit the nodes, selected below):
+// Implemented (combineBignumStore/SetCC and ReplaceNodeResults emit the
+// nodes, selected below):
 //   ZAD (MOV), BNA (ADD), BNS (SUB), BNC (CMP), ZSU (NEG), M (MUL),
 //   D (SDIV), and DRM (SREM; the quotient goes to a stack temporary
 //   unless the dividend is already at the destination).
+//
+// Lengths in use are 4, 8, and 16 bytes (length-1 of 3, 7, and 15).
+// If a selected operation writes the wrong bytes, read the microcode-bug
+// note in the Bignum section of CPU6InstrInfo.td before changing the fold.
 //
 // TODO(cpu6): CTB (TOBIN) — ASCII/base string → bignum. Base = llll+2;
 // source width in AL. Libc/runtime territory, not IR math.
@@ -675,9 +687,10 @@ def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
 // swapped; AL/BL/A control width, pad, and end pointer. Format language
 // (@/#) is not expressible as a normal store.
 
-// One pattern per width (length-1 3 is an i32, 7 an i64) and addressing form.
+// One pattern per width (length-1 3 is an i32, 7 an i64, 15 an i128) and
+// addressing form.
 multiclass BNPats<SDPatternOperator op, string inst> {
-  foreach len = [3, 7] in {
+  foreach len = [3, 7, 15] in {
     def : Pat<(op (absaddr abs16:$src), (absaddr abs16:$dst), (i8 len)),
               (!cast<Instruction>(inst # "_AA") (i8 len), (i8 len),
                                                 abs16:$src, abs16:$dst)>;

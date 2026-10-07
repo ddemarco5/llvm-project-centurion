@@ -90,9 +90,10 @@ void CPU6DAGToDAGISel::Select(SDNode *Node) {
     return;
   case CPU6ISD::WSHIFT: {
     // One result per word, low first, then the count and the direction.
-    // WSHIFT2 and WSHIFT4 are the same loop; only the operand count differs.
+    // WSHIFT2, WSHIFT4, and WSHIFT8 are the same loop; only the operand
+    // count differs.
     unsigned N = Node->getNumValues();
-    unsigned Opc = N == 4 ? CPU6::WSHIFT4 : CPU6::WSHIFT2;
+    unsigned Opc = N == 8 ? CPU6::WSHIFT8 : N == 4 ? CPU6::WSHIFT4 : CPU6::WSHIFT2;
     SmallVector<SDValue, 8> Ops;
     for (unsigned I = 0, E = Node->getNumOperands(); I != E; ++I)
       Ops.push_back(Node->getOperand(I));

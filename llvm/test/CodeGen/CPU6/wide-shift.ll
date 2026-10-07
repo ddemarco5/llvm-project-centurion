@@ -1,8 +1,8 @@
 ; RUN: llc -mtriple=cpu6 -O2 -verify-machineinstrs < %s | FileCheck %s
 
-; A variable shift of an i32 or i64 is one loop over the words. Whole words
-; move with a copy, and the leftover bits rotate through Link. A constant
-; count stays an immediate SLR or SRR.
+; A variable shift of an i32, i64, or i128 is one loop over the words. Whole
+; words move with a copy, and the leftover bits rotate through Link. A
+; constant count stays an immediate SLR or SRR. There is no 0x46 shift.
 
 @g64 = global i64 0
 
@@ -56,5 +56,25 @@ define i32 @cshl(i32 %a) nounwind {
 define void @vshl64(i64 %a, i64 %n) nounwind {
   %s = shl i64 %a, %n
   store i64 %s, ptr @g64, align 1
+  ret void
+}
+
+; Eight words. A variable count must not become __ashlti3.
+; CHECK-LABEL: vshl128:
+; CHECK-NOT:  JSR
+; CHECK:      RL
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RLR
+; CHECK:      RSR
+@g128 = global i128 0
+define void @vshl128(i128 %a, i128 %n) nounwind {
+  %s = shl i128 %a, %n
+  store i128 %s, ptr @g128, align 1
   ret void
 }

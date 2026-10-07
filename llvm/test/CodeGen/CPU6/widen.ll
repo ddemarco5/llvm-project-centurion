@@ -23,10 +23,11 @@ define i32 @shl32v(i32 %a, i32 %n) {
   ret i32 %v
 }
 
-; An i64 product does not fit in A:B, so it is not __muldi3. It is i16 MULs.
+; An i64 product of two registers is M. It does not fit in A:B, and it is
+; not a call to __muldi3.
 ; CHECK-LABEL: mul64:
 ; CHECK-NOT: JSR
-; CHECK: MUL
+; CHECK: M 7,7,
 ; CHECK: RSR
 define void @mul64(i64 %a, i64 %b, ptr %p) {
   %r = mul i64 %a, %b

@@ -45,6 +45,9 @@ public:
     LongAlign = 8;
     LongLongWidth = 64;
     LongLongAlign = 8;
+    // __int128 is eight words. Alignment stays one byte, like every other
+    // integer; the Clang default is 16 bytes and would realign the stack.
+    Int128Align = 8;
     SuitableAlign = 8;
     DefaultAlignForAttributeAligned = 8;
     HalfWidth = 16;
@@ -76,6 +79,8 @@ public:
   }
 
   bool allowsLargerPreferedTypeAlignment() const override { return false; }
+
+  bool hasInt128Type() const override { return true; }
 
   bool hasFeature(StringRef Feature) const override {
     return Feature == "cpu6";

@@ -43,9 +43,11 @@ CPU6Subtarget::~CPU6Subtarget() = default;
 // call to these three symbols is emitted. Soft-float operations use the
 // other calls in that set.
 //
-// Shifts, multiply, divide, and the conversions to i64 expand in the
-// legalizer. Leaving the libcall in place would emit a call that itself
-// returns an i64, which is the routine the legalizer is trying to build.
+// Wide shifts and signed multiply, divide, and remainder are lowered to
+// WSHIFT or 0x46. A libcall for those would be the routine the legalizer is
+// building, or a call whose i64 result the old legalizer could not return.
+// Unsigned divide has no 0x46 opcode (D is signed), so UDIV_I64 and UREM_I64
+// stay libcalls. A double conversion to i64 is not a bignum operation.
 void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);
@@ -53,10 +55,10 @@ void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
 
   for (RTLIB::Libcall LC :
        {RTLIB::SHL_I64, RTLIB::SRL_I64, RTLIB::SRA_I64, RTLIB::MUL_I64,
-        RTLIB::SDIV_I64, RTLIB::UDIV_I64, RTLIB::SREM_I64, RTLIB::UREM_I64,
-        RTLIB::NEG_I64, RTLIB::MULO_I64, RTLIB::FPTOSINT_F32_I64,
-        RTLIB::FPTOSINT_F64_I64, RTLIB::FPTOUINT_F32_I64,
-        RTLIB::FPTOUINT_F64_I64})
+        RTLIB::SDIV_I32, RTLIB::SREM_I32, RTLIB::SDIV_I64, RTLIB::SREM_I64,
+        RTLIB::MUL_I128, RTLIB::SDIV_I128, RTLIB::SREM_I128, RTLIB::NEG_I64,
+        RTLIB::MULO_I64, RTLIB::FPTOSINT_F32_I64, RTLIB::FPTOSINT_F64_I64,
+        RTLIB::FPTOUINT_F32_I64, RTLIB::FPTOUINT_F64_I64})
     Info.setLibcallImpl(LC, RTLIB::Unsupported);
 }
 

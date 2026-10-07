@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/SelectionDAGAddressAnalysis.h"
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include <algorithm>
@@ -160,6 +161,13 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   // split. Left at the default Legal, isel dies on shl_parts.
   setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i32, Custom);
   setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
+  setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i128, Custom);
+  // Signed multiply and divide are 0x46 at every width the encoding allows.
+  // Unsigned divide is not: D is signed, so udiv and urem stay libcalls.
+  setOperationAction({ISD::MUL, ISD::SDIV, ISD::SREM}, MVT::i32, Custom);
+  setOperationAction({ISD::MUL, ISD::SDIV, ISD::SREM}, MVT::i64, Custom);
+  setOperationAction({ISD::MUL, ISD::SDIV, ISD::SREM, ISD::ADD, ISD::SUB},
+                     MVT::i128, Custom);
   setOperationAction({ISD::SHL_PARTS, ISD::SRL_PARTS, ISD::SRA_PARTS}, MVT::i16,
                      Custom);
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
@@ -198,7 +206,12 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
   setSchedulingPreference(Sched::Source);
   setMinFunctionAlignment(Align(1));
 
-  // Fold i32/i64 mem op trees into 0x46 bignum before they split to i16.
+  // Fold i32/i64/i128 mem op trees into 0x46 bignum before they split to i16.
+  // A multiply, signed divide, or remainder that is not that tree is lowered
+  // the same way, through a stack slot, instead of a libcall or a schoolbook
+  // expansion. An i128 add, subtract, or negate is too, because eight words
+  // of carry is longer than one bignum instruction. i32 and i64 adds stay a
+  // word carry chain unless the store tree above already matched.
   setTargetDAGCombine(ISD::STORE);
   setTargetDAGCombine(ISD::SETCC);
   // A carry or borrow added to a word becomes a conditional INR or DCR.
@@ -222,12 +235,16 @@ CPU6TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
 
 namespace {
 
-// Length-1 nibble for a bignum operand. Only i32 and i64 are folded today.
+// Length-1 nibble for a bignum operand. i32, i64, and i128 are the same
+// instruction. A wrong result at a length this accepts is a microcode bug;
+// see the Bignum section of CPU6InstrInfo.td. Keep the fold.
 std::optional<unsigned> bignumLenMinus1(EVT VT) {
   if (VT == MVT::i32)
     return 3;
   if (VT == MVT::i64)
     return 7;
+  if (VT == MVT::i128)
+    return 15;
   return std::nullopt;
 }
 
@@ -296,18 +313,189 @@ Overlap classifyOverlap(const MemSDNode *Src, const StoreSDNode *Dest,
   return Overlap::Unknown;
 }
 
+// Different arguments, one of them noalias. That covers an sret slot and a
+// pointer argument. computeAliasing does not look at the attribute, so two
+// incoming pointers stay Unknown there.
+bool argsAreDisjoint(const MemSDNode *A, const MemSDNode *B) {
+  if (!A->getMemOperand() || !B->getMemOperand())
+    return false;
+  const Value *VA = A->getMemOperand()->getValue();
+  const Value *VB = B->getMemOperand()->getValue();
+  auto *AA = dyn_cast_or_null<Argument>(VA);
+  auto *AB = dyn_cast_or_null<Argument>(VB);
+  if (!AA || !AB || AA == AB)
+    return false;
+  return AA->hasNoAliasAttr() || AB->hasNoAliasAttr();
+}
+
+bool provenDisjoint(const MemSDNode *Src, const StoreSDNode *Dest,
+                    SelectionDAG &DAG) {
+  return classifyOverlap(Src, Dest, DAG) == Overlap::Disjoint ||
+         argsAreDisjoint(Src, Dest);
+}
+
+SDValue bn(SelectionDAG &DAG, unsigned Opc, const SDLoc &DL, SDValue Chain,
+           SDValue Src, SDValue Dst, unsigned Len, SDValue Glue = {}) {
+  SDValue L = DAG.getTargetConstant(Len, DL, MVT::i8);
+  if (Glue)
+    return DAG.getNode(Opc, DL, MVT::Other, Chain, Src, Dst, L, Glue);
+  return DAG.getNode(Opc, DL, MVT::Other, Chain, Src, Dst, L);
+}
+
+MachinePointerInfo slotInfo(SelectionDAG &DAG, SDValue Slot) {
+  return MachinePointerInfo::getFixedStack(
+      DAG.getMachineFunction(),
+      cast<FrameIndexSDNode>(Slot.getNode())->getIndex());
+}
+
+SDValue joinChain(SelectionDAG &DAG, const SDLoc &DL, SDValue A, SDValue B) {
+  if (!A)
+    return B;
+  if (!B || A == B)
+    return A;
+  return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, A, B);
+}
+
+// A value that is not already a load of VT, written to a fresh slot so a
+// bignum instruction can read it. The slot is the snapshot: a later re-read
+// of the original address would see stores that happened after the load.
+struct OpMem {
+  SDValue Ptr;
+  SDValue Chain;
+  LoadSDNode *Load = nullptr;
+};
+
+OpMem spillOp(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue V) {
+  SDValue Slot = DAG.CreateStackTemporary(V.getValueType());
+  SDValue St = DAG.getStore(Chain ? Chain : DAG.getEntryNode(), DL, V, Slot,
+                            slotInfo(DAG, Slot));
+  return {Slot, St, nullptr};
+}
+
+OpMem asMem(SelectionDAG &DAG, const SDLoc &DL, SDValue Chain, SDValue V,
+            EVT VT) {
+  if (LoadSDNode *Ld = getBignumLoad(V, VT))
+    return {Ld->getBasePtr(), SDValue(Ld, 1), Ld};
+  return spillOp(DAG, DL, Chain, V);
+}
+
+unsigned bnOpcode(unsigned Op) {
+  switch (Op) {
+  case ISD::ADD:
+    return CPU6ISD::BN_ADD;
+  case ISD::SUB:
+    return CPU6ISD::BN_SUB;
+  case ISD::MUL:
+    return CPU6ISD::BN_MUL;
+  case ISD::SDIV:
+    return CPU6ISD::BN_DIV;
+  }
+  llvm_unreachable("not a bignum binary op");
+}
+
+bool bnCommutes(unsigned Op) { return Op == ISD::ADD || Op == ISD::MUL; }
+
+// Dest := Dest op Right, after an optional copy of Left into Dest.
+SDValue emitBinary(SelectionDAG &DAG, const SDLoc &DL, unsigned Opc,
+                   SDValue Chain, SDValue Left, SDValue Right, SDValue Dest,
+                   unsigned Len, bool CopyLeft) {
+  if (CopyLeft)
+    Chain = bn(DAG, CPU6ISD::BN_MOV, DL, Chain, Left, Dest, Len);
+  return bn(DAG, Opc, DL, Chain, Right, Dest, Len);
+}
+
+// Quotient in a fresh slot, remainder at Rem. The remainder must not share
+// the quotient's bytes: the quotient's sign fix would land on it.
+SDValue emitRem(SelectionDAG &DAG, const SDLoc &DL, EVT VT, SDValue Chain,
+                SDValue Num, SDValue Den, SDValue Rem, unsigned Len) {
+  SDValue Quot = DAG.CreateStackTemporary(VT);
+  Chain = bn(DAG, CPU6ISD::BN_MOV, DL, Chain, Num, Quot, Len);
+  SDValue ToA = DAG.getCopyToReg(Chain, DL, CPU6::rA, Rem, SDValue());
+  return bn(DAG, CPU6ISD::BN_DRM, DL, ToA, Den, Quot, Len, ToA.getValue(1));
+}
+
+SDValue loadResult(SelectionDAG &DAG, const SDLoc &DL, EVT VT, SDValue Chain,
+                   SDValue Ptr) {
+  MachinePointerInfo Info = isa<FrameIndexSDNode>(Ptr.getNode())
+                                ? slotInfo(DAG, Ptr)
+                                : MachinePointerInfo();
+  return DAG.getLoad(VT, DL, Chain, Ptr, Info);
+}
+
+// Copy Left into a private slot, operate with Right, then copy the slot to
+// Dest. Used when Dest might overlap a source the instruction still reads.
+SDValue emitViaSlot(SelectionDAG &DAG, const SDLoc &DL, unsigned Opc, EVT VT,
+                    SDValue Chain, SDValue Left, SDValue Right, SDValue Dest,
+                    unsigned Len) {
+  SDValue Slot = DAG.CreateStackTemporary(VT);
+  Chain = emitBinary(DAG, DL, Opc, Chain, Left, Right, Slot, Len,
+                     /*CopyLeft=*/true);
+  return bn(DAG, CPU6ISD::BN_MOV, DL, Chain, Slot, Dest, Len);
+}
+
+// A multiply, signed divide, or remainder at i32, i64, or i128, or an i128
+// add, subtract, or negate, that was not folded into a store. The result is
+// a load of the slot the instruction wrote.
+SDValue lowerBignumValue(SDNode *N, SelectionDAG &DAG) {
+  EVT VT = N->getValueType(0);
+  auto Len = bignumLenMinus1(VT);
+  if (!Len)
+    return SDValue();
+  unsigned Opc = N->getOpcode();
+  bool MulDivRem =
+      Opc == ISD::MUL || Opc == ISD::SDIV || Opc == ISD::SREM;
+  bool AddSub = Opc == ISD::ADD || Opc == ISD::SUB;
+  if (!MulDivRem && !(AddSub && VT == MVT::i128))
+    return SDValue();
+
+  SDLoc DL(N);
+  SDValue LHS = N->getOperand(0);
+  SDValue RHS = N->getOperand(1);
+  if (Opc == ISD::SUB && isNullConstant(LHS)) {
+    OpMem Src = asMem(DAG, DL, SDValue(), RHS, VT);
+    SDValue Slot = DAG.CreateStackTemporary(VT);
+    SDValue Ch =
+        bn(DAG, CPU6ISD::BN_NEG, DL, Src.Chain, Src.Ptr, Slot, *Len);
+    return loadResult(DAG, DL, VT, Ch, Slot);
+  }
+
+  OpMem L = asMem(DAG, DL, SDValue(), LHS, VT);
+  OpMem R = asMem(DAG, DL, SDValue(), RHS, VT);
+  if (L.Load && R.Load && L.Load->getChain() != R.Load->getChain()) {
+    L = spillOp(DAG, DL, L.Chain, LHS);
+    R = spillOp(DAG, DL, R.Chain, RHS);
+  }
+  SDValue Chain = joinChain(DAG, DL, L.Chain, R.Chain);
+  SDValue Slot = DAG.CreateStackTemporary(VT);
+  if (Opc == ISD::SREM) {
+    Chain = emitRem(DAG, DL, VT, Chain, L.Ptr, R.Ptr, Slot, *Len);
+    return loadResult(DAG, DL, VT, Chain, Slot);
+  }
+  Chain = emitBinary(DAG, DL, bnOpcode(Opc), Chain, L.Ptr, R.Ptr, Slot, *Len,
+                     /*CopyLeft=*/true);
+  return loadResult(DAG, DL, VT, Chain, Slot);
+}
+
 } // namespace
 
 // store (load Src), Dest                           -> ZAD
 // store (sub 0, (load Src)), Dest                   -> ZSU
 // store (add/sub/mul/sdiv (load Dest), (load Src)), Dest -> BNA/BNS/M/D
 // store (srem (load Num), (load Den)), Dest         -> DRM
-// Each is Dest := Dest op Src, so Src - Dest and Src / Dest are not folded.
+// Each is Dest := Dest op Src, so Src - Dest and Src / Dest are not one
+// in-place instruction. A destination that is neither operand is a copy of
+// the left operand, then the op, when that destination is disjoint from both
+// loads. Otherwise the op runs in a private slot and the slot is copied to
+// the destination, so a source is not overwritten before it is read.
 // The instruction works a byte at a time, which equals load-then-store when
 // Src and Dest are the same bytes or disjoint. Both were run on the machine at
 // 4 and 8 bytes, with negative values, for ZAD, BNA, BNS, ZSU, M and D, so
 // those fold whether the addresses are equal, apart, or not known to differ.
 // A partial overlap never folds.
+// A multiply, signed divide, or remainder whose operands are not loads, and
+// an i128 add or subtract in the same shape, still uses the slot: the
+// alternative is a libcall or a long carry chain. An i32 or i64 add of two
+// registers stays the word carry chain.
 SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
                                                SelectionDAG &DAG) const {
   EVT VT = St->getMemoryVT();
@@ -315,65 +503,75 @@ SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
   if (!Len || !St->isSimple() || St->isIndexed() || St->isTruncatingStore())
     return SDValue();
 
+  SDLoc DL(St);
   SDValue Val = St->getValue();
+  SDValue Dest = St->getBasePtr();
   if (Val.getOpcode() == ISD::SREM)
     return combineBignumRem(St, DAG);
 
-  unsigned Opc;
-  LoadSDNode *Src;
-  SmallVector<LoadSDNode *, 2> Loads;
   if (LoadSDNode *Ld = getBignumLoad(Val, VT)) {
-    Opc = CPU6ISD::BN_MOV;
-    Src = Ld;
-    Loads = {Ld};
-  } else if (Val.getOpcode() == ISD::SUB && isNullConstant(Val.getOperand(0))) {
-    Src = getBignumLoad(Val.getOperand(1), VT);
-    if (!Src)
+    if (!onlyLoadsJoinChain(St->getChain(), Ld->getChain()) ||
+        classifyOverlap(Ld, St, DAG) == Overlap::Partial)
       return SDValue();
-    Opc = CPU6ISD::BN_NEG;
-    Loads = {Src};
-  } else if (Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::SUB ||
-             Val.getOpcode() == ISD::MUL || Val.getOpcode() == ISD::SDIV) {
-    LoadSDNode *L0 = getBignumLoad(Val.getOperand(0), VT);
-    LoadSDNode *L1 = getBignumLoad(Val.getOperand(1), VT);
-    if (!L0 || !L1)
-      return SDValue();
-    bool Commutes =
-        Val.getOpcode() == ISD::ADD || Val.getOpcode() == ISD::MUL;
-    if (addressDelta(L0, St, DAG) == 0)
-      Src = L1;
-    else if (Commutes && addressDelta(L1, St, DAG) == 0)
-      Src = L0;
-    else
-      return SDValue();
-    switch (Val.getOpcode()) {
-    case ISD::ADD:
-      Opc = CPU6ISD::BN_ADD;
-      break;
-    case ISD::SUB:
-      Opc = CPU6ISD::BN_SUB;
-      break;
-    case ISD::MUL:
-      Opc = CPU6ISD::BN_MUL;
-      break;
-    default:
-      Opc = CPU6ISD::BN_DIV;
-      break;
-    }
-    Loads = {L0, L1};
-  } else {
-    return SDValue();
+    return bn(DAG, CPU6ISD::BN_MOV, DL, St->getChain(), Ld->getBasePtr(), Dest,
+              *Len);
   }
 
-  if (!loadsShareMemoryState(Loads) ||
-      !onlyLoadsJoinChain(St->getChain(), Loads[0]->getChain()) ||
-      classifyOverlap(Src, St, DAG) == Overlap::Partial)
-    return SDValue();
+  if (Val.getOpcode() == ISD::SUB && isNullConstant(Val.getOperand(0))) {
+    SDValue SrcV = Val.getOperand(1);
+    if (LoadSDNode *Ld = getBignumLoad(SrcV, VT)) {
+      if (!onlyLoadsJoinChain(St->getChain(), Ld->getChain()) ||
+          classifyOverlap(Ld, St, DAG) == Overlap::Partial)
+        return SDValue();
+      return bn(DAG, CPU6ISD::BN_NEG, DL, St->getChain(), Ld->getBasePtr(),
+                Dest, *Len);
+    }
+    if (VT != MVT::i128)
+      return SDValue();
+    OpMem Src = spillOp(DAG, DL, St->getChain(), SrcV);
+    return bn(DAG, CPU6ISD::BN_NEG, DL, Src.Chain, Src.Ptr, Dest, *Len);
+  }
 
-  SDLoc DL(St);
-  return DAG.getNode(Opc, DL, MVT::Other, St->getChain(), Src->getBasePtr(),
-                     St->getBasePtr(),
-                     DAG.getTargetConstant(*Len, DL, MVT::i8));
+  unsigned Op = Val.getOpcode();
+  if (Op != ISD::ADD && Op != ISD::SUB && Op != ISD::MUL && Op != ISD::SDIV)
+    return SDValue();
+  bool WideArith = Op == ISD::MUL || Op == ISD::SDIV || VT == MVT::i128;
+  SDValue LHS = Val.getOperand(0);
+  SDValue RHS = Val.getOperand(1);
+  LoadSDNode *L0 = getBignumLoad(LHS, VT);
+  LoadSDNode *L1 = getBignumLoad(RHS, VT);
+  if (L0 && L1) {
+    if (!loadsShareMemoryState({L0, L1}) ||
+        !onlyLoadsJoinChain(St->getChain(), L0->getChain()))
+      return SDValue();
+    unsigned Opc = bnOpcode(Op);
+    LoadSDNode *Src = nullptr;
+    if (addressDelta(L0, St, DAG) == 0)
+      Src = L1;
+    else if (bnCommutes(Op) && addressDelta(L1, St, DAG) == 0)
+      Src = L0;
+    if (Src) {
+      if (classifyOverlap(Src, St, DAG) == Overlap::Partial)
+        return SDValue();
+      return bn(DAG, Opc, DL, St->getChain(), Src->getBasePtr(), Dest, *Len);
+    }
+    if (classifyOverlap(L0, St, DAG) == Overlap::Partial ||
+        classifyOverlap(L1, St, DAG) == Overlap::Partial)
+      return SDValue();
+    if (provenDisjoint(L0, St, DAG) && provenDisjoint(L1, St, DAG))
+      return emitBinary(DAG, DL, Opc, St->getChain(), L0->getBasePtr(),
+                        L1->getBasePtr(), Dest, *Len, /*CopyLeft=*/true);
+    // Unknown, or Dest is the right operand of a subtract. BNS cannot swap
+    // its operands, and a copy into Dest would overwrite a source.
+    return emitViaSlot(DAG, DL, Opc, VT, St->getChain(), L0->getBasePtr(),
+                       L1->getBasePtr(), Dest, *Len);
+  }
+  if (!WideArith)
+    return SDValue();
+  OpMem L = spillOp(DAG, DL, St->getChain(), LHS);
+  OpMem R = spillOp(DAG, DL, St->getChain(), RHS);
+  return emitViaSlot(DAG, DL, bnOpcode(Op), VT, joinChain(DAG, DL, L.Chain, R.Chain),
+                     L.Ptr, R.Ptr, Dest, *Len);
 }
 
 // store (srem (load Num), (load Den)), Dest. DRM puts the quotient in its
@@ -389,26 +587,28 @@ SDValue CPU6TargetLowering::combineBignumStore(StoreSDNode *St,
 SDValue CPU6TargetLowering::combineBignumRem(StoreSDNode *St,
                                              SelectionDAG &DAG) const {
   EVT VT = St->getMemoryVT();
+  auto Len = bignumLenMinus1(VT);
+  if (!Len)
+    return SDValue();
   SDValue Val = St->getValue();
+  SDLoc DL(St);
   LoadSDNode *Num = getBignumLoad(Val.getOperand(0), VT);
   LoadSDNode *Den = getBignumLoad(Val.getOperand(1), VT);
-  if (!Num || !Den || !loadsShareMemoryState({Num, Den}) ||
-      !onlyLoadsJoinChain(St->getChain(), Num->getChain()))
-    return SDValue();
-  if (classifyOverlap(Den, St, DAG) == Overlap::Partial)
-    return SDValue();
-
-  SDLoc DL(St);
-  SDValue Len = DAG.getTargetConstant(*bignumLenMinus1(VT), DL, MVT::i8);
-  SDValue Chain = St->getChain();
-  SDValue Quot = DAG.CreateStackTemporary(VT);
-  Chain = DAG.getNode(CPU6ISD::BN_MOV, DL, MVT::Other, Chain,
-                      Num->getBasePtr(), Quot, Len);
-  // The empty glue operand is what gives the copy a glue result.
-  SDValue ToA =
-      DAG.getCopyToReg(Chain, DL, CPU6::rA, St->getBasePtr(), SDValue());
-  return DAG.getNode(CPU6ISD::BN_DRM, DL, MVT::Other, ToA, Den->getBasePtr(),
-                     Quot, Len, ToA.getValue(1));
+  if (Num && Den && loadsShareMemoryState({Num, Den}) &&
+      onlyLoadsJoinChain(St->getChain(), Num->getChain())) {
+    if (classifyOverlap(Den, St, DAG) == Overlap::Partial)
+      return SDValue();
+    return emitRem(DAG, DL, VT, St->getChain(), Num->getBasePtr(),
+                   Den->getBasePtr(), St->getBasePtr(), *Len);
+  }
+  // Operands that are not a pair of loads. Snapshot them, divide in a slot,
+  // and copy the remainder out. The slot does not overlap the divisor.
+  OpMem N = spillOp(DAG, DL, St->getChain(), Val.getOperand(0));
+  OpMem D = spillOp(DAG, DL, St->getChain(), Val.getOperand(1));
+  SDValue Chain = joinChain(DAG, DL, N.Chain, D.Chain);
+  SDValue Slot = DAG.CreateStackTemporary(VT);
+  Chain = emitRem(DAG, DL, VT, Chain, N.Ptr, D.Ptr, Slot, *Len);
+  return bn(DAG, CPU6ISD::BN_MOV, DL, Chain, Slot, St->getBasePtr(), *Len);
 }
 
 // setcc (load A), (load B) -> BNC, then a branch on the flags it sets.
@@ -1038,8 +1238,9 @@ static unsigned wideShiftKind(unsigned Opc) {
   return WShiftARight;
 }
 
-// Low word first. An i32 is two i16s and an i64 is four. SplitScalar is an
-// extract, so this does not build another shift of the wide value.
+// Low word first. An i32 is two i16s, an i64 is four, and an i128 is eight.
+// SplitScalar is an extract, so this does not build another shift of the
+// wide value.
 static void collectShiftWords(SDValue V, SmallVectorImpl<SDValue> &Words,
                               SelectionDAG &DAG, const SDLoc &DL) {
   if (V.getValueType() == MVT::i16) {
@@ -1084,29 +1285,35 @@ static SDValue makeWideShift(ArrayRef<SDValue> Words, SDValue Amt,
   return DAG.getNode(CPU6ISD::WSHIFT, DL, DAG.getVTList(VTs), Ops);
 }
 
-// The type legalizer asks before it splits a variable i32 or i64 shift into
-// parts. A constant is left for ExpandShiftByConstant, which is a word move
-// plus an immediate SLR or SRR. Anything else is one WSHIFT of every word.
+// The type legalizer asks before it splits a variable i32, i64, or i128
+// shift into parts. A constant is left for ExpandShiftByConstant, which is a
+// word move plus an immediate SLR or SRR. Anything else is one WSHIFT of
+// every word. A leftover multiply, signed divide, or remainder, and a
+// leftover i128 add, subtract, or negate, is the same bignum instruction the
+// store combine emits, writing a stack slot.
 void CPU6TargetLowering::ReplaceNodeResults(
     SDNode *N, SmallVectorImpl<SDValue> &Results, SelectionDAG &DAG) const {
   unsigned Opc = N->getOpcode();
-  if (Opc != ISD::SHL && Opc != ISD::SRL && Opc != ISD::SRA)
-    return;
   EVT VT = N->getValueType(0);
-  if (VT != MVT::i32 && VT != MVT::i64)
-    return;
-  if (isa<ConstantSDNode>(N->getOperand(1)))
-    return;
+  if (Opc == ISD::SHL || Opc == ISD::SRL || Opc == ISD::SRA) {
+    if (VT != MVT::i32 && VT != MVT::i64 && VT != MVT::i128)
+      return;
+    if (isa<ConstantSDNode>(N->getOperand(1)))
+      return;
 
-  SDLoc DL(N);
-  SmallVector<SDValue, 4> Words;
-  collectShiftWords(N->getOperand(0), Words, DAG, DL);
-  SDValue Parts =
-      makeWideShift(Words, N->getOperand(1), wideShiftKind(Opc), DL, DAG);
-  SmallVector<SDValue, 4> Out;
-  for (unsigned I = 0, E = Words.size(); I != E; ++I)
-    Out.push_back(Parts.getValue(I));
-  Results.push_back(buildShiftResult(Out, DAG, DL));
+    SDLoc DL(N);
+    SmallVector<SDValue, 8> Words;
+    collectShiftWords(N->getOperand(0), Words, DAG, DL);
+    SDValue Parts =
+        makeWideShift(Words, N->getOperand(1), wideShiftKind(Opc), DL, DAG);
+    SmallVector<SDValue, 8> Out;
+    for (unsigned I = 0, E = Words.size(); I != E; ++I)
+      Out.push_back(Parts.getValue(I));
+    Results.push_back(buildShiftResult(Out, DAG, DL));
+    return;
+  }
+  if (SDValue V = lowerBignumValue(N, DAG))
+    Results.push_back(V);
 }
 
 // Already split into two i16 halves. The same node as ReplaceNodeResults.
@@ -1307,6 +1514,7 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
     return EmitMemLoop(MI, BB);
   case CPU6::WSHIFT2:
   case CPU6::WSHIFT4:
+  case CPU6::WSHIFT8:
     return EmitWideShift(MI, BB);
   default:
     return EmitShift(MI, BB);
