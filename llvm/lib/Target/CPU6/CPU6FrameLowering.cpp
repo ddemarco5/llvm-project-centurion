@@ -8,6 +8,7 @@
 
 #include "CPU6FrameLowering.h"
 #include "CPU6InstrInfo.h"
+#include "CPU6MachineFunctionInfo.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/ADT/SmallSet.h"
 #include <algorithm>
@@ -328,6 +329,30 @@ bool CPU6FrameLowering::restoreCalleeSavedRegisters(
   return true;
 }
 
+static bool isIndexedBignum(unsigned Opc) {
+  CPU6BignumMode Mode;
+  return classifyCPU6Bignum(Opc, Mode) && isCPU6BignumIndexed(Mode);
+}
+
+// Outgoing argument bytes reserved in the frame. Computed here because PEI
+// fills MaxCallFrameSize after it has asked whether scavenging is required.
+static uint64_t reservedCallBytes(const MachineFunction &MF) {
+  const CPU6FrameLowering *TFI = static_cast<const CPU6FrameLowering *>(
+      MF.getSubtarget().getFrameLowering());
+  if (!TFI->hasReservedCallFrame(MF))
+    return 0;
+  const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
+  unsigned Setup = TII.getCallFrameSetupOpcode();
+  if (Setup == ~0u)
+    return 0;
+  uint64_t Max = 0;
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB)
+      if (MI.getOpcode() == Setup)
+        Max = std::max(Max, static_cast<uint64_t>(TII.getFrameSize(MI)));
+  return Max;
+}
+
 // These are the accesses whose displacement is a signed byte. A word access
 // is XFR, STR, or ADDimm and can name a slot anywhere in the frame.
 static bool isByteFrameAccess(unsigned Opc) {
@@ -350,21 +375,103 @@ void CPU6FrameLowering::orderFrameObjects(
   // The stack grows down and objects are allocated from the front of this
   // list, so the front sits furthest from the final S. LDAB and STAB cannot
   // name a slot more than 127 bytes from that S. Objects they use go last
-  // and land nearest it. A folded index of at most 127 stays inside the
-  // byte field when those objects themselves fit there. The outgoing
+  // and land nearest it. Indexed bignum operands have the same signed byte,
+  // but a slot that does not fit is materialized, so they sit just outside
+  // the byte objects and a big alloca stays at the front. The outgoing
   // argument area, if any, sits below them and uses part of the same field.
   // With a variable-sized object the slots are addressed from X, at the top
-  // of the frame, so those objects go first instead.
-  SmallSet<int, 16> ByteObjs;
+  // of the frame, so the byte objects go first instead and bignum objects
+  // follow them.
+  SmallSet<int, 16> ByteObjs, BignumObjs;
   for (const MachineBasicBlock &MBB : MF)
     for (const MachineInstr &MI : MBB) {
-      if (!isByteFrameAccess(MI.getOpcode()))
-        continue;
-      for (const MachineOperand &MO : MI.operands())
-        if (MO.isFI())
-          ByteObjs.insert(MO.getIndex());
+      // A slot that is both (a byte access and a bignum index) stays with the
+      // byte objects: those have no register-form fallback.
+      SmallSet<int, 16> *Sets[2] = {nullptr, nullptr};
+      unsigned N = 0;
+      if (isByteFrameAccess(MI.getOpcode()))
+        Sets[N++] = &ByteObjs;
+      if (isIndexedBignum(MI.getOpcode()))
+        Sets[N++] = &BignumObjs;
+      for (unsigned I = 0; I < N; ++I)
+        for (const MachineOperand &MO : MI.operands())
+          if (MO.isFI())
+            Sets[I]->insert(MO.getIndex());
     }
   bool FromX = MF.getFrameInfo().hasVarSizedObjects();
-  std::stable_partition(ObjectsToAllocate.begin(), ObjectsToAllocate.end(),
-                        [&](int FI) { return ByteObjs.count(FI) == FromX; });
+  auto ByteAt =
+      std::stable_partition(ObjectsToAllocate.begin(), ObjectsToAllocate.end(),
+                            [&](int FI) { return ByteObjs.count(FI) == FromX; });
+  if (FromX) {
+    // Byte objects are already at the front. Bignum objects come next.
+    std::stable_partition(ByteAt, ObjectsToAllocate.end(),
+                          [&](int FI) { return BignumObjs.count(FI); });
+  } else {
+    // Non-byte objects are at the front. Push bignum objects to the end of
+    // that range, immediately before the byte objects.
+    std::stable_partition(ObjectsToAllocate.begin(), ByteAt, [&](int FI) {
+      return !BignumObjs.count(FI);
+    });
+  }
+}
+
+bool CPU6FrameLowering::bignumIndexedFrameMayOverflow(
+    const MachineFunction &MF) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  bool Any = false;
+  bool Fixed = false;
+  // A variable-sized object moves S, and every slot is an offset from X at
+  // the top of the frame. That offset is not the near-S window this estimates.
+  if (MFI.hasVarSizedObjects()) {
+    for (const MachineBasicBlock &MBB : MF)
+      for (const MachineInstr &MI : MBB)
+        if (isIndexedBignum(MI.getOpcode()))
+          for (const MachineOperand &MO : MI.operands())
+            if (MO.isFI())
+              return true;
+    return false;
+  }
+  uint64_t Near = reservedCallBytes(MF);
+  SmallSet<int, 16> Seen;
+  auto Add = [&](int FI) {
+    if (!Seen.insert(FI).second)
+      return;
+    if (FI < 0)
+      Fixed = true;
+    else
+      Near += static_cast<uint64_t>(MFI.getObjectSize(FI));
+  };
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB) {
+      bool Byte = isByteFrameAccess(MI.getOpcode());
+      bool Bignum = isIndexedBignum(MI.getOpcode());
+      if (!Byte && !Bignum)
+        continue;
+      if (Bignum)
+        Any = true;
+      for (const MachineOperand &MO : MI.operands())
+        if (MO.isFI())
+          Add(MO.getIndex());
+    }
+  if (!Any)
+    return false;
+  // Fixed objects sit above the incoming S and cannot be moved next to it.
+  return Fixed || Near > 127;
+}
+
+void CPU6FrameLowering::processFunctionBeforeFrameFinalized(
+    MachineFunction &MF, RegScavenger *RS) const {
+  if (!RS)
+    return;
+  // RS is set only when bignumIndexedFrameMayOverflow is true. The slots are
+  // ordinary spill objects so orderFrameObjects puts them with the far
+  // objects. Registering them with the scavenger would pin them next to S.
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  const TargetRegisterClass *RC = &CPU6::GPRRegClass;
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  int A = MFI.CreateSpillStackObject(TRI->getSpillSize(*RC),
+                                    TRI->getSpillAlign(*RC));
+  int B = MFI.CreateSpillStackObject(TRI->getSpillSize(*RC),
+                                    TRI->getSpillAlign(*RC));
+  MF.getInfo<CPU6FunctionInfo>()->setBignumScratchSlots(A, B);
 }

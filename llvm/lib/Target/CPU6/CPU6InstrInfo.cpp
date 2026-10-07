@@ -25,6 +25,43 @@ CPU6InstrInfo::CPU6InstrInfo(const CPU6Subtarget &STI)
     : CPU6GenInstrInfo(STI, RI, CPU6::ADJCALLSTACKDOWN, CPU6::ADJCALLSTACKUP),
       RI() {}
 
+// One row per selector, columns in CPU6BignumMode order.
+struct CPU6BignumFamily {
+  unsigned Ops[9];
+};
+
+static const CPU6BignumFamily CPU6BignumFamilies[] = {
+#define CPU6_BN_ROW(N)                                                         \
+  {CPU6::N##_AA, CPU6::N##_AX, CPU6::N##_AR, CPU6::N##_XA, CPU6::N##_XX,      \
+   CPU6::N##_XR, CPU6::N##_RA, CPU6::N##_RX, CPU6::N##_RR},
+    CPU6_BN_ROW(BNA) CPU6_BN_ROW(BNS) CPU6_BN_ROW(BNC) CPU6_BN_ROW(ZAD)
+        CPU6_BN_ROW(ZSU) CPU6_BN_ROW(M) CPU6_BN_ROW(D) CPU6_BN_ROW(DRM)
+            CPU6_BN_ROW(CTB) CPU6_BN_ROW(CFB)
+#undef CPU6_BN_ROW
+};
+
+bool llvm::classifyCPU6Bignum(unsigned Opcode, CPU6BignumMode &Mode) {
+  for (const CPU6BignumFamily &Family : CPU6BignumFamilies) {
+    for (unsigned I = 0; I < 9; ++I) {
+      if (Family.Ops[I] == Opcode) {
+        Mode = static_cast<CPU6BignumMode>(I);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+unsigned llvm::cpu6BignumOpcode(unsigned Opcode, CPU6BignumMode Mode) {
+  for (const CPU6BignumFamily &Family : CPU6BignumFamilies) {
+    for (unsigned I = 0; I < 9; ++I) {
+      if (Family.Ops[I] == Opcode)
+        return Family.Ops[static_cast<unsigned>(Mode)];
+    }
+  }
+  llvm_unreachable("not a CPU6 bignum opcode");
+}
+
 void CPU6InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator MI,
                                 const DebugLoc &DL, Register DestReg,

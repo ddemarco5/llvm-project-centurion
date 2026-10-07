@@ -44,6 +44,8 @@ private:
 
   void splitBaseOffset(SDValue N, SDValue &Base, SDValue &Disp, unsigned Bits);
   bool SelectAddr(SDValue N, SDValue &Base, SDValue &Disp);
+  bool SelectBignumAddr(SDValue N, SDValue &Base, SDValue &Disp);
+  bool SelectBignumAbs(SDValue N, SDValue &Addr);
   bool SelectFrameAddr(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectAbsAddr(SDValue N, SDValue &Addr);
 };
@@ -149,6 +151,78 @@ void CPU6DAGToDAGISel::splitBaseOffset(SDValue N, SDValue &Base,
 bool CPU6DAGToDAGISel::SelectAddr(SDValue N, SDValue &Base, SDValue &Disp) {
   splitBaseOffset(N, Base, Disp, 8);
   return true;
+}
+
+// True when every use of this value is the same node. A bignum address used
+// by two instructions stays in a register: folding it into each instruction
+// repeats the displacement and the add was smaller.
+static bool onlyUsedByOneNode(const SDNode *N) {
+  const SDNode *User = nullptr;
+  for (const SDNode *U : N->users()) {
+    if (!User)
+      User = U;
+    else if (U != User)
+      return false;
+  }
+  return User != nullptr;
+}
+
+static bool isAddressWord(SDValue N) {
+  switch (N.getOpcode()) {
+  case ISD::GlobalAddress:
+  case ISD::ExternalSymbol:
+  case ISD::BlockAddress:
+  case ISD::Constant:
+  case ISD::TargetGlobalAddress:
+  case ISD::TargetExternalSymbol:
+  case ISD::TargetBlockAddress:
+  case ISD::TargetConstant:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// Indexed bignum operand: a frame index, or a register plus a nonzero signed
+// byte. The frame offset is filled in by eliminateFrameIndex. A bare register
+// stays the register form, which is two bytes shorter than an index of 0.
+// The displacement the pattern sees is an i8, matching simm8 on the encoding.
+bool CPU6DAGToDAGISel::SelectBignumAddr(SDValue N, SDValue &Base,
+                                        SDValue &Disp) {
+  if (!onlyUsedByOneNode(N.getNode()))
+    return false;
+
+  SDLoc DL(N);
+  int64_t Off = 0;
+  bool Folded = false;
+  if (CurDAG->isBaseWithConstantOffset(N)) {
+    int64_t C = cast<ConstantSDNode>(N.getOperand(1))->getSExtValue();
+    if (isInt<8>(C)) {
+      Off = C;
+      N = N.getOperand(0);
+      Folded = true;
+    }
+  }
+  if (auto *FI = dyn_cast<FrameIndexSDNode>(N)) {
+    Base = CurDAG->getTargetFrameIndex(FI->getIndex(), MVT::i16);
+    Disp = CurDAG->getSignedTargetConstant(Off, DL, MVT::i8);
+    return true;
+  }
+  // add %p, 0 is %p. An address word is the absolute form, not an index.
+  if (!Folded || Off == 0 || isAddressWord(N))
+    return false;
+  Base = N;
+  Disp = CurDAG->getSignedTargetConstant(Off, DL, MVT::i8);
+  return true;
+}
+
+// Absolute bignum operand, and only when this instruction is its only user.
+// A global used again is loaded once and shared. AA does not use this: two
+// address words are still smaller than materializing both.
+bool CPU6DAGToDAGISel::SelectBignumAbs(SDValue N, SDValue &Addr) {
+  if (!onlyUsedByOneNode(N.getNode()))
+    return false;
+  return SelectAbsAddr(N, Addr);
 }
 
 // The address of a slot: S plus a word. Only a frame index is this; any

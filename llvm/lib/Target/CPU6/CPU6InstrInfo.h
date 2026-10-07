@@ -19,6 +19,39 @@ namespace llvm {
 
 class CPU6Subtarget;
 
+// Addressing mode of a 0x46 instruction. The order is the operand-layout
+// order used by cpu6BignumOpcode's table.
+enum class CPU6BignumMode {
+  AA,
+  AX,
+  AR,
+  XA,
+  XX,
+  XR,
+  RA,
+  RX,
+  RR
+};
+
+// True when Opc is one selector of 0x46. Mode is which addressing form.
+bool classifyCPU6Bignum(unsigned Opcode, CPU6BignumMode &Mode);
+
+// The same selector as Opcode, in Mode.
+unsigned cpu6BignumOpcode(unsigned Opcode, CPU6BignumMode Mode);
+
+inline bool isCPU6BignumIndexed(CPU6BignumMode Mode) {
+  switch (Mode) {
+  case CPU6BignumMode::AX:
+  case CPU6BignumMode::XA:
+  case CPU6BignumMode::XX:
+  case CPU6BignumMode::XR:
+  case CPU6BignumMode::RX:
+    return true;
+  default:
+    return false;
+  }
+}
+
 class CPU6InstrInfo : public CPU6GenInstrInfo {
   const CPU6RegisterInfo RI;
 

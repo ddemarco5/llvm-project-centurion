@@ -2169,8 +2169,9 @@ foreach OP = [
 //
 // A def name ends in the source and destination mode: BNA_AA is two address
 // words and BNA_RR is two registers. Assembly spells A as `(sym)`, X as
-// `(reg),disp` and R as a bare register. Codegen selects AA and RR only; the
-// other layouts are for the assembler and disassembler.
+// `(reg),disp` and R as a bare register. Codegen selects every mode. The
+// indexed displacement is the signed byte here; a slot that does not fit is
+// materialized with ADD and the register form.
 //
 // Selectors:
 //   0 BNA  ADD    Dest := Dest + Src                         F L M V

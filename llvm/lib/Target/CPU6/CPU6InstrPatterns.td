@@ -513,6 +513,14 @@ def WSHIFT8 : CenturionInst<(outs GPR:$d0, GPR:$d1, GPR:$d2, GPR:$d3,
 def addr : ComplexPattern<i16, 2, "SelectAddr">;
 def absaddr : ComplexPattern<i16, 1, "SelectAbsAddr",
                              [globaladdr, externalsym, blockaddress], [], 10>;
+// Indexed bignum operand. A frame index, or a register plus a nonzero simm8,
+// and only when this instruction is the address's only user. SelectBignumAddr
+// rejects a bare register and an address word; those stay RR or AA.
+def bnaddr : ComplexPattern<i16, 2, "SelectBignumAddr",
+                            [frameindex, add, or], [], 10>;
+// Absolute bignum operand with the same single-user rule. AA keeps absaddr.
+def bnabs : ComplexPattern<i16, 1, "SelectBignumAbs",
+                           [globaladdr, externalsym, blockaddress], [], 10>;
 // The address itself, S plus a word. Also tried before the add patterns, so
 // a slot plus a constant is one ADD.
 def frameaddr : ComplexPattern<i16, 2, "SelectFrameAddr", [frameindex, add, or],
@@ -666,9 +674,11 @@ def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
 //===----------------------------------------------------------------------===//
 //
 // Length-1 in the instruction: i32 → 3, i64 → 7, i128 → 15. Addressing:
-// *_AA is two address words (globals) and *_RR is two registers (pointers
-// and stack slots). The indexed layouts are assembler-only until an `addr`
-// pattern selects them.
+// *_AA is two address words and *_RR is two registers. bnaddr / bnabs select
+// the indexed and mixed forms when the address is not shared. A shared
+// address stays a register so its add is emitted once. The indexed
+// displacement is a signed byte; eliminateFrameIndex materializes a slot
+// that does not fit.
 //
 // Implemented (combineBignumStore/SetCC and ReplaceNodeResults emit the
 // nodes, selected below):
@@ -688,12 +698,39 @@ def : Pat<(CPU6call GPR:$dst), (JSR_5_0 GPR:$dst)>;
 // (@/#) is not expressible as a normal store.
 
 // One pattern per width (length-1 3 is an i32, 7 an i64, 15 an i128) and
-// addressing form.
+// addressing form. The folded forms are more complex than RR, so a frame
+// index or a base+disp is not first selected as its own ADD.
 multiclass BNPats<SDPatternOperator op, string inst> {
   foreach len = [3, 7, 15] in {
     def : Pat<(op (absaddr abs16:$src), (absaddr abs16:$dst), (i8 len)),
               (!cast<Instruction>(inst # "_AA") (i8 len), (i8 len),
                                                 abs16:$src, abs16:$dst)>;
+    let AddedComplexity = 8 in {
+      def : Pat<(op (bnaddr GPR:$sb, simm8:$sd),
+                     (bnaddr GPR:$db, simm8:$dd), (i8 len)),
+                (!cast<Instruction>(inst # "_XX") (i8 len), (i8 len),
+                 GPR:$sb, simm8:$sd, GPR:$db, simm8:$dd)>;
+      def : Pat<(op (bnabs abs16:$src), (bnaddr GPR:$db, simm8:$dd), (i8 len)),
+                (!cast<Instruction>(inst # "_AX") (i8 len), (i8 len),
+                 abs16:$src, GPR:$db, simm8:$dd)>;
+      def : Pat<(op (bnaddr GPR:$sb, simm8:$sd), (bnabs abs16:$dst), (i8 len)),
+                (!cast<Instruction>(inst # "_XA") (i8 len), (i8 len),
+                 GPR:$sb, simm8:$sd, abs16:$dst)>;
+    }
+    let AddedComplexity = 4 in {
+      def : Pat<(op (bnaddr GPR:$sb, simm8:$sd), GPR:$dst, (i8 len)),
+                (!cast<Instruction>(inst # "_XR") (i8 len), (i8 len),
+                 GPR:$sb, simm8:$sd, GPR:$dst)>;
+      def : Pat<(op GPR:$src, (bnaddr GPR:$db, simm8:$dd), (i8 len)),
+                (!cast<Instruction>(inst # "_RX") (i8 len), (i8 len),
+                 GPR:$src, GPR:$db, simm8:$dd)>;
+      def : Pat<(op (bnabs abs16:$src), GPR:$dst, (i8 len)),
+                (!cast<Instruction>(inst # "_AR") (i8 len), (i8 len),
+                 abs16:$src, GPR:$dst)>;
+      def : Pat<(op GPR:$src, (bnabs abs16:$dst), (i8 len)),
+                (!cast<Instruction>(inst # "_RA") (i8 len), (i8 len),
+                 GPR:$src, abs16:$dst)>;
+    }
     def : Pat<(op GPR:$src, GPR:$dst, (i8 len)),
               (!cast<Instruction>(inst # "_RR") (i8 len), (i8 len),
                                                 GPR:$src, GPR:$dst)>;

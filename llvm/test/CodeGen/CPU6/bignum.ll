@@ -1,9 +1,11 @@
 ; RUN: llc -mtriple=cpu6 -O2 -verify-machineinstrs < %s | FileCheck %s
 
 ; Opcode 0x46 selection. The two length operands are length-1: 3 is a 4-byte
-; (i32) operand, 7 an 8-byte (i64) one, and 15 a 16-byte (i128) one. Globals
-; select the address/address form, pointer arguments the register/register
-; form.
+; (i32) operand, 7 an 8-byte (i64) one, and 15 a 16-byte (i128) one. Two
+; globals select the address/address form. A single-use frame slot or a
+; register plus a nonzero signed byte selects the indexed form. A bare
+; pointer, or an address used by more than one of these operations, stays a
+; register.
 
 @src32 = global i32 1
 @dst32 = global i32 2
@@ -323,9 +325,11 @@ define void @d32() nounwind {
 ; The remainder lands where A points, so A is set last, after the dividend
 ; has been copied to the temporary that takes the quotient.
 ; CHECK-LABEL: drm32:
-; CHECK:       ZAD 3,3,{{[A-Z]+}},{{[A-Z]+}}
+; The quotient slot is used again by DRM, so it stays a register. Each global
+; is used once, so it is the absolute side of the mixed form.
+; CHECK:       ZAD 3,3,(a32),{{[B-Z]}}
 ; CHECK-NEXT:  XFR A,c32
-; CHECK-NEXT:  DRM 3,3,{{[B-Z]}},{{[B-Z]}}
+; CHECK-NEXT:  DRM 3,3,(b32),{{[B-Z]}}
 define void @drm32() nounwind {
   %a = load i32, ptr @a32, align 1
   %b = load i32, ptr @b32, align 1
@@ -586,9 +590,9 @@ define void @d128() nounwind {
 }
 
 ; CHECK-LABEL: drm128:
-; CHECK:       ZAD 15,15,{{[A-Z]+}},{{[A-Z]+}}
+; CHECK:       ZAD 15,15,(a128),{{[B-Z]}}
 ; CHECK-NEXT:  XFR A,c128
-; CHECK-NEXT:  DRM 15,15,{{[B-Z]}},{{[B-Z]}}
+; CHECK-NEXT:  DRM 15,15,(b128),{{[B-Z]}}
 define void @drm128() nounwind {
   %a = load i128, ptr @a128, align 1
   %b = load i128, ptr @b128, align 1
@@ -671,5 +675,190 @@ define void @mul128_rr(i128 %a, i128 %b, ptr %p) nounwind {
 define void @add128_rr(i128 %a, i128 %b, ptr %p) nounwind {
   %r = add i128 %a, %b
   store i128 %r, ptr %p, align 1
+  ret void
+}
+
+;===----------------------------------------------------------------------===;
+; Indexed and mixed operands. A one-shot local folds. An address reused by
+; several operations does not: the adds stay, and each operation is RR.
+;===----------------------------------------------------------------------===;
+
+; CHECK-LABEL: local_add32:
+; CHECK-NOT:   STK
+; CHECK:       BNA 3,3,(S),0,(S),4
+; CHECK-NEXT:  INR S,7
+; CHECK-NEXT:  RSR
+define void @local_add32() nounwind {
+  %d = alloca i32, align 1
+  %s = alloca i32, align 1
+  %a = load i32, ptr %d, align 1
+  %b = load i32, ptr %s, align 1
+  %c = add i32 %a, %b
+  store i32 %c, ptr %d, align 1
+  ret void
+}
+
+; CHECK-LABEL: local_add64:
+; CHECK:       BNA 7,7,(S),0,(S),8
+; CHECK-NEXT:  INR S,15
+; CHECK-NEXT:  RSR
+define void @local_add64() nounwind {
+  %d = alloca i64, align 1
+  %s = alloca i64, align 1
+  %a = load i64, ptr %d, align 1
+  %b = load i64, ptr %s, align 1
+  %c = add i64 %a, %b
+  store i64 %c, ptr %d, align 1
+  ret void
+}
+
+; CHECK-LABEL: local_add128:
+; CHECK:       BNA 15,15,(S),0,(S),16
+; CHECK-NEXT:  ADD S,S,32
+; CHECK-NEXT:  RSR
+define void @local_add128() nounwind {
+  %d = alloca i128, align 1
+  %s = alloca i128, align 1
+  %a = load i128, ptr %d, align 1
+  %b = load i128, ptr %s, align 1
+  %c = add i128 %a, %b
+  store i128 %c, ptr %d, align 1
+  ret void
+}
+
+; CHECK-LABEL: locals_chain:
+; CHECK:       ADD S,[[DST:[A-Z]+]],4
+; CHECK:       ADD S,[[SRC:[A-Z]+]],0
+; CHECK:       BNA 3,3,[[SRC]],[[DST]]
+; CHECK:       BNS 3,3,[[SRC]],[[DST]]
+; CHECK:       BNC 3,3,[[SRC]],[[DST]]
+define i1 @locals_chain() nounwind {
+  %d = alloca i32, align 1
+  %s = alloca i32, align 1
+  %a = load i32, ptr %d, align 1
+  %b = load i32, ptr %s, align 1
+  %sum = add i32 %a, %b
+  store i32 %sum, ptr %d, align 1
+  %a2 = load i32, ptr %d, align 1
+  %b2 = load i32, ptr %s, align 1
+  %diff = sub i32 %a2, %b2
+  store i32 %diff, ptr %d, align 1
+  %a3 = load i32, ptr %d, align 1
+  %b3 = load i32, ptr %s, align 1
+  %c = icmp eq i32 %a3, %b3
+  ret i1 %c
+}
+
+; The limb at offset 0 is the pointer itself. Indexed with a displacement of
+; 0 is larger than RR, so that limb stays two registers. The other two are
+; single-use and fold. Nothing is saved just to hold an address.
+; CHECK-LABEL: limbs:
+; CHECK-NOT:   STK
+; CHECK:       BNA 3,3,B,A
+; CHECK-NEXT:  BNA 3,3,(B),4,(A),4
+; CHECK-NEXT:  BNA 3,3,(B),8,(A),8
+; CHECK-NEXT:  RSR
+define void @limbs(ptr %a, ptr %b) nounwind {
+  %a0 = load i32, ptr %a, align 1
+  %b0 = load i32, ptr %b, align 1
+  %s0 = add i32 %a0, %b0
+  store i32 %s0, ptr %a, align 1
+  %a4 = getelementptr i8, ptr %a, i16 4
+  %b4 = getelementptr i8, ptr %b, i16 4
+  %a1 = load i32, ptr %a4, align 1
+  %b1 = load i32, ptr %b4, align 1
+  %s1 = add i32 %a1, %b1
+  store i32 %s1, ptr %a4, align 1
+  %a8 = getelementptr i8, ptr %a, i16 8
+  %b8 = getelementptr i8, ptr %b, i16 8
+  %a2 = load i32, ptr %a8, align 1
+  %b2 = load i32, ptr %b8, align 1
+  %s2 = add i32 %a2, %b2
+  store i32 %s2, ptr %a8, align 1
+  ret void
+}
+
+; CHECK-LABEL: two_ptrs:
+; CHECK:       BNA 3,3,{{[A-Z]+}},{{[A-Z]+}}
+; CHECK-NEXT:  RSR
+define void @two_ptrs(ptr %p, ptr %q) nounwind {
+  %a = load i32, ptr %q, align 1
+  %b = load i32, ptr %p, align 1
+  %c = add i32 %a, %b
+  store i32 %c, ptr %q, align 1
+  ret void
+}
+
+; CHECK-LABEL: global_ptr:
+; CHECK:       BNA 3,3,(src32),A
+; CHECK-NEXT:  RSR
+define void @global_ptr(ptr %p) nounwind {
+  %a = load i32, ptr @src32, align 1
+  %b = load i32, ptr %p, align 1
+  %c = add i32 %b, %a
+  store i32 %c, ptr %p, align 1
+  ret void
+}
+
+; CHECK-LABEL: ptr_global:
+; CHECK:       BNA 3,3,A,(dst32)
+; CHECK-NEXT:  RSR
+define void @ptr_global(ptr %p) nounwind {
+  %a = load i32, ptr %p, align 1
+  %b = load i32, ptr @dst32, align 1
+  %c = add i32 %b, %a
+  store i32 %c, ptr @dst32, align 1
+  ret void
+}
+
+; 200 does not fit in the indexed byte. The adds stay, and the operation is RR.
+; CHECK-LABEL: disp200:
+; CHECK:       ADD {{[A-Z]+}},{{[A-Z]+}},200
+; CHECK:       ADD {{[A-Z]+}},{{[A-Z]+}},200
+; CHECK-NOT:   ),
+; CHECK:       BNA 3,3,{{[A-Z]+}},{{[A-Z]+}}
+; CHECK-NEXT:  RSR
+define void @disp200(ptr %p, ptr %q) nounwind {
+  %pp = getelementptr i8, ptr %p, i16 200
+  %qq = getelementptr i8, ptr %q, i16 200
+  %a = load i32, ptr %qq, align 1
+  %b = load i32, ptr %pp, align 1
+  %c = add i32 %a, %b
+  store i32 %c, ptr %qq, align 1
+  ret void
+}
+
+; The byte array has to stay nearest S: a byte displacement has no fallback.
+; The i32 slots are past the signed byte, so each becomes ADD plus a register.
+; CHECK-LABEL: byte_window:
+; CHECK:       STAB (S),0
+; CHECK:       ADD S,[[BW_S:[A-Z]+]],200
+; CHECK:       ADD S,[[BW_D:[A-Z]+]],204
+; CHECK:       BNA 3,3,[[BW_S]],[[BW_D]]
+define void @byte_window() nounwind {
+  %buf = alloca [200 x i8], align 1
+  %d = alloca i32, align 1
+  %s = alloca i32, align 1
+  store volatile i8 1, ptr %buf, align 1
+  %a = load i32, ptr %d, align 1
+  %b = load i32, ptr %s, align 1
+  %c = add i32 %a, %b
+  store i32 %c, ptr %d, align 1
+  ret void
+}
+
+; A word object can sit anywhere. It is placed further from S than the bignum
+; slots, so those slots stay inside the signed byte and fold.
+; CHECK-LABEL: far_word:
+; CHECK:       BNA 3,3,(S),0,(S),4
+define void @far_word() nounwind {
+  %big = alloca [200 x i16], align 1
+  %d = alloca i32, align 1
+  %s = alloca i32, align 1
+  store i16 1, ptr %big, align 1
+  %a = load i32, ptr %d, align 1
+  %b = load i32, ptr %s, align 1
+  %c = add i32 %a, %b
+  store i32 %c, ptr %d, align 1
   ret void
 }

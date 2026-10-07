@@ -65,6 +65,17 @@ public:
   void orderFrameObjects(const MachineFunction &MF,
                          SmallVectorImpl<int> &ObjectsToAllocate) const override;
 
+  // Indexed bignum displacements are a signed byte. Byte objects stay nearest
+  // S; bignum objects take the next band. This is true when that band, plus
+  // the outgoing call area, does not fit, so a slot has to be materialized.
+  bool bignumIndexedFrameMayOverflow(const MachineFunction &MF) const;
+
+  // Two ordinary spill slots for that materialization. They are not scavenging
+  // indexes: PEI would place those nearest S and push byte accesses out of
+  // their own signed byte.
+  void processFunctionBeforeFrameFinalized(MachineFunction &MF,
+                                           RegScavenger *RS = nullptr) const override;
+
 protected:
   bool hasFPImpl(const MachineFunction &MF) const override;
 };

@@ -26,6 +26,10 @@ struct CPU6RegisterInfo : public CPU6GenRegisterInfo {
 
   BitVector getReservedRegs(const MachineFunction &MF) const override;
 
+  // Only a function whose indexed bignum slots may not fit in a signed byte.
+  // The scavenger then finds a register for the ADD that materializes one.
+  bool requiresRegisterScavenging(const MachineFunction &MF) const override;
+
   bool eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;
