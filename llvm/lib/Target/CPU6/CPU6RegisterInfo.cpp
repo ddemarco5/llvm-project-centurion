@@ -398,7 +398,8 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
 
   // XFR, STR, and ADD take a word. The others take a signed byte. A word
   // LDA/STA out of that range is the XFR/STR indexed form instead: same
-  // operands and flags, one byte longer, any register. An indexed bignum
+  // operands and flags, one byte longer, any register. FIL and a one-sided
+  // indexed MVF widen to the disp16 opcode the same way. An indexed bignum
   // that does not fit was rewritten above; one that fits is patched here,
   // including a displacement of 0.
   unsigned Opc = Instr.getOpcode();
@@ -410,6 +411,12 @@ bool CPU6RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
       Instr.setDesc(TII.get(CPU6::XFRidx));
     else if (Opc == CPU6::STAfi)
       Instr.setDesc(TII.get(CPU6::STRidx));
+    else if (Opc == CPU6::FIL_I8)
+      Instr.setDesc(TII.get(CPU6::FIL_I16));
+    else if (Opc == CPU6::MVF_I8R)
+      Instr.setDesc(TII.get(CPU6::MVF_I16R));
+    else if (Opc == CPU6::MVF_RI8)
+      Instr.setDesc(TII.get(CPU6::MVF_RI16));
     else
       report_fatal_error("CPU6 byte frame access is out of displacement range");
   }

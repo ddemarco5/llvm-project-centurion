@@ -521,6 +521,15 @@ def bnaddr : ComplexPattern<i16, 2, "SelectBignumAddr",
 // Absolute bignum operand with the same single-user rule. AA keeps absaddr.
 def bnabs : ComplexPattern<i16, 1, "SelectBignumAbs",
                            [globaladdr, externalsym, blockaddress], [], 10>;
+// Block-move addresses. blkidx is a register plus a nonzero simm8. blkframe
+// is a frame index. A frame index is not paired with another index or with
+// an absolute: those encodings have no 16-bit twin, and a slot past simm8
+// would need a scavenged register.
+def blkabs : ComplexPattern<i16, 1, "SelectBlkAbs",
+                            [globaladdr, externalsym, blockaddress], [], 10>;
+def blkidx : ComplexPattern<i16, 2, "SelectBlkIdx", [add, or], [], 10>;
+def blkframe : ComplexPattern<i16, 2, "SelectBlkFrame",
+                              [frameindex, add, or], [], 10>;
 // The address itself, S plus a word. Also tried before the add patterns, so
 // a slot plus a constant is one ADD.
 def frameaddr : ComplexPattern<i16, 2, "SelectFrameAddr", [frameindex, add, or],
@@ -617,10 +626,49 @@ def RELOADB : CenturionInst<(outs GPRB:$dst), (ins GPR:$r, i16imm:$arg),
 //===----------------------------------------------------------------------===//
 
 // MVF count,src,dst and FIL count,lit,dst with both addresses in registers.
+// A single-use absolute or indexed address folds into the instruction. Two
+// frame indexes stay here: there is no disp16 form of two indexes. Added
+// complexity keeps the folded form ahead of materializing the address.
 def : Pat<(CPU6blkcopy GPR:$src, GPR:$dst, (i8 timm:$cnt)),
           (MVF_RR timm:$cnt, GPR:$src, GPR:$dst)>;
 def : Pat<(CPU6blkfill (i8 timm:$byte), GPR:$dst, (i8 timm:$cnt)),
           (FIL_R timm:$cnt, timm:$byte, GPR:$dst)>;
+let AddedComplexity = 8 in {
+  def : Pat<(CPU6blkcopy (blkabs abs16:$src), (blkabs abs16:$dst),
+                         (i8 timm:$cnt)),
+            (MVF_DD timm:$cnt, abs16:$src, abs16:$dst)>;
+  def : Pat<(CPU6blkcopy (blkabs abs16:$src), GPR:$dst, (i8 timm:$cnt)),
+            (MVF_DR timm:$cnt, abs16:$src, GPR:$dst)>;
+  def : Pat<(CPU6blkcopy GPR:$src, (blkabs abs16:$dst), (i8 timm:$cnt)),
+            (MVF_RD timm:$cnt, GPR:$src, abs16:$dst)>;
+  def : Pat<(CPU6blkcopy (blkidx GPR:$sb, simm8:$sd),
+                         (blkidx GPR:$db, simm8:$dd), (i8 timm:$cnt)),
+            (MVF_I8I8 timm:$cnt, GPR:$sb, simm8:$sd, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcopy (blkidx GPR:$sb, simm8:$sd), GPR:$dst, (i8 timm:$cnt)),
+            (MVF_I8R timm:$cnt, GPR:$sb, simm8:$sd, GPR:$dst)>;
+  def : Pat<(CPU6blkcopy GPR:$src, (blkidx GPR:$db, simm8:$dd), (i8 timm:$cnt)),
+            (MVF_RI8 timm:$cnt, GPR:$src, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcopy (blkidx GPR:$sb, simm8:$sd), (blkabs abs16:$dst),
+                         (i8 timm:$cnt)),
+            (MVF_I8D timm:$cnt, GPR:$sb, simm8:$sd, abs16:$dst)>;
+  def : Pat<(CPU6blkcopy (blkabs abs16:$src), (blkidx GPR:$db, simm8:$dd),
+                         (i8 timm:$cnt)),
+            (MVF_DI8 timm:$cnt, abs16:$src, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkcopy (blkframe GPR:$sb, simm8:$sd), GPR:$dst,
+                         (i8 timm:$cnt)),
+            (MVF_I8R timm:$cnt, GPR:$sb, simm8:$sd, GPR:$dst)>;
+  def : Pat<(CPU6blkcopy GPR:$src, (blkframe GPR:$db, simm8:$dd),
+                         (i8 timm:$cnt)),
+            (MVF_RI8 timm:$cnt, GPR:$src, GPR:$db, simm8:$dd)>;
+  def : Pat<(CPU6blkfill (i8 timm:$byte), (blkabs abs16:$dst), (i8 timm:$cnt)),
+            (FIL timm:$cnt, timm:$byte, abs16:$dst)>;
+  def : Pat<(CPU6blkfill (i8 timm:$byte), (blkidx GPR:$b, simm8:$d),
+                         (i8 timm:$cnt)),
+            (FIL_I8 timm:$cnt, timm:$byte, GPR:$b, simm8:$d)>;
+  def : Pat<(CPU6blkfill (i8 timm:$byte), (blkframe GPR:$b, simm8:$d),
+                         (i8 timm:$cnt)),
+            (FIL_I8 timm:$cnt, timm:$byte, GPR:$b, simm8:$d)>;
+}
 
 // A run-time length (CPU6TargetLowering::EmitMemLoop). A zero count skips
 // the copy. Otherwise it is MVFR with count-1 in AL, 256 bytes at a time,

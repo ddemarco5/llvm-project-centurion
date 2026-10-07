@@ -55,7 +55,7 @@ define void @cpy1025(ptr %d, ptr %s) nounwind {
 }
 
 ; CHECK-LABEL: cpyglob:
-; CHECK: MVF 15,B,A
+; CHECK: MVF 15,(gb),(ga)
 ; CHECK: RSR
 define void @cpyglob() nounwind {
   call void @llvm.memcpy.p0.p0.i16(ptr @ga, ptr @gb, i16 16, i1 false)
@@ -125,7 +125,7 @@ define void @movdown(ptr %p) nounwind {
 
 ; Distinct objects cannot overlap.
 ; CHECK-LABEL: movglob:
-; CHECK: MVF 15,B,A
+; CHECK: MVF 15,(gb),(ga)
 ; CHECK: RSR
 define void @movglob() nounwind {
   call void @llvm.memmove.p0.p0.i16(ptr @ga, ptr @gb, i16 16, i1 false)
@@ -219,5 +219,93 @@ define void @dynsave(i16 %n) nounwind {
   %p = alloca i8, i16 %n, align 4
   call void @use(ptr %p)
   call void @llvm.stackrestore.p0(ptr %sp)
+  ret void
+}
+
+@gz = global [32 x i8] zeroinitializer
+@ga1k = global [1024 x i8] zeroinitializer
+@gb1k = global [1024 x i8] zeroinitializer
+
+; A global fill is one absolute FIL. No address register.
+; CHECK-LABEL: setglob:
+; CHECK: FIL 31,0,(gz)
+; CHECK: RSR
+define void @setglob() nounwind {
+  call void @llvm.memset.p0.i16(ptr @gz, i8 0, i16 32, i1 false)
+  ret void
+}
+
+; Each 256-byte chunk names the global plus its offset. No running ADD.
+; CHECK-LABEL: cpyglob1k:
+; CHECK: MVF -1,(gb1k),(ga1k)
+; CHECK-NOT: ADD
+; CHECK: MVF -1,(gb1k+256),(ga1k+256)
+; CHECK-NOT: ADD
+; CHECK: MVF -1,(gb1k+512),(ga1k+512)
+; CHECK-NOT: ADD
+; CHECK: MVF -1,(gb1k+768),(ga1k+768)
+; CHECK-NOT: ADD
+; CHECK: RSR
+define void @cpyglob1k() nounwind {
+  call void @llvm.memcpy.p0.p0.i16(ptr @ga1k, ptr @gb1k, i16 1024, i1 false)
+  ret void
+}
+
+; Both addresses are a register plus a signed byte.
+; CHECK-LABEL: cpyfield:
+; CHECK: MVF 15,(B),8,(A),4
+; CHECK: RSR
+define void @cpyfield(ptr %p, ptr %q) nounwind {
+  %pd = getelementptr i8, ptr %p, i16 4
+  %qd = getelementptr i8, ptr %q, i16 8
+  call void @llvm.memcpy.p0.p0.i16(ptr %pd, ptr %qd, i16 16, i1 false)
+  ret void
+}
+
+; One side is already the pointer register.
+; CHECK-LABEL: cpyfield1:
+; CHECK: MVF 15,B,(A),4
+; CHECK: RSR
+define void @cpyfield1(ptr %p, ptr %q) nounwind {
+  %pd = getelementptr i8, ptr %p, i16 4
+  call void @llvm.memcpy.p0.p0.i16(ptr %pd, ptr %q, i16 16, i1 false)
+  ret void
+}
+
+; A local fill uses S and a displacement.
+; CHECK-LABEL: setlocal:
+; CHECK: FIL 31,0,(S),0
+; CHECK: RSR
+define void @setlocal() nounwind {
+  %buf = alloca [32 x i8]
+  call void @llvm.memset.p0.i16(ptr %buf, i8 0, i16 32, i1 false)
+  ret void
+}
+
+; bulk sits between S and the filled buffer, so the displacement is 161 and
+; the 8-bit form is widened. The byte store of the slot stays in range.
+; CHECK-LABEL: setfar:
+; CHECK: FIL 31,9,(S),(161)
+; CHECK: STAB (S),0
+; CHECK: RSR
+define void @setfar() nounwind {
+  %buf = alloca [32 x i8]
+  %bulk = alloca [160 x i8]
+  %slot = alloca i8
+  call void @llvm.memset.p0.i16(ptr %buf, i8 9, i16 32, i1 false)
+  store i8 1, ptr %slot
+  store i16 2, ptr %bulk
+  ret void
+}
+
+; A variable-sized object addresses the fixed slot from X.
+; CHECK-LABEL: setdyn:
+; CHECK: FIL 31,0,(X),-32
+; CHECK: RSR
+define void @setdyn(i16 %n) nounwind {
+  %buf = alloca [32 x i8]
+  %p = alloca i8, i16 %n
+  call void @llvm.memset.p0.i16(ptr %buf, i8 0, i16 32, i1 false)
+  call void @use(ptr %p)
   ret void
 }

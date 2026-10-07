@@ -46,6 +46,9 @@ private:
   bool SelectAddr(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectBignumAddr(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectBignumAbs(SDValue N, SDValue &Addr);
+  bool SelectBlkAbs(SDValue N, SDValue &Addr);
+  bool SelectBlkIdx(SDValue N, SDValue &Base, SDValue &Disp);
+  bool SelectBlkFrame(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectFrameAddr(SDValue N, SDValue &Base, SDValue &Disp);
   bool SelectAbsAddr(SDValue N, SDValue &Addr);
 };
@@ -223,6 +226,64 @@ bool CPU6DAGToDAGISel::SelectBignumAbs(SDValue N, SDValue &Addr) {
   if (!onlyUsedByOneNode(N.getNode()))
     return false;
   return SelectAbsAddr(N, Addr);
+}
+
+// Absolute block-move operand. Same single-use rule as a bignum address: a
+// global that is loaded again stays in a register and is shared.
+bool CPU6DAGToDAGISel::SelectBlkAbs(SDValue N, SDValue &Addr) {
+  return SelectBignumAbs(N, Addr);
+}
+
+// Register plus a nonzero signed byte. A frame index is SelectBlkFrame, and
+// only on forms that can widen to a 16-bit displacement. A bare register and
+// an address word stay the register and absolute forms.
+bool CPU6DAGToDAGISel::SelectBlkIdx(SDValue N, SDValue &Base, SDValue &Disp) {
+  if (!onlyUsedByOneNode(N.getNode()))
+    return false;
+
+  SDLoc DL(N);
+  int64_t Off = 0;
+  bool Folded = false;
+  if (CurDAG->isBaseWithConstantOffset(N)) {
+    int64_t C = cast<ConstantSDNode>(N.getOperand(1))->getSExtValue();
+    if (isInt<8>(C)) {
+      Off = C;
+      N = N.getOperand(0);
+      Folded = true;
+    }
+  }
+  if (isa<FrameIndexSDNode>(N))
+    return false;
+  if (!Folded || Off == 0 || isAddressWord(N))
+    return false;
+  Base = N;
+  Disp = CurDAG->getSignedTargetConstant(Off, DL, MVT::i8);
+  return true;
+}
+
+// A frame index, or a frame index plus a signed byte. The slot's real
+// distance from S or X is filled in by eliminateFrameIndex, which widens an
+// 8-bit form when that distance does not fit.
+bool CPU6DAGToDAGISel::SelectBlkFrame(SDValue N, SDValue &Base,
+                                      SDValue &Disp) {
+  if (!onlyUsedByOneNode(N.getNode()))
+    return false;
+
+  SDLoc DL(N);
+  int64_t Off = 0;
+  if (CurDAG->isBaseWithConstantOffset(N)) {
+    int64_t C = cast<ConstantSDNode>(N.getOperand(1))->getSExtValue();
+    if (!isInt<8>(C))
+      return false;
+    Off = C;
+    N = N.getOperand(0);
+  }
+  auto *FI = dyn_cast<FrameIndexSDNode>(N);
+  if (!FI)
+    return false;
+  Base = CurDAG->getTargetFrameIndex(FI->getIndex(), MVT::i16);
+  Disp = CurDAG->getSignedTargetConstant(Off, DL, MVT::i8);
+  return true;
 }
 
 // The address of a slot: S plus a word. Only a frame index is this; any

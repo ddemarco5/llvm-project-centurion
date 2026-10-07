@@ -1229,8 +1229,8 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 //
 // MVF is selector 4, FIL is 9, CPF is 8. A 0x47 length is immediate
 // count-1 (at most 256 bytes); MVFR/FILR/CPFR take that length in AL.
-// Codegen selects MVF_RR, FIL_R, and MVFR for memcpy and memset; the
-// other layouts are for the assembler and disassembler.
+// Codegen selects the register forms and, for a single-use address, the
+// absolute and indexed 0x47 forms. The 0x67 forms stay in the assembler.
 //
 // Run in the CenREE microcode simulator: the copy goes one byte at a time
 // from the lowest address up, so a destination one byte above its source
@@ -1240,7 +1240,7 @@ def ADJCALLSTACKUP   : CenturionInst<(outs), (ins i16imm:$amt1, i16imm:$amt2),
 // or 5 per byte filled.
 class BlockLit48<bits<4> sel, string name>
       : CenturionInst48<(outs),
-          (ins uimm8:$count, i8imm:$byte, i16imm:$addr),
+          (ins uimm8:$count, i8imm:$byte, abs16:$addr),
           name, "$count,$byte,(${addr})"> {
   bits<8> count;
   bits<8> byte;
@@ -1253,9 +1253,11 @@ class BlockLit48<bits<4> sel, string name>
   let Inst{15-0} = addr;
 }
 // MVF clears Minus and Value, then sets them from the bytes it copied.
-// Fault and Link are left alone. FIL does not touch the flags.
+// Fault and Link are left alone. FIL does not touch the flags. The absolute
+// FIL is the memset of a global; MVF's literal form is assembler-only.
 let Defs = [rM, rV] in
 def MVF : BlockLit48<4, "MVF">;
+let mayStore = 1, hasSideEffects = 0 in
 def FIL : BlockLit48<9, "FIL">;
 
 class MVFR24
@@ -1304,7 +1306,7 @@ class Mem47RR<bits<4> sel, string name>
 }
 
 class Mem47RD<bits<4> sel, string name>
-      : CenturionInst48<(outs), (ins uimm8:$count, GPR:$src, i16imm:$addr),
+      : CenturionInst48<(outs), (ins uimm8:$count, GPR:$src, abs16:$addr),
         name, "$count,$src,(${addr})"> {
   bits<8> count;
   bits<4> src;
@@ -1319,7 +1321,7 @@ class Mem47RD<bits<4> sel, string name>
 }
 
 class Mem47DR<bits<4> sel, string name>
-      : CenturionInst48<(outs), (ins uimm8:$count, i16imm:$addr, GPR:$dst),
+      : CenturionInst48<(outs), (ins uimm8:$count, abs16_t1:$addr, GPR:$dst),
         name, "$count,(${addr}),$dst"> {
   bits<8> count;
   bits<16> addr;
@@ -1334,7 +1336,7 @@ class Mem47DR<bits<4> sel, string name>
 }
 
 class Mem47DD<bits<4> sel, string name>
-      : CenturionInst56<(outs), (ins uimm8:$count, i16imm:$addr, i16imm:$addr2),
+      : CenturionInst56<(outs), (ins uimm8:$count, abs16_t2:$addr, abs16:$addr2),
         name, "$count,(${addr}),(${addr2})"> {
   bits<8> count;
   bits<16> addr;
@@ -1348,7 +1350,7 @@ class Mem47DD<bits<4> sel, string name>
 }
 
 class Mem47I8D<bits<4> sel, string name>
-      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$base, simm8:$disp, i16imm:$addr),
+      : CenturionInst56<(outs), (ins uimm8:$count, GPR:$base, simm8:$disp, abs16:$addr),
         name, "$count,(${base}),$disp,(${addr})"> {
   bits<8> count;
   bits<4> base;
@@ -1368,7 +1370,7 @@ class Mem47I8D<bits<4> sel, string name>
 }
 
 class Mem47DI8<bits<4> sel, string name>
-      : CenturionInst56<(outs), (ins uimm8:$count, i16imm:$addr, GPR:$base, simm8:$disp),
+      : CenturionInst56<(outs), (ins uimm8:$count, abs16_t2:$addr, GPR:$base, simm8:$disp),
         name, "$count,(${addr}),(${base}),$disp"> {
   bits<8> count;
   bits<16> addr;
@@ -1896,7 +1898,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_RD : Mem47RD<OP.Sel, OP.Name>;
 }
 
@@ -1904,7 +1907,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_DR : Mem47DR<OP.Sel, OP.Name>;
 }
 
@@ -1912,7 +1916,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_DD : Mem47DD<OP.Sel, OP.Name>;
 }
 
@@ -1920,7 +1925,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_I8D : Mem47I8D<OP.Sel, OP.Name>;
 }
 
@@ -1928,7 +1934,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_DI8 : Mem47DI8<OP.Sel, OP.Name>;
 }
 
@@ -1936,7 +1943,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_I8I8 : Mem47I8I8<OP.Sel, OP.Name>;
 }
 
@@ -1944,7 +1952,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_I8R : Mem47I8R<OP.Sel, OP.Name>;
 }
 
@@ -1952,7 +1961,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_RI8 : Mem47RI8<OP.Sel, OP.Name>;
 }
 
@@ -1960,7 +1970,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_I16R : Mem47I16R<OP.Sel, OP.Name>;
 }
 
@@ -1968,7 +1979,8 @@ foreach OP = [
     OpSel<"MVF", 4, [rM, rV]>,
     OpSel<"CPF", 8, [rF, rL, rM, rV]>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 1, mayStore = !ne(OP.Name, "CPF"),
+      hasSideEffects = 0 in
   def OP.Name#_RI16 : Mem47RI16<OP.Sel, OP.Name>;
 }
 
@@ -1982,14 +1994,14 @@ foreach OP = [
 foreach OP = [
     OpSel<"FIL", 9>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 0, mayStore = 1, hasSideEffects = 0 in
   def OP.Name#_I8 : Fil47I8<OP.Sel, OP.Name>;
 }
 
 foreach OP = [
     OpSel<"FIL", 9>
 ] in {
-  let Defs = OP.Flags in
+  let Defs = OP.Flags, mayLoad = 0, mayStore = 1, hasSideEffects = 0 in
   def OP.Name#_I16 : Fil47I16<OP.Sel, OP.Name>;
 }
 
