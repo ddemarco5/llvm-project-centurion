@@ -483,6 +483,7 @@ static std::pair<ELFKind, uint16_t> parseBfdName(StringRef s) {
       .Case("elf32-littleriscv", {ELF32LEKind, EM_RISCV})
       .Case("elf64-littleriscv", {ELF64LEKind, EM_RISCV})
       .Case("elf64-sparc", {ELF64BEKind, EM_SPARCV9})
+      .Case("elf32-cpu6", {ELF32LEKind, EM_CPU6})
       .Case("elf32-msp430", {ELF32LEKind, EM_MSP430})
       .Case("elf32-loongarch", {ELF32LEKind, EM_LOONGARCH})
       .Case("elf64-loongarch", {ELF64LEKind, EM_LOONGARCH})
@@ -528,7 +529,7 @@ void ScriptParser::readOutputFormat() {
     setError("unknown output format name: " + ctx.arg.bfdname);
   if (s == "elf32-ntradlittlemips" || s == "elf32-ntradbigmips")
     ctx.arg.mipsN32Abi = true;
-  if (ctx.arg.emachine == EM_MSP430)
+  if (ctx.arg.emachine == EM_MSP430 || ctx.arg.emachine == EM_CPU6)
     ctx.arg.osabi = ELFOSABI_STANDALONE;
 }
 

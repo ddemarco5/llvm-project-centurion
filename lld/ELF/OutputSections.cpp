@@ -137,7 +137,12 @@ void OutputSection::commitSection(InputSection *isec) {
         // Some projects (e.g.
         // https://github.com/ClangBuiltLinux/linux/issues/1597) rely on the
         // behavior. Other types get an error.
-        if (type != SHT_NOBITS) {
+        // An explicit SHT_PROGBITS may absorb SHT_NOBITS. A script uses that
+        // so .bss zeros are stored in the file (--oformat=binary skips a
+        // NOBITS output section).
+        bool nobitsIntoProgbits =
+            typeIsSet && type == SHT_PROGBITS && isec->type == SHT_NOBITS;
+        if (type != SHT_NOBITS && !nobitsIntoProgbits) {
           Err(ctx) << "section type mismatch for " << isec->name << "\n>>> "
                    << isec << ": "
                    << getELFSectionTypeName(ctx.arg.emachine, isec->type)

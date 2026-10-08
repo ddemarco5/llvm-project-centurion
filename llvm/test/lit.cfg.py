@@ -263,7 +263,6 @@ tools.extend(
         "llvm-cgdata",
         "llvm-config",
         "llvm-cov",
-        "llvm-cpu6-ld",
         "llvm-ctxprof-util",
         "llvm-cxxdump",
         "llvm-cvtres",

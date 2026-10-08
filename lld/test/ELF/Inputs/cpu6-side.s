@@ -1,0 +1,3 @@
+	.globl side
+side:
+	RSR

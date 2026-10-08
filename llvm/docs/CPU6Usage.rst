@@ -68,4 +68,44 @@ lowered to an EH runtime.
 Linking
 =======
 
-TODO
+``ld.lld`` links the relocatable ELF objects. The container is 32-bit
+little-endian (``EM_CPU6``, 259). Address fields and ``.word`` / ``.long``
+values are big-endian. ``-m elf32cpu6`` selects that target.
+``OUTPUT_FORMAT(elf32-cpu6)`` does the same from a script. The default
+image base is ``0x100``. Addresses below that are the register file.
+
+The file to copy into memory is a raw image, not Intel HEX. Its first
+byte is address ``0x100``. ``--oformat=binary`` skips a ``SHT_NOBITS``
+section, and a reset does not clear RAM, so ``.bss`` and ``COMMON`` have
+to be zeros in the file. ``lld/ELF/cpu6.ld`` places the image at
+``0x100`` and folds those sections into a ``PROGBITS`` ``.data``:
+
+.. code-block:: text
+
+   OUTPUT_FORMAT(elf32-cpu6)
+   SECTIONS {
+     . = 0x100;
+     .text : { *(.text .text.*) }
+     .rodata : { *(.rodata .rodata.*) }
+     .data (TYPE=SHT_PROGBITS) : {
+       *(.data .data.*)
+       *(.bss .bss.*)
+       *(COMMON)
+     }
+   }
+
+``(TYPE=SHT_PROGBITS)`` keeps the zeros when the program has no
+initialized ``.data``. Input sections are concatenated in command-line
+order, so the first object is the first byte of the image. ``-e`` names
+the entry symbol stored in ``e_entry``.
+
+An ELF::
+
+   ld.lld -m elf32cpu6 -T cpu6.ld --image-base=0x100 -e main -o prog.elf prog.o
+
+The raw image::
+
+   ld.lld -m elf32cpu6 -T cpu6.ld --image-base=0x100 -e main --oformat=binary -o prog.bin prog.o
+
+``llvm-objcopy -O ihex`` can turn the ELF into Intel HEX if a loader wants
+address records. ``ld.lld`` does not write HEX.

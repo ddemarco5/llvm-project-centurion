@@ -18,7 +18,7 @@ CPU6MCAsmInfo::CPU6MCAsmInfo(const Triple &TT, const MCTargetOptions &Options)
     : MCAsmInfoELF(Options) {
   (void)TT;
   // Integer data is big-endian, matching the data layout. The ELF container
-  // stays little-endian; that is the AsmBackend endian llvm-cpu6-ld reads.
+  // stays little-endian; that is the AsmBackend endian ld.lld reads.
   IsLittleEndian = false;
   // Pointers and CSR slots are 16-bit words.
   CodePointerSize = 2;

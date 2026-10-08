@@ -1,3 +1,0 @@
-	.weak side
-side:
-	RSR

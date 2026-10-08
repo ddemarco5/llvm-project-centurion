@@ -1,0 +1,20 @@
+# REQUIRES: cpu6
+
+# RUN: llvm-mc -triple=cpu6 -filetype=obj %s -o %t.o
+# RUN: ld.lld -m elf32cpu6 -T %S/../../ELF/cpu6.ld --image-base=0x100 -e f --oformat=binary -o %t.bin %t.o
+# RUN: %python -c "print(open(r'%t.bin','rb').read().hex())" | FileCheck %s
+
+# .text is 2 bytes and aligned to 4. .text.other follows it immediately
+# because its alignment is 1. other is one byte into that section, so the
+# displacement from the byte after the BZ field is 1.
+# CHECK: 14010109
+
+	.section .text, "ax", @progbits
+	.globl f
+f:
+	BZ other
+	.section .text.other, "ax", @progbits
+	NOP
+	.globl other
+other:
+	RSR

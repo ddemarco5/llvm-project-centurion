@@ -10,6 +10,6 @@
 ELF_RELOC(R_CPU6_NONE,    0)
 ELF_RELOC(R_CPU6_16,      1)
 ELF_RELOC(R_CPU6_8_PCREL, 2)
-// Little-endian 32-bit absolute. Generic data (.eh_frame and FK_Data_4),
-// not an instruction field.
+// Big-endian 32-bit absolute (S + A). Generic data (.long and FK_Data_4),
+// not an instruction field. The ELF container stays little-endian.
 ELF_RELOC(R_CPU6_32,      3)
