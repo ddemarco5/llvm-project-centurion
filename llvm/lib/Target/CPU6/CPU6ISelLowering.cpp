@@ -154,6 +154,10 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
     // adds. Soft-float counts leading zeros of a word and of a widened
     // integer, so leaving either Legal is a node nothing selects.
     setOperationAction({ISD::CTLZ, ISD::CTTZ, ISD::CTPOP}, VT, Expand);
+    // bswap of i16 stays legal: the pattern exchanges the byte halves.
+    // Expanding it produces a rotl by 8, and that rotate is also legal with
+    // nothing to select it. The combiner turns (x << 8) | (x >> 8) into this
+    // node, so an unmatched bswap is a compile error for that source too.
   }
   // A variable shift of an i32 or i64 is custom-lowered while the value is
   // still wide (ReplaceNodeResults), into one N-word loop. A constant still

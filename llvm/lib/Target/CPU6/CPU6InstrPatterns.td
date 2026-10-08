@@ -355,6 +355,18 @@ def : Pat<(i16 (zext GPRB:$src)), (ANDimm ByteInWord, 255)>;
 def : Pat<(sext_inreg GPR:$src, i8), (SRR (SLR GPR:$src, 7), 7)>;
 def : Pat<(i16 (sext GPRB:$src)), (SRR (SLR ByteInWord, 7), 7)>;
 
+// bswap of a word exchanges the two byte halves. RLR and RRR rotate through
+// Link, so a count of 8 is a 17-bit rotate and not this. The halves are
+// already byte registers, and XFRB copies any one to any other. An i32 or
+// wider bswap is split by the type legalizer into these, with the halves
+// swapped. The combiner also rewrites (x << 8) | (x >> 8) into this node
+// while it is legal, so it has to select. The i8 casts are what give the
+// extracts a type: without them TableGen drops the pattern.
+def : Pat<(bswap GPR:$src),
+          (REG_SEQUENCE GPR,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_lo)), sub_hi,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_hi)), sub_lo)>;
+
 //===----------------------------------------------------------------------===//
 // Word arithmetic
 //===----------------------------------------------------------------------===//
