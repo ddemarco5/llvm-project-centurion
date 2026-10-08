@@ -34,6 +34,13 @@ void CPU6InstPrinter::printRegName(raw_ostream &O, MCRegister Reg) {
   O << getRegisterName(Reg);
 }
 
+void CPU6InstPrinter::printOperand(const MCInst *MI, uint64_t Address,
+                                   unsigned OpNo, const MCSubtargetInfo &STI,
+                                   raw_ostream &O) {
+  (void)Address;
+  printOperand(MI, OpNo, STI, O);
+}
+
 void CPU6InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                    const MCSubtargetInfo &STI,
                                    raw_ostream &O) {

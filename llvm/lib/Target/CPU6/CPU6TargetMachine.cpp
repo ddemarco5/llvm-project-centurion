@@ -38,6 +38,11 @@ CPU6TargetMachine::CPU6TargetMachine(const Target &T, const Triple &TT,
       Subtarget(TT, CPU, FS, *this) {
   (void)JIT;
   initAsmInfo();
+  // JSR is 3 bytes and RSR is 1. Outlining wins on size and loses a call,
+  // so the default is minsize functions. -enable-machine-outliner=always
+  // still outlines every function.
+  setMachineOutliner(true);
+  setSupportsDefaultOutlining(true);
 }
 
 namespace {

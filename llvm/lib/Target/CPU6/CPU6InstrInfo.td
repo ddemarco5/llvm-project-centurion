@@ -58,7 +58,8 @@ def simm16 : Operand<i16> {
 // A branch target or other PC-relative byte. A symbol is fixup_cpu6_pcrel_8:
 // the displacement is from the next instruction. The field is the last byte
 // of the instruction, which is true of every 2-byte branch and (PC)+b form.
-// OtherVT lets selection put a basic block here.
+// OtherVT lets selection put a basic block here. OPERAND_PCREL tells the
+// machine outliner the displacement does not survive being moved.
 def BRTargetAsmOperand : AsmOperandClass {
     let Name = "BRTarget";
     let RenderMethod = "addImmOperands";
@@ -68,6 +69,7 @@ def brtarget : Operand<OtherVT> {
     let ParserMatchClass = BRTargetAsmOperand;
     let EncoderMethod = "getPCRel8OpValue";
     let DecoderMethod = "decodeSImmOperand<8>";
+    let OperandType = "OPERAND_PCREL";
 }
 // (PC)+b accepts the same signed range and also the unsigned byte the
 // numeric tests already use (LDA (PC),205 is the bit pattern of -51).
@@ -81,6 +83,7 @@ def pcoff8 : Operand<OtherVT> {
     let ParserMatchClass = PCOff8AsmOperand;
     let EncoderMethod = "getPCRel8OpValue";
     let DecoderMethod = "decodeUImmOperand<8>";
+    let OperandType = "OPERAND_PCREL";
 }
 // Trailing big-endian address or address immediate. A symbol is
 // fixup_cpu6_abs_16. The encoder places that fixup at Size-2, so this

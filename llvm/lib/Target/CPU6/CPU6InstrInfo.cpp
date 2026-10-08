@@ -10,10 +10,12 @@
 #include "CPU6Subtarget.h"
 #include "MCTargetDesc/CPU6MCTargetDesc.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -505,6 +507,177 @@ bool CPU6InstrInfo::isReMaterializableImpl(const MachineInstr &MI) const {
     return true;
   }
   return TargetInstrInfo::isReMaterializableImpl(MI);
+}
+
+// A call outline is a 3-byte JSR plus a 1-byte RSR in the outlined body.
+// A tail outline is a 3-byte JMP and no extra RSR: the sequence already
+// returns, and JMP does not push, so that return still sees the caller's
+// X and S.
+namespace {
+enum OutlinerKind : unsigned { OutlinerTail = 0, OutlinerCall = 1 };
+} // namespace
+
+static bool isOutlinerTail(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  case CPU6::RSR:
+  case CPU6::TAILJMP:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// JSR pushes X and sets X to the return PC. The callee's RSR puts both back,
+// so from the caller X and S are unchanged and a register sequence plus JSR
+// can be a call outline. Inside the outlined function S is 2 bytes lower and
+// X holds the new return PC, so any other read or write of X or S sees the
+// wrong register. Call lowering also leaves an implicit def of S on JSR,
+// from the glued call-frame pseudo; that def is the restored S, not a new
+// value. An explicit X or S (JSR (X), JSR (S)) is the caller's value, which
+// the push has overwritten.
+static bool callOutlineUsesXOrS(const MachineInstr &MI,
+                                const TargetRegisterInfo &TRI) {
+  if (MI.isMetaInstruction())
+    return false;
+
+  auto Overlaps = [&](Register Reg) {
+    return Reg && (TRI.regsOverlap(Reg, CPU6::rX) ||
+                   TRI.regsOverlap(Reg, CPU6::rS));
+  };
+
+  if (MI.isCall()) {
+    for (const MachineOperand &MO : MI.operands()) {
+      if (!MO.isReg() || !MO.getReg())
+        continue;
+      if (MO.isImplicit() && TRI.regsOverlap(MO.getReg(), CPU6::rS))
+        continue;
+      if (Overlaps(MO.getReg()))
+        return true;
+    }
+    return false;
+  }
+
+  for (const MachineOperand &MO : MI.operands())
+    if (MO.isReg() && Overlaps(MO.getReg()))
+      return true;
+  return false;
+}
+
+bool CPU6InstrInfo::isFunctionSafeToOutlineFrom(
+    MachineFunction &MF, bool OutlineFromLinkOnceODRs) const {
+  const Function &F = MF.getFunction();
+  // The linker may merge linkonce_odr copies. Outlining from one of them
+  // leaves the others with the original sequence.
+  if (!OutlineFromLinkOnceODRs && F.hasLinkOnceODRLinkage())
+    return false;
+  // A named section is a promise that the function's bytes live there.
+  if (F.hasSection())
+    return false;
+  return true;
+}
+
+bool CPU6InstrInfo::shouldOutlineFromFunctionByDefault(
+    MachineFunction &MF) const {
+  return MF.getFunction().hasMinSize();
+}
+
+std::optional<std::unique_ptr<outliner::OutlinedFunction>>
+CPU6InstrInfo::getOutliningCandidateInfo(
+    const MachineModuleInfo &,
+    std::vector<outliner::Candidate> &RepeatedSequenceLocs,
+    unsigned MinRepeats) const {
+  // Epilogues need X and S. Anything else that reads or writes them is not
+  // a call outline: the outlined body would see S two bytes lower.
+  llvm::erase_if(RepeatedSequenceLocs, [&](outliner::Candidate &C) {
+    if (isOutlinerTail(C.back()))
+      return false;
+    for (MachineInstr &MI : C)
+      if (callOutlineUsesXOrS(MI, RI))
+        return true;
+    return false;
+  });
+
+  if (RepeatedSequenceLocs.size() < MinRepeats)
+    return std::nullopt;
+
+  outliner::Candidate &Front = RepeatedSequenceLocs.front();
+  unsigned CallOverhead;
+  unsigned FrameOverhead;
+  unsigned Kind;
+  if (isOutlinerTail(Front.back())) {
+    Kind = OutlinerTail;
+    CallOverhead = 3;
+    FrameOverhead = 0;
+  } else {
+    Kind = OutlinerCall;
+    CallOverhead = 3;
+    FrameOverhead = 1;
+  }
+
+  for (outliner::Candidate &C : RepeatedSequenceLocs)
+    C.setCallInfo(Kind, CallOverhead);
+
+  unsigned SequenceSize = 0;
+  for (MachineInstr &MI : Front)
+    SequenceSize += getInstSizeInBytes(MI);
+
+  return std::make_unique<outliner::OutlinedFunction>(
+      RepeatedSequenceLocs, SequenceSize, FrameOverhead, Kind);
+}
+
+outliner::InstrType CPU6InstrInfo::getOutliningTypeImpl(
+    const MachineModuleInfo &, MachineBasicBlock::iterator &MBBI,
+    unsigned) const {
+  MachineInstr &MI = *MBBI;
+  switch (MI.getOpcode()) {
+  case CPU6::RSR:
+  case CPU6::TAILJMP:
+    // Legal only as the last instruction. The copy is the outlined exit.
+    return outliner::InstrType::LegalTerminator;
+  case CPU6::PCX:
+  case CPU6::RI:
+  case CPU6::RIM:
+  case CPU6::RSV:
+  case CPU6::HLT:
+  case CPU6::EI:
+  case CPU6::DI:
+  case CPU6::SVC:
+    return outliner::InstrType::Illegal;
+  default:
+    break;
+  }
+
+  // (PC)+b and a short branch. The byte is a displacement from the next
+  // instruction, so the encoding is wrong in another function.
+  const MCInstrDesc &Desc = MI.getDesc();
+  for (unsigned I = 0, E = Desc.getNumOperands(); I != E; ++I)
+    if (Desc.operands()[I].OperandType == MCOI::OPERAND_PCREL)
+      return outliner::InstrType::Illegal;
+
+  return outliner::InstrType::Legal;
+}
+
+void CPU6InstrInfo::buildOutlinedFrame(
+    MachineBasicBlock &MBB, MachineFunction &MF,
+    const outliner::OutlinedFunction &OF) const {
+  if (OF.FrameConstructionID == OutlinerTail)
+    return;
+
+  // The outlining JSR left the return PC in X. The pass already unioned the
+  // live-ins of the outline points; X is live here even when the sequence
+  // itself never reads it.
+  MBB.addLiveIn(CPU6::rX);
+  BuildMI(MBB, MBB.end(), DebugLoc(), get(CPU6::RSR));
+}
+
+MachineBasicBlock::iterator CPU6InstrInfo::insertOutlinedCall(
+    Module &M, MachineBasicBlock &MBB, MachineBasicBlock::iterator &It,
+    MachineFunction &MF, outliner::Candidate &C) const {
+  unsigned Opc =
+      C.CallConstructionID == OutlinerTail ? CPU6::JMP_1 : CPU6::JSR_1;
+  It = MBB.insert(It, BuildMI(MF, DebugLoc(), get(Opc))
+                          .addGlobalAddress(M.getNamedValue(MF.getName())));
+  return It;
 }
 
 unsigned CPU6InstrInfo::getOppositeBranch(unsigned Opc) {
