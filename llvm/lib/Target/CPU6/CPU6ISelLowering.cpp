@@ -154,10 +154,12 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
     // adds. Soft-float counts leading zeros of a word and of a widened
     // integer, so leaving either Legal is a node nothing selects.
     setOperationAction({ISD::CTLZ, ISD::CTTZ, ISD::CTPOP}, VT, Expand);
+    // No bit-reverse opcode. The expansion is shifts and ors.
+    setOperationAction(ISD::BITREVERSE, VT, Expand);
     // bswap of i16 stays legal: the pattern exchanges the byte halves.
-    // Expanding it produces a rotl by 8, and that rotate is also legal with
-    // nothing to select it. The combiner turns (x << 8) | (x >> 8) into this
-    // node, so an unmatched bswap is a compile error for that source too.
+    // rotl and rotr by 8 select as that same exchange. Expanding bswap
+    // would build a rotl by 8, and the combiner turns (x << 8) | (x >> 8)
+    // into bswap while this node is legal.
   }
   // A variable shift of an i32 or i64 is custom-lowered while the value is
   // still wide (ReplaceNodeResults), into one N-word loop. A constant still
@@ -177,6 +179,8 @@ CPU6TargetLowering::CPU6TargetLowering(const TargetMachine &TM,
                      Custom);
   setOperationAction(ISD::BRCOND, MVT::Other, Expand);
   // Nothing selects a jump table, so a switch is a tree of compares.
+  // Expand is the backstop if one is formed anyway.
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
   setMinimumJumpTableEntries(UINT_MAX);
   // S is the stack pointer the prologue adjusts. Callee-saved spills go
   // through it via STK and POP.
@@ -1790,6 +1794,11 @@ CPU6TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case CPU6::WSHIFT4:
   case CPU6::WSHIFT8:
     return EmitWideShift(MI, BB);
+  case CPU6::ROTLrr:
+  case CPU6::ROTRrr:
+  case CPU6::ROTLbr:
+  case CPU6::ROTRbr:
+    return EmitRotate(MI, BB);
   default:
     return EmitShift(MI, BB);
   }
@@ -2684,6 +2693,98 @@ CPU6TargetLowering::EmitWideShift(MachineInstr &MI,
 
   MI.eraseFromParent();
   return Exit;
+}
+
+// A variable rotate. RLR and RRR rotate through Link, so a bare rotate is not
+// rotl or rotr. Each step first shifts a copy: SLR plants the high bit in
+// Link, SRR the low bit. The following one-bit RLR or RRR then wraps that
+// bit to the other end. RL would clear Link and turn the rotate into a shift.
+MachineBasicBlock *
+CPU6TargetLowering::EmitRotate(MachineInstr &MI, MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+  const TargetInstrInfo &TII = *MF->getSubtarget().getInstrInfo();
+  const DebugLoc &DL = MI.getDebugLoc();
+  Register Dst = MI.getOperand(0).getReg();
+  Register Src = MI.getOperand(1).getReg();
+  Register Cnt = MI.getOperand(2).getReg();
+
+  bool Byte = false;
+  unsigned PlantOpc = 0;
+  unsigned RotOpc = 0;
+  switch (MI.getOpcode()) {
+  case CPU6::ROTLrr:
+    PlantOpc = CPU6::SLR;
+    RotOpc = CPU6::RLR;
+    break;
+  case CPU6::ROTRrr:
+    PlantOpc = CPU6::SRR;
+    RotOpc = CPU6::RRR;
+    break;
+  case CPU6::ROTLbr:
+    PlantOpc = CPU6::SLRB;
+    RotOpc = CPU6::RLRB;
+    Byte = true;
+    break;
+  case CPU6::ROTRbr:
+    PlantOpc = CPU6::SRRB;
+    RotOpc = CPU6::RRRB;
+    Byte = true;
+    break;
+  default:
+    llvm_unreachable("not a CPU6 rotate pseudo");
+  }
+
+  const TargetRegisterClass *ValRC =
+      Byte ? &CPU6::GPRBRegClass : &CPU6::GPRRegClass;
+  Register ValPhi = MRI.createVirtualRegister(ValRC);
+  Register CntPhi = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  Register CntDec = MRI.createVirtualRegister(&CPU6::GPRRegClass);
+  Register ValNext = MRI.createVirtualRegister(ValRC);
+  Register Planted = MRI.createVirtualRegister(ValRC);
+
+  MachineFunction::iterator It = std::next(BB->getIterator());
+  MachineBasicBlock *Loop = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *Rem = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, Loop);
+  MF->insert(It, Rem);
+  Rem->splice(Rem->begin(), BB, std::next(MI.getIterator()), BB->end());
+  Rem->transferSuccessorsAndUpdatePHIs(BB);
+  BB->addSuccessor(Loop);
+  BB->addSuccessor(Rem);
+  Loop->addSuccessor(Loop);
+  Loop->addSuccessor(Rem);
+
+  BuildMI(BB, DL, TII.get(CPU6::TST)).addReg(Cnt);
+  BuildMI(BB, DL, TII.get(CPU6::BZ)).addMBB(Rem);
+
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), ValPhi)
+      .addReg(Src)
+      .addMBB(BB)
+      .addReg(ValNext)
+      .addMBB(Loop);
+  BuildMI(Loop, DL, TII.get(TargetOpcode::PHI), CntPhi)
+      .addReg(Cnt)
+      .addMBB(BB)
+      .addReg(CntDec)
+      .addMBB(Loop);
+
+  // Plant Link from the bit that wraps, then rotate that Link in. DCR
+  // replaces Link, so it stays after the rotate.
+  BuildMI(Loop, DL, TII.get(PlantOpc), Planted).addReg(ValPhi).addImm(0);
+  BuildMI(Loop, DL, TII.get(RotOpc), ValNext).addReg(ValPhi).addImm(0);
+
+  BuildMI(Loop, DL, TII.get(CPU6::DCR), CntDec).addReg(CntPhi).addImm(0);
+  BuildMI(Loop, DL, TII.get(CPU6::TST)).addReg(CntDec);
+  BuildMI(Loop, DL, TII.get(CPU6::BNZ)).addMBB(Loop);
+
+  BuildMI(*Rem, Rem->begin(), DL, TII.get(TargetOpcode::PHI), Dst)
+      .addReg(Src)
+      .addMBB(BB)
+      .addReg(ValNext)
+      .addMBB(Loop);
+  MI.eraseFromParent();
+  return Rem;
 }
 
 // A variable shift. The count is a nibble in the instruction, so SLR, SRR,

@@ -1380,6 +1380,21 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::UnknownOS, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("cpu6");
+  EXPECT_EQ(Triple::cpu6, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::UnknownOS, T.getOS());
+  EXPECT_FALSE(T.isLittleEndian());
+  EXPECT_TRUE(T.isArch16Bit());
+  EXPECT_FALSE(T.isArch32Bit());
+  EXPECT_FALSE(T.isArch64Bit());
+  EXPECT_EQ(16u, T.getArchPointerBitWidth());
+  EXPECT_EQ(Triple::ELF, T.getObjectFormat());
+  EXPECT_EQ(Triple::UnknownArch, T.get32BitArchVariant().getArch());
+  EXPECT_EQ(Triple::UnknownArch, T.get64BitArchVariant().getArch());
+  EXPECT_EQ(ExceptionHandling::None, T.getDefaultExceptionHandling());
+  EXPECT_EQ("cpu6", Triple::getArchTypePrefix(Triple::cpu6));
+
   T = Triple("arm-unknown-linux-ohos");
   EXPECT_EQ(Triple::arm, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());

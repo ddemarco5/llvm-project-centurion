@@ -68,6 +68,7 @@ AMDGPUExecutionSynchronization
 AMDGPUMemoryModel
 SPIRVUsage
 DirectXUsage
+CPU6Usage
 RISCVUsage
 RISCV/RISCVVectorExtension
 RISCV/RISCVVCIX
@@ -375,6 +376,10 @@ yaml2obj
 
   This document describes using the DirectX target to compile GPU code for the
   DirectX runtime.
+
+- {doc}`CPU6Usage`
+
+  This document describes using the CPU6 target.
 
 - {doc}`RISCVUsage`
 

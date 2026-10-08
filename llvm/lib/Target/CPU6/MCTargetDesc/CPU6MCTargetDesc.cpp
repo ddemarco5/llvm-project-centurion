@@ -44,8 +44,17 @@ static MCRegisterInfo *createCPU6MCRegisterInfo(const Triple &TT) {
   return X;
 }
 
+// CPU6Devices.td names the only processor "CPU6". Clang and llc also accept
+// "cpu6", and an empty CPU is that default.
+static StringRef getCPU6ProcessorName(StringRef CPU) {
+  if (CPU.empty() || CPU.equals_insensitive("cpu6"))
+    return "CPU6";
+  return CPU;
+}
+
 static MCSubtargetInfo *createCPU6MCSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS) {
-  return createCPU6MCSubtargetInfoImpl(TT, CPU, CPU, FS);
+  StringRef CPUName = getCPU6ProcessorName(CPU);
+  return createCPU6MCSubtargetInfoImpl(TT, CPUName, CPUName, FS);
 }
 
 static MCAsmInfo *createCPU6MCAsmInfo(const MCRegisterInfo &MRI,

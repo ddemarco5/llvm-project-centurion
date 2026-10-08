@@ -205,6 +205,19 @@ def srl_mask8 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((1u << (8 - N->getZExtValue())) - 1,
                                    SDLoc(N), MVT::i16);
 }]>;
+// The other half of a rotate. A word rotate by n shifts the other way by
+// 16 - n, and that count nibble is 15 - n. A byte rotate uses 7 - n.
+// The bits an arithmetic shift sign-fills on a rotl are the low n bits.
+def rot16_other_count : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(15 - N->getZExtValue(), SDLoc(N), MVT::i8);
+}]>;
+def rot8_other_count : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(7 - N->getZExtValue(), SDLoc(N), MVT::i8);
+}]>;
+def rot_low_mask : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant((1u << N->getZExtValue()) - 1, SDLoc(N),
+                                   MVT::i16);
+}]>;
 
 // An i8 literal as the i16 operand of a word instruction. Only the low byte
 // of the result is used. getTargetConstant takes a uint64_t and builds an
@@ -449,6 +462,29 @@ def : Pat<(sra GPR:$r, shamt16_1to15:$n), (SRR GPR:$r, (count_minus1 $n))>;
 // the shifted-out bits back through Link.
 def : Pat<(srl GPR:$r, shamt16_1to15:$n),
           (ANDimm (SRR GPR:$r, (count_minus1 $n)), (srl_mask16 $n))>;
+// RLR and RRR rotate through Link, so they are not rotl or rotr. The other
+// distance is 16 - n. SLR shifts zeros in. SRR sign-fills, and the mask
+// keeps the bits that wrapped. A rotate by 8 is the byte exchange below.
+def : Pat<(rotl GPR:$r, shamt16_1to15:$n),
+          (ORI (SLR GPR:$r, (count_minus1 $n)),
+               (ANDimm (SRR GPR:$r, (rot16_other_count $n)),
+                       (rot_low_mask $n)))>;
+def : Pat<(rotr GPR:$r, shamt16_1to15:$n),
+          (ORI (ANDimm (SRR GPR:$r, (count_minus1 $n)), (srl_mask16 $n)),
+               (SLR GPR:$r, (rot16_other_count $n)))>;
+}
+
+// rotl and rotr by 8 are a byte exchange, the same node as bswap. This has
+// to beat the shift-or above, which also matches a count of 8.
+let AddedComplexity = 16 in {
+def : Pat<(rotl GPR:$src, (i16 8)),
+          (REG_SEQUENCE GPR,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_lo)), sub_hi,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_hi)), sub_lo)>;
+def : Pat<(rotr GPR:$src, (i16 8)),
+          (REG_SEQUENCE GPR,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_lo)), sub_hi,
+                        (i8 (EXTRACT_SUBREG GPR:$src, sub_hi)), sub_lo)>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -494,6 +530,26 @@ def : Pat<(srl GPRB:$r, shamt8_1to7:$n),
                                     (i8 (IMPLICIT_DEF)), sub_hi),
                       (srl_mask8 $n)),
               sub_lo)>;
+// Same shift-or as a word, on the byte. The mask is applied to the word
+// that holds the arithmetic shift, and the extract keeps that byte.
+def : Pat<(rotl GPRB:$r, shamt8_1to7:$n),
+          (ORIB (SLRB GPRB:$r, (count_minus1 $n)),
+                (EXTRACT_SUBREG
+                    (ANDimm (REG_SEQUENCE GPR,
+                                          (SRRB GPRB:$r, (rot8_other_count $n)),
+                                          sub_lo,
+                                          (i8 (IMPLICIT_DEF)), sub_hi),
+                            (rot_low_mask $n)),
+                    sub_lo))>;
+def : Pat<(rotr GPRB:$r, shamt8_1to7:$n),
+          (ORIB (EXTRACT_SUBREG
+                     (ANDimm (REG_SEQUENCE GPR,
+                                           (SRRB GPRB:$r, (count_minus1 $n)),
+                                           sub_lo,
+                                           (i8 (IMPLICIT_DEF)), sub_hi),
+                             (srl_mask8 $n)),
+                     sub_lo),
+                (SLRB GPRB:$r, (rot8_other_count $n)))>;
 }
 
 // A variable count cannot use the nibble above. EmitShift replaces the pseudo
@@ -514,6 +570,14 @@ def SRAbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
                           "#SRAbr", "$dst,$src,$cnt">;
 def SRLbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
                           "#SRLbr", "$dst,$src,$cnt">;
+def ROTLrr : CenturionInst<(outs GPR:$dst), (ins GPR:$src, GPR:$cnt),
+                           "#ROTLrr", "$dst,$src,$cnt">;
+def ROTRrr : CenturionInst<(outs GPR:$dst), (ins GPR:$src, GPR:$cnt),
+                           "#ROTRrr", "$dst,$src,$cnt">;
+def ROTLbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
+                           "#ROTLbr", "$dst,$src,$cnt">;
+def ROTRbr : CenturionInst<(outs GPRB:$dst), (ins GPRB:$src, GPR:$cnt),
+                           "#ROTRbr", "$dst,$src,$cnt">;
 }
 def : Pat<(shl GPR:$src, GPR:$cnt), (SHLrr GPR:$src, GPR:$cnt)>;
 def : Pat<(sra GPR:$src, GPR:$cnt), (SRArr GPR:$src, GPR:$cnt)>;
@@ -521,6 +585,10 @@ def : Pat<(srl GPR:$src, GPR:$cnt), (SRLrr GPR:$src, GPR:$cnt)>;
 def : Pat<(shl GPRB:$src, GPR:$cnt), (SHLbr GPRB:$src, GPR:$cnt)>;
 def : Pat<(sra GPRB:$src, GPR:$cnt), (SRAbr GPRB:$src, GPR:$cnt)>;
 def : Pat<(srl GPRB:$src, GPR:$cnt), (SRLbr GPRB:$src, GPR:$cnt)>;
+def : Pat<(rotl GPR:$src, GPR:$cnt), (ROTLrr GPR:$src, GPR:$cnt)>;
+def : Pat<(rotr GPR:$src, GPR:$cnt), (ROTRrr GPR:$src, GPR:$cnt)>;
+def : Pat<(rotl GPRB:$src, GPR:$cnt), (ROTLbr GPRB:$src, GPR:$cnt)>;
+def : Pat<(rotr GPRB:$src, GPR:$cnt), (ROTRbr GPRB:$src, GPR:$cnt)>;
 
 // Variable shift of a value wider than a word. Words are low to high.
 // $k is 0 for left, 1 for logical right, 2 for arithmetic right.

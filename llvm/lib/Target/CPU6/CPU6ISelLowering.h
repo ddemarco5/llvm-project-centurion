@@ -227,6 +227,9 @@ private:
   MachineBasicBlock *EmitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitStepCC(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitShift(MachineInstr &MI, MachineBasicBlock *BB) const;
+  // Variable rotl/rotr. Each step plants the bit that should wrap into
+  // Link, then rotates through that Link. RL plus RRR would shift in a zero.
+  MachineBasicBlock *EmitRotate(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulhu(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitMulLow(MachineInstr &MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitDiv(MachineInstr &MI, MachineBasicBlock *BB) const;

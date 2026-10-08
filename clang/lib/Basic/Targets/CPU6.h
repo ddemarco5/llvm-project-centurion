@@ -86,6 +86,18 @@ public:
     return Feature == "cpu6";
   }
 
+  // The only processor in CPU6Devices.td. An empty -mcpu is that default.
+  // The driver maps "cpu6" to the "CPU6" name the backend looks up.
+  bool isValidCPUName(StringRef Name) const override {
+    return Name.empty() || Name.equals_insensitive("cpu6");
+  }
+
+  void fillValidCPUList(SmallVectorImpl<StringRef> &Values) const override {
+    Values.push_back("CPU6");
+  }
+
+  bool setCPU(StringRef Name) override { return isValidCPUName(Name); }
+
   ArrayRef<const char *> getGCCRegNames() const override;
 
   ArrayRef<TargetInfo::GCCRegAlias> getGCCRegAliases() const override {

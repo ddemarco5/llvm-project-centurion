@@ -840,6 +840,16 @@ std::string tools::getCPUName(const Driver &D, const ArgList &Args,
     if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
       return A->getValue();
     return "";
+
+  case llvm::Triple::cpu6:
+    if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
+      StringRef Name = A->getValue();
+      // CPU6Devices.td names the only processor "CPU6".
+      if (Name.equals_insensitive("cpu6"))
+        return "CPU6";
+      return std::string(Name);
+    }
+    return "";
   }
 }
 

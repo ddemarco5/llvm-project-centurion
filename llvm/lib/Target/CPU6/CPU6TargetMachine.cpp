@@ -56,6 +56,7 @@ public:
     return getTM<CPU6TargetMachine>();
   }
 
+  void addIRPasses() override;
   bool addInstSelector() override;
   void addPreEmitPass() override { addPass(&BranchRelaxationPassID); }
 };
@@ -70,6 +71,12 @@ MachineFunctionInfo *CPU6TargetMachine::createMachineFunctionInfo(
     BumpPtrAllocator &Allocator, const Function &F,
     const TargetSubtargetInfo *STI) const {
   return CPU6FunctionInfo::create<CPU6FunctionInfo>(Allocator, F, STI);
+}
+
+void CPU6PassConfig::addIRPasses() {
+  // Same libcall expansion as CPU6CodeGenPassBuilder::addIRPasses.
+  addPass(createAtomicExpandLegacyPass());
+  TargetPassConfig::addIRPasses();
 }
 
 bool CPU6PassConfig::addInstSelector() {

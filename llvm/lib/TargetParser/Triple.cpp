@@ -417,6 +417,9 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
 
   case xtensa:
     return "xtensa";
+
+  case cpu6:
+    return "cpu6";
   }
 }
 

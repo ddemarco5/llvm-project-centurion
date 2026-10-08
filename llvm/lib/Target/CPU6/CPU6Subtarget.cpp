@@ -18,20 +18,26 @@
 
 using namespace llvm;
 
+// The only processor in CPU6Devices.td is "CPU6". An empty -mcpu, and the
+// "cpu6" spelling Clang accepts, both mean that processor. The base
+// constructor looks the name up before this runs, so it has to see "CPU6".
+static StringRef getCPU6ProcessorName(StringRef CPU) {
+  if (CPU.empty() || CPU.equals_insensitive("cpu6"))
+    return "CPU6";
+  return CPU;
+}
+
 CPU6Subtarget &
 CPU6Subtarget::initializeSubtargetDependencies(StringRef CPU, StringRef FS) {
-  // llc -mtriple=cpu6 with no -mcpu leaves CPU empty. The only processor in
-  // CPU6Devices.td is "CPU6", and that is what turns FeatureCPU6 on.
-  StringRef CPUName = CPU;
-  if (CPUName.empty())
-    CPUName = "CPU6";
+  StringRef CPUName = getCPU6ProcessorName(CPU);
   ParseSubtargetFeatures(CPUName, /*TuneCPU=*/CPUName, FS);
   return *this;
 }
 
 CPU6Subtarget::CPU6Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
                              const TargetMachine &TM)
-    : CPU6GenSubtargetInfo(TT, CPU, /*TuneCPU=*/CPU, FS),
+    : CPU6GenSubtargetInfo(TT, getCPU6ProcessorName(CPU),
+                           /*TuneCPU=*/getCPU6ProcessorName(CPU), FS),
       InstrInfo(initializeSubtargetDependencies(CPU, FS)), FrameLowering(),
       TLInfo(TM, *this) {}
 

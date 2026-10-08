@@ -14,6 +14,7 @@
 #include "CPU6.h"
 #include "CPU6AsmPrinter.h"
 #include "CPU6TargetMachine.h"
+#include "llvm/CodeGen/AtomicExpand.h"
 #include "llvm/CodeGen/BranchRelaxation.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Passes/CodeGenPassBuilder.h"
@@ -26,18 +27,29 @@ namespace {
 
 class CPU6CodeGenPassBuilder
     : public CodeGenPassBuilder<CPU6CodeGenPassBuilder, CPU6TargetMachine> {
+  using Base =
+      CodeGenPassBuilder<CPU6CodeGenPassBuilder, CPU6TargetMachine>;
+
 public:
   explicit CPU6CodeGenPassBuilder(CPU6TargetMachine &TM,
                                   const CGPassBuilderOption &Opts,
                                   PassInstrumentationCallbacks *PIC)
       : CodeGenPassBuilder(TM, Opts, PIC) {}
 
+  void addIRPasses(PassManagerWrapper &PMW) const;
   Error addInstSelector(PassManagerWrapper &PMW) const;
   void addPreEmitPass(PassManagerWrapper &PMW) const;
   void addAsmPrinterBegin(PassManagerWrapper &PMW) const;
   void addAsmPrinter(PassManagerWrapper &PMW) const;
   void addAsmPrinterEnd(PassManagerWrapper &PMW) const;
 };
+
+// No atomic instruction is legal (max size 0). This pass turns every atomic
+// into an __atomic_* libcall before instruction selection sees it.
+void CPU6CodeGenPassBuilder::addIRPasses(PassManagerWrapper &PMW) const {
+  addFunctionPass(AtomicExpandPass(TM), PMW);
+  Base::addIRPasses(PMW);
+}
 
 Error CPU6CodeGenPassBuilder::addInstSelector(PassManagerWrapper &PMW) const {
   addMachineFunctionPass(CPU6ISelDAGToDAGPass(TM, getOptLevel()), PMW);
