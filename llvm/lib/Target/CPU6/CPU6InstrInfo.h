@@ -91,6 +91,8 @@ public:
 
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
+  bool isReMaterializableImpl(const MachineInstr &MI) const override;
+
   bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,

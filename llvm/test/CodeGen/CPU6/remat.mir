@@ -1,0 +1,63 @@
+# XFRimm is rematerializable when Minus and Value are dead. The constant is
+# live across an ADD that already needs both allocatable registers, so keeping
+# it would spill. A dead flag def is rematerialized at the use. A live flag
+# def is spilled and reloaded with XFR (S).
+#
+# ADD ties its result to the second source. The constant is the first source,
+# which the spiller is allowed to rematerialize.
+#
+# RUN: llc -mtriple=cpu6 -run-pass=greedy,virtregrewriter -stress-regalloc=2 \
+# RUN:   -verify-machineinstrs -o - %s | FileCheck %s
+
+# CHECK-LABEL: name: dead
+# CHECK-NOT: STRidx
+# CHECK-NOT: XFRidx
+# CHECK: XFRimm 4660, implicit-def dead $rm, implicit-def dead $rv
+# CHECK-NOT: STRidx
+# CHECK-NOT: XFRidx
+# CHECK: RSR
+
+# CHECK-LABEL: name: live
+# CHECK: XFRimm 4660, implicit-def $rm, implicit-def $rv
+# CHECK: STRidx {{.*}} :: (store (s16) into %stack.0
+# CHECK: XFRidx {{.*}} :: (load (s16) from %stack.0
+# CHECK-NOT: XFRimm
+# CHECK: RSR
+
+--- |
+  define i16 @dead() { ret i16 0 }
+  define i16 @live() { ret i16 0 }
+...
+---
+name: dead
+tracksRegLiveness: true
+liveins:
+  - { reg: '$rb' }
+  - { reg: '$rx' }
+body: |
+  bb.0:
+    liveins: $rb, $rx
+    %c:gpr = XFRimm 4660, implicit-def dead $rm, implicit-def dead $rv
+    %a:gpr = COPY $rb
+    %b:gpr = COPY $rx
+    %t:gpr = ADD %a, %b, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+    %out:gpr = ADD %c, %t, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+    $ra = COPY %out
+    RSR implicit $ra
+
+---
+name: live
+tracksRegLiveness: true
+liveins:
+  - { reg: '$rb' }
+  - { reg: '$rx' }
+body: |
+  bb.0:
+    liveins: $rb, $rx
+    %c:gpr = XFRimm 4660, implicit-def $rm, implicit-def $rv
+    %a:gpr = COPY $rb
+    %b:gpr = COPY $rx
+    %t:gpr = ADD %a, %b, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+    %out:gpr = ADD %c, %t, implicit-def dead $rf, implicit-def dead $rl, implicit-def dead $rm, implicit-def dead $rv
+    $ra = COPY %out
+    RSR implicit $ra

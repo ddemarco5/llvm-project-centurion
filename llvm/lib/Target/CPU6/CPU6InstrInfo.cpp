@@ -495,6 +495,18 @@ unsigned CPU6InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   return MI.getDesc().getSize();
 }
 
+bool CPU6InstrInfo::isReMaterializableImpl(const MachineInstr &MI) const {
+  // The generic check rejects every physreg def. XFRimm's only extra defs
+  // are Minus and Value, and a dead one is not a value anyone reads.
+  if (MI.getOpcode() == CPU6::XFRimm) {
+    for (const MachineOperand &MO : MI.implicit_operands())
+      if (MO.isReg() && MO.isDef() && !MO.isDead())
+        return false;
+    return true;
+  }
+  return TargetInstrInfo::isReMaterializableImpl(MI);
+}
+
 unsigned CPU6InstrInfo::getOppositeBranch(unsigned Opc) {
   switch (Opc) {
   case CPU6::BL:

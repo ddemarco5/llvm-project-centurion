@@ -529,10 +529,11 @@ def XFRB: DoubleReg16_B<0x45, "XFRB">;  // Transfer (Byte mode)
 // into both nibbles and sets the source nibble's low bit: `55 98 f2 00`
 // is mov Z, 0xf200. $dst is an output so the assembler and instruction
 // selection share this record. The pattern is in CPU6InstrPatterns.td.
-// Same Minus/Value update as XFR. Not rematerializable: a second copy
-// would clobber flags the first one produced.
+// Same Minus/Value update as XFR. A dead Minus/Value write is not a
+// result, so a second copy is safe and smaller than a spill plus reload.
+// isReMaterializableImpl allows those dead defs; a live one still is not.
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isMoveImm = 1,
-    isAsCheapAsAMove = 1, Defs = [rM, rV] in
+    isAsCheapAsAMove = 1, isReMaterializable = 1, Defs = [rM, rV] in
 class XFRImm32
       : CenturionInst32<(outs GPR:$dst), (ins abs16:$imm),
                         "XFR", "$dst,$imm"> {
