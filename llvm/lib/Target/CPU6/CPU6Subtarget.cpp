@@ -51,9 +51,10 @@ CPU6Subtarget::~CPU6Subtarget() = default;
 //
 // Wide shifts and signed multiply, divide, and remainder are lowered to
 // WSHIFT or 0x46. A libcall for those would be the routine the legalizer is
-// building, or a call whose i64 result the old legalizer could not return.
-// Unsigned divide has no 0x46 opcode (D is signed), so UDIV_I64 and UREM_I64
-// stay libcalls. A double conversion to i64 is not a bignum operation.
+// building. Unsigned divide has no 0x46 opcode (D is signed), so UDIV_I64
+// and UREM_I64 stay libcalls. Float-to-i64 conversions are libcalls too:
+// the four-word result fits in A, B, Y, and Z, and the compiler_rt bodies
+// are integer shifts rather than another fptosi.
 void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
   Info.setLibcallImpl(RTLIB::MEMCPY, RTLIB::impl_memcpy);
   Info.setLibcallImpl(RTLIB::MEMMOVE, RTLIB::impl_memmove);
@@ -63,8 +64,7 @@ void CPU6Subtarget::initLibcallLoweringInfo(LibcallLoweringInfo &Info) const {
        {RTLIB::SHL_I64, RTLIB::SRL_I64, RTLIB::SRA_I64, RTLIB::MUL_I64,
         RTLIB::SDIV_I32, RTLIB::SREM_I32, RTLIB::SDIV_I64, RTLIB::SREM_I64,
         RTLIB::MUL_I128, RTLIB::SDIV_I128, RTLIB::SREM_I128, RTLIB::NEG_I64,
-        RTLIB::MULO_I64, RTLIB::FPTOSINT_F32_I64, RTLIB::FPTOSINT_F64_I64,
-        RTLIB::FPTOUINT_F32_I64, RTLIB::FPTOUINT_F64_I64})
+        RTLIB::MULO_I64})
     Info.setLibcallImpl(LC, RTLIB::Unsupported);
 }
 
