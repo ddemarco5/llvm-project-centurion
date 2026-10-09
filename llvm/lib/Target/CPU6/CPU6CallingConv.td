@@ -43,7 +43,8 @@ def CC_CPU6 : CallingConv<[
 // Where `ret` places its value. A returned byte is promoted to a word.
 // An i16 uses A. Wider values are split into i16 parts before this list is
 // consulted, high half first: an i32 is A:B, an i64 (and a softened f64) is
-// A, B, Y, Z. That is the big-endian order of the data layout.
+// A, B, Y, Z. That is the big-endian order of the data layout. A fifth word
+// makes CanLowerReturn decline, and the value is returned through memory.
 //
 // Y and Z are also callee-saved, below. A function that returns in one of
 // them drops it from its save list, and a call that receives it clears it
